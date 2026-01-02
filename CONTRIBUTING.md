@@ -99,8 +99,7 @@ src/
 └── modules/ (Pure business logic)
     └── extraction/
         ├── classification.py - File type classification
-        ├── extract.py        - Unified extraction orchestrator
-        ├── base.py           - Shared extraction utilities
+        ├── base.py           - Shared extraction utilities (ID generation, deduplication)
         ├── repository.py     - Repository node extraction
         ├── directory.py      - Directory node extraction
         ├── file.py           - File node extraction

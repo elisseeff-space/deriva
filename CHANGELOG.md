@@ -11,14 +11,13 @@ Deriving ArchiMate models from code using LLMs - a journey through architectural
 ### Extraction Module Refactor
 
 - Flattened `modules/extraction/` structure - removed `llm/` and `structural/` subdirs
-- New `extract.py` orchestrator for unified extraction flow
 - Added `common/chunking.py` (395 lines) - file chunking with overlap support
 - New database scripts: `5_chunking_config.sql`, `6_extraction_method.sql`
 
 ### AST Parser Foundation
 
 - Enhanced `adapters/ast/manager.py` - Python AST analysis (classes, functions, imports)
-- Added `tree-sitter>=0.24.6` dependency for future multi-language support
+- Added `tree-sitter` dependency for future multi-language support
 - Updated `adapters/ast/models.py` with improved code element types
 
 ### Code Quality
