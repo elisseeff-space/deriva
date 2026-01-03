@@ -773,6 +773,8 @@ class PipelineSession:
         stages: list[str] | None = None,
         description: str = "",
         verbose: bool = False,
+        use_cache: bool = True,
+        nocache_configs: list[str] | None = None,
     ) -> benchmarking.BenchmarkResult:
         """
         Run a full benchmark matrix.
@@ -784,6 +786,8 @@ class PipelineSession:
             stages: Pipeline stages to run (default: all)
             description: Optional description for the session
             verbose: Print progress
+            use_cache: Enable LLM response caching (default: True)
+            nocache_configs: List of config names to skip cache for (for A/B testing)
 
         Returns:
             BenchmarkResult with session details
@@ -794,6 +798,7 @@ class PipelineSession:
                 models=["azure-gpt4", "openai-gpt4o"],
                 runs=3,
                 stages=["extraction", "derivation"],
+                nocache_configs=["ApplicationComponent"],  # Test new prompt
             )
         """
         self._ensure_connected()
@@ -809,6 +814,8 @@ class PipelineSession:
             runs_per_combination=runs,
             stages=stages or ["classification", "extraction", "derivation"],
             description=description,
+            use_cache=use_cache,
+            nocache_configs=nocache_configs or [],
         )
 
         orchestrator = benchmarking.BenchmarkOrchestrator(
@@ -839,6 +846,28 @@ class PipelineSession:
         assert self._engine is not None
 
         return benchmarking.BenchmarkAnalyzer(session_id, self._engine)
+
+    def analyze_config_deviations(self, session_id: str) -> Any:
+        """
+        Analyze which configs produce deviations across benchmark runs.
+
+        Args:
+            session_id: Benchmark session ID to analyze
+
+        Returns:
+            ConfigDeviationAnalyzer instance for computing per-config deviation stats
+
+        Example:
+            analyzer = session.analyze_config_deviations("bench_20240115_103000")
+            report = analyzer.analyze()
+            analyzer.export_json("deviations.json")
+        """
+        self._ensure_connected()
+        assert self._engine is not None
+
+        from deriva.services import config_deviation
+
+        return config_deviation.ConfigDeviationAnalyzer(session_id, self._engine)
 
     def list_benchmarks(self, limit: int = 10) -> list[dict]:
         """

@@ -585,9 +585,12 @@ def cmd_benchmark_run(args: argparse.Namespace) -> int:
     stages = [s.strip() for s in args.stages.split(",")] if args.stages else None
     description = getattr(args, "description", "")
     verbose = getattr(args, "verbose", False)
+    use_cache = not getattr(args, "no_cache", False)
+    nocache_configs_str = getattr(args, "nocache_configs", None)
+    nocache_configs = [c.strip() for c in nocache_configs_str.split(",")] if nocache_configs_str else None
 
     print(f"\n{'=' * 60}")
-    print("DERIVA- Multi-Model Benchmark")
+    print("DERIVA - Multi-Model Benchmark")
     print(f"{'=' * 60}")
     print(f"Repositories: {repos}")
     print(f"Models: {models}")
@@ -595,6 +598,9 @@ def cmd_benchmark_run(args: argparse.Namespace) -> int:
     print(f"Total runs: {len(repos) * len(models) * runs}")
     if stages:
         print(f"Stages: {stages}")
+    print(f"Cache: {'enabled' if use_cache else 'disabled'}")
+    if nocache_configs:
+        print(f"No-cache configs: {nocache_configs}")
     print(f"{'=' * 60}\n")
 
     with PipelineSession() as session:
@@ -607,6 +613,8 @@ def cmd_benchmark_run(args: argparse.Namespace) -> int:
             stages=stages,
             description=description,
             verbose=verbose,
+            use_cache=use_cache,
+            nocache_configs=nocache_configs,
         )
 
         print(f"\n{'=' * 60}")
@@ -748,6 +756,65 @@ def cmd_benchmark_models(args: argparse.Namespace) -> int:
         if cfg.api_url:
             print(f"    URL: {cfg.api_url[:50]}...")
         print()
+
+    return 0
+
+
+def cmd_benchmark_deviations(args: argparse.Namespace) -> int:
+    """Analyze config deviations for a benchmark session."""
+    session_id = args.session_id
+    output = getattr(args, "output", None)
+    sort_by = getattr(args, "sort_by", "deviation_count")
+
+    print(f"\n{'=' * 60}")
+    print(f"CONFIG DEVIATION ANALYSIS: {session_id}")
+    print(f"{'=' * 60}\n")
+
+    with PipelineSession() as session:
+        try:
+            analyzer = session.analyze_config_deviations(session_id)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return 1
+
+        # Run analysis
+        report = analyzer.analyze()
+
+        # Display summary
+        print(f"Total runs analyzed: {report.total_runs}")
+        print(f"Total deviations: {report.total_deviations}")
+        print(f"Overall consistency: {report.overall_consistency:.1%}\n")
+
+        if report.config_deviations:
+            print("CONFIG DEVIATIONS (sorted by deviation count)")
+            print("-" * 60)
+
+            for cd in report.config_deviations:
+                status = "LOW" if cd.consistency_score >= 0.8 else "MEDIUM" if cd.consistency_score >= 0.5 else "HIGH"
+                print(f"  [{status}] {cd.config_type}: {cd.config_id}")
+                print(f"        Consistency: {cd.consistency_score:.1%}")
+                print(f"        Deviations: {cd.deviation_count}/{cd.total_objects}")
+                if cd.deviating_objects[:3]:
+                    print(f"        Sample: {', '.join(cd.deviating_objects[:3])}")
+                print()
+
+            # Get recommendations
+            from deriva.modules.analysis import generate_recommendations
+            recommendations = generate_recommendations(report.config_deviations)
+            if recommendations:
+                print("RECOMMENDATIONS")
+                print("-" * 60)
+                for rec in recommendations:
+                    print(f"  • {rec}")
+                print()
+
+        # Export
+        if sort_by != "deviation_count":
+            output_path = analyzer.export_sorted_json(output, sort_by=sort_by)
+        else:
+            output_path = analyzer.export_json(output)
+
+        print(f"Report exported to: {output_path}")
 
     return 0
 
@@ -1077,6 +1144,17 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print detailed progress",
     )
+    benchmark_run.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="Disable LLM response caching globally",
+    )
+    benchmark_run.add_argument(
+        "--nocache-configs",
+        type=str,
+        default=None,
+        help="Comma-separated list of config names to skip cache for (e.g., 'ApplicationComponent,DataObject')",
+    )
     benchmark_run.set_defaults(func=cmd_benchmark_run)
 
     # benchmark list
@@ -1121,6 +1199,30 @@ def create_parser() -> argparse.ArgumentParser:
         "models", help="List available model configs"
     )
     benchmark_models.set_defaults(func=cmd_benchmark_models)
+
+    # benchmark deviations
+    benchmark_deviations = benchmark_subparsers.add_parser(
+        "deviations", help="Analyze config deviations for a session"
+    )
+    benchmark_deviations.add_argument(
+        "session_id",
+        help="Benchmark session ID to analyze",
+    )
+    benchmark_deviations.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        default=None,
+        help="Output file for deviation report (default: workspace/benchmarks/{session}/config_deviations.json)",
+    )
+    benchmark_deviations.add_argument(
+        "-s",
+        "--sort-by",
+        choices=["deviation_count", "consistency_score", "total_objects"],
+        default="deviation_count",
+        help="Sort configs by this metric (default: deviation_count)",
+    )
+    benchmark_deviations.set_defaults(func=cmd_benchmark_deviations)
 
     return parser
 
