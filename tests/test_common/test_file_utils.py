@@ -10,6 +10,7 @@ from deriva.common.file_utils import (
     create_pipeline_result,
     read_file_with_encoding,
 )
+from deriva.common.types import LLMDetails
 
 
 class TestReadFileWithEncoding:
@@ -186,7 +187,7 @@ class TestCreatePipelineResult:
 
     def test_includes_llm_details(self):
         """Should include LLM details when provided."""
-        llm_details = {"tokens_in": 100, "tokens_out": 50}
+        llm_details: LLMDetails = {"tokens_in": 100, "tokens_out": 50}
         result = create_pipeline_result(stage="extraction", llm_details=llm_details)
 
         assert "llm_details" in result

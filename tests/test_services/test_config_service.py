@@ -433,6 +433,7 @@ class TestGetFileType:
 
         file_type = get_file_type(engine, ".md")
 
+        assert file_type is not None
         assert file_type.chunk_delimiter == "\n\n"
         assert file_type.chunk_max_tokens == 1000
         assert file_type.chunk_overlap == 100

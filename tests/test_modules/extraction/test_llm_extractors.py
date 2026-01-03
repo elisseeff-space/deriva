@@ -27,8 +27,8 @@ class TestBusinessConceptModule:
         assert "name" in schema
         assert schema["name"] == "business_concepts_extraction"
         assert "schema" in schema
-        assert schema["schema"]["type"] == "object"
-        assert "concepts" in schema["schema"]["properties"]
+        assert schema["schema"]["type"] == "object"  # type: ignore[index]
+        assert "concepts" in schema["schema"]["properties"]  # type: ignore[operator,index]
 
     def test_build_extraction_prompt(self):
         """Should build prompt with all components."""
@@ -131,7 +131,7 @@ class TestTypeDefinitionModule:
 
         assert "name" in schema
         assert "schema" in schema
-        assert "types" in schema["schema"]["properties"]
+        assert "types" in schema["schema"]["properties"]  # type: ignore[operator,index]
 
     def test_build_extraction_prompt(self):
         """Should build prompt with all components."""
@@ -198,7 +198,7 @@ class TestMethodModule:
 
         assert "name" in schema
         assert "schema" in schema
-        assert "methods" in schema["schema"]["properties"]
+        assert "methods" in schema["schema"]["properties"]  # type: ignore[operator,index]
 
     def test_build_extraction_prompt(self):
         """Should build prompt with all components."""
@@ -268,7 +268,7 @@ class TestTechnologyModule:
 
         assert "name" in schema
         assert "schema" in schema
-        assert "technologies" in schema["schema"]["properties"]
+        assert "technologies" in schema["schema"]["properties"]  # type: ignore[operator,index]
 
     def test_build_extraction_prompt(self):
         """Should build prompt with all components."""
@@ -334,7 +334,7 @@ class TestExternalDependencyModule:
 
         assert "name" in schema
         assert "schema" in schema
-        assert "dependencies" in schema["schema"]["properties"]
+        assert "dependencies" in schema["schema"]["properties"]  # type: ignore[operator,index]
 
     def test_build_extraction_prompt(self):
         """Should build prompt with all components."""
@@ -437,7 +437,7 @@ class TestTestExtractionModule:
 
         assert "name" in schema
         assert "schema" in schema
-        assert "tests" in schema["schema"]["properties"]
+        assert "tests" in schema["schema"]["properties"]  # type: ignore[operator,index]
 
     def test_build_extraction_prompt(self):
         """Should build prompt with all components."""
