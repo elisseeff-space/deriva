@@ -1286,10 +1286,7 @@ class BenchmarkAnalyzer:
         ]
 
         for intra_m in summary.intra_model:
-            lines.append(
-                f"| {intra_m.model} | {intra_m.repository} | {intra_m.runs} "
-                f"| {intra_m.name_consistency:.1f}% | {intra_m.count_variance:.2f} |"
-            )
+            lines.append(f"| {intra_m.model} | {intra_m.repository} | {intra_m.runs} | {intra_m.name_consistency:.1f}% | {intra_m.count_variance:.2f} |")
 
         lines.extend(
             [
@@ -1304,10 +1301,7 @@ class BenchmarkAnalyzer:
         )
 
         for inter_m in summary.inter_model:
-            lines.append(
-                f"| {inter_m.repository} | {', '.join(inter_m.models)} "
-                f"| {len(inter_m.overlap)} | {inter_m.jaccard_similarity:.2f} |"
-            )
+            lines.append(f"| {inter_m.repository} | {', '.join(inter_m.models)} | {len(inter_m.overlap)} | {inter_m.jaccard_similarity:.2f} |")
 
         lines.extend(
             [

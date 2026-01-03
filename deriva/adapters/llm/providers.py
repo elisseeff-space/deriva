@@ -487,9 +487,12 @@ class ClaudeCodeProvider(BaseProvider):
 
         cmd = [
             "claude",
-            "-p", prompt,
-            "--model", resolved_model,
-            "--output-format", "json",
+            "-p",
+            prompt,
+            "--model",
+            resolved_model,
+            "--output-format",
+            "json",
         ]
         if max_tokens:
             cmd.extend(["--max-tokens", str(max_tokens)])
@@ -533,7 +536,9 @@ class ClaudeCodeProvider(BaseProvider):
             content = self._strip_markdown_code_block(content)
 
             usage = None
-            if isinstance(output, dict) and (output.get("cost_usd") or output.get("duration_ms")):
+            if isinstance(output, dict) and (
+                output.get("cost_usd") or output.get("duration_ms")
+            ):
                 usage = {
                     "cost_usd": output.get("cost_usd"),
                     "duration_ms": output.get("duration_ms"),

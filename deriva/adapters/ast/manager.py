@@ -159,7 +159,9 @@ class ASTManager:
 
     def _get_docstring(self, node: ast.AST) -> str | None:
         """Extract docstring from a class or function node."""
-        if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef | ast.ClassDef | ast.Module):
+        if isinstance(
+            node, ast.AsyncFunctionDef | ast.FunctionDef | ast.ClassDef | ast.Module
+        ):
             return ast.get_docstring(node)
         return None
 
