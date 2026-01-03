@@ -7,6 +7,8 @@ No I/O, no side effects, no external dependencies beyond common.
 
 from __future__ import annotations
 
+from typing import Any
+
 from .types import InconsistencyInfo
 
 __all__ = [
@@ -86,7 +88,7 @@ def compare_object_sets(
     set_2: set[str],
     label_1: str = "set_1",
     label_2: str = "set_2",
-) -> dict[str, any]:
+) -> dict[str, Any]:
     """
     Compare two sets of objects.
 

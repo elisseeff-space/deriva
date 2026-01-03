@@ -33,7 +33,7 @@ from deriva.adapters.graph import GraphManager
 from deriva.adapters.neo4j import Neo4jConnection
 from deriva.adapters.repository import RepoManager
 from deriva.common.logging import RunLogger
-from deriva.common.types import HasToDict
+from deriva.common.types import HasToDict, RunLoggerProtocol
 
 from . import benchmarking, config, derivation, extraction, pipeline
 
@@ -334,14 +334,14 @@ class PipelineSession:
     # ORCHESTRATION (pipeline operations)
     # =========================================================================
 
-    def _get_run_logger(self) -> RunLogger | None:
+    def _get_run_logger(self) -> RunLoggerProtocol | None:
         """Get a RunLogger for the currently active run, if one exists."""
         if self._engine is None:
             return None
         try:
             row = self._engine.execute("SELECT run_id FROM runs WHERE is_active = TRUE").fetchone()
             if row:
-                return RunLogger(run_id=row[0])
+                return cast(RunLoggerProtocol, RunLogger(run_id=row[0]))
         except Exception as e:
             logger.warning("Failed to get run logger: %s", e)
         return None

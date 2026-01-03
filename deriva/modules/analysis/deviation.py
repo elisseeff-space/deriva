@@ -7,7 +7,8 @@ enabling systematic optimization through config-only changes.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 from .types import ConfigDeviation, DeviationReport
 
@@ -22,7 +23,7 @@ __all__ = [
 
 
 def analyze_config_deviations(
-    config_events: list[dict[str, Any]],
+    config_events: list[Any],
     config_type: str,
 ) -> list[ConfigDeviation]:
     """
@@ -75,9 +76,9 @@ def group_objects_by_config(
     for event in events:
         # Handle both OCELEvent objects and dicts
         if hasattr(event, "objects"):
-            objects = event.objects
+            objects = cast(dict[str, list[str]], event.objects)
         else:
-            objects = event.get("objects", {})
+            objects = cast(dict[str, list[str]], event.get("objects", {}))
 
         config_ids = objects.get("Config", [])
         run_ids = objects.get("BenchmarkRun", [])
@@ -141,7 +142,7 @@ def compute_deviation_stats(
 def analyze_from_object_types(
     objects_by_run: dict[str, set[str]],
     config_type: str,
-    type_extractor: callable,
+    type_extractor: Callable[[str], str],
 ) -> list[ConfigDeviation]:
     """
     Analyze deviations by inferring config from object ID prefixes.

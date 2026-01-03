@@ -21,7 +21,7 @@ from deriva.adapters.graph import GraphManager
 from deriva.common.chunking import chunk_content, should_chunk
 
 if TYPE_CHECKING:
-    from deriva.common.logging import RunLogger
+    from deriva.common.types import RunLoggerProtocol
 from deriva.adapters.graph.models import (
     BusinessConceptNode,
     DirectoryNode,
@@ -48,7 +48,7 @@ def run_extraction(
     repo_name: str | None = None,
     enabled_only: bool = True,
     verbose: bool = False,
-    run_logger: RunLogger | None = None,
+    run_logger: RunLoggerProtocol | None = None,
 ) -> dict[str, Any]:
     """
     Run the extraction pipeline.

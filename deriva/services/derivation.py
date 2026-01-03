@@ -19,7 +19,7 @@ from deriva.adapters.archimate import ArchimateManager
 from deriva.common.types import PipelineResult
 
 if TYPE_CHECKING:
-    from deriva.common.logging import RunLogger
+    from deriva.common.types import RunLoggerProtocol
 from deriva.adapters.archimate.models import (
     RELATIONSHIP_TYPES,
     ArchiMateMetamodel,
@@ -99,11 +99,11 @@ def run_derivation(
     engine: Any,
     graph_manager: GraphManager,
     archimate_manager: ArchimateManager,
-    llm_query_fn: Callable[[str, dict], Any] | None = None,
+    llm_query_fn: Callable[..., Any] | None = None,
     enabled_only: bool = True,
     verbose: bool = False,
     phases: list[str] | None = None,
-    run_logger: RunLogger | None = None,
+    run_logger: RunLoggerProtocol | None = None,
 ) -> dict[str, Any]:
     """
     Run the derivation pipeline.
@@ -191,6 +191,8 @@ def run_derivation(
 
             # Wrap llm_query_fn with per-step temperature/max_tokens overrides
             def step_llm_query_fn(prompt: str, schema: dict) -> Any:
+                if llm_query_fn is None:
+                    raise ValueError("llm_query_fn is required for generate phase")
                 return llm_query_fn(
                     prompt,
                     schema,

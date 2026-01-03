@@ -42,9 +42,12 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from deriva.adapters.archimate import ArchimateManager
+
+if TYPE_CHECKING:
+    from deriva.common.types import RunLoggerProtocol
 from deriva.adapters.graph import GraphManager
 from deriva.adapters.llm import LLMManager
 from deriva.adapters.llm.manager import load_benchmark_models
@@ -105,7 +108,7 @@ class OCELRunLogger:
         self._current_phase = None
         self._current_config = None
 
-    def step_start(self, step: str, message: str = "") -> "OCELStepContext":
+    def step_start(self, step: str, message: str = "") -> OCELStepContext:
         """
         Log start of a config step (extraction node_type or derivation step_name).
 
@@ -164,7 +167,7 @@ class OCELStepContext:
         self._completed = False
         self._created_objects: list[str] = []
 
-    def __enter__(self) -> "OCELStepContext":
+    def __enter__(self) -> OCELStepContext:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
@@ -588,7 +591,7 @@ class BenchmarkOrchestrator:
                     llm_query_fn=llm_query_fn,
                     repo_name=repo_name,
                     verbose=False,
-                    run_logger=ocel_run_logger,
+                    run_logger=cast("RunLoggerProtocol", ocel_run_logger),
                 )
                 stats["extraction"] = result.get("stats", {})
                 self._log_extraction_results(result)
@@ -602,7 +605,7 @@ class BenchmarkOrchestrator:
                     archimate_manager=self.archimate_manager,
                     llm_query_fn=llm_query_fn,
                     verbose=False,
-                    run_logger=ocel_run_logger,
+                    run_logger=cast("RunLoggerProtocol", ocel_run_logger),
                 )
                 stats["derivation"] = result.get("stats", {})
                 self._log_derivation_results(result)
