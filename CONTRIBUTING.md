@@ -101,6 +101,10 @@ src/
 │   └── utils.py     - File encoding, helpers
 │
 └── modules/ (Pure business logic)
+    └── analysis/
+        ├── consistency.py/   - 
+        └── deviation.py/     -   
+        └── types.py.p/       -             
     └── extraction/
         ├── classification.py - File type classification
         ├── base.py           - Shared extraction utilities (ID generation, deduplication)
