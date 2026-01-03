@@ -183,6 +183,42 @@ class ValidationConfig(TypedDict, total=False):
 # =============================================================================
 
 
+class StepContextProtocol(Protocol):
+    """Protocol for step context returned by run loggers."""
+
+    items_created: int
+
+    def complete(self) -> None:
+        """Mark the step as complete."""
+        ...
+
+    def error(self, message: str) -> None:
+        """Mark the step as failed with an error message."""
+        ...
+
+
+class RunLoggerProtocol(Protocol):
+    """Protocol for run loggers (supports both RunLogger and OCELRunLogger)."""
+
+    def phase_start(self, phase: str, message: str = "") -> None:
+        """Log the start of a phase."""
+        ...
+
+    def phase_complete(
+        self, phase: str, message: str = "", stats: dict[str, Any] | None = None
+    ) -> None:
+        """Log the completion of a phase."""
+        ...
+
+    def phase_error(self, phase: str, error: str, message: str = "") -> None:
+        """Log a phase error."""
+        ...
+
+    def step_start(self, step: str, message: str = "") -> StepContextProtocol:
+        """Log the start of a step and return a context manager."""
+        ...
+
+
 @runtime_checkable
 class HasToDict(Protocol):
     """Protocol for objects that can be converted to a dictionary."""
@@ -332,6 +368,8 @@ __all__ = [
     "ValidationConfig",
     # Protocols
     "HasToDict",
+    "StepContextProtocol",
+    "RunLoggerProtocol",
     "ExtractionFunction",
     "BatchExtractionFunction",
     "DerivationFunction",

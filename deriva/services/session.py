@@ -33,7 +33,7 @@ from deriva.adapters.graph import GraphManager
 from deriva.adapters.neo4j import Neo4jConnection
 from deriva.adapters.repository import RepoManager
 from deriva.common.logging import RunLogger
-from deriva.common.types import HasToDict
+from deriva.common.types import HasToDict, RunLoggerProtocol
 
 from . import benchmarking, config, derivation, extraction, pipeline
 
@@ -166,9 +166,19 @@ class PipelineSession:
         if no_cache:
             self._llm_manager.nocache = True
 
-        def query_fn(prompt: str, schema: dict) -> Any:
+        def query_fn(
+            prompt: str,
+            schema: dict,
+            temperature: float | None = None,
+            max_tokens: int | None = None,
+        ) -> Any:
             assert self._llm_manager is not None
-            return self._llm_manager.query(prompt, schema=schema)
+            return self._llm_manager.query(
+                prompt,
+                schema=schema,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
 
         return query_fn
 
@@ -324,14 +334,14 @@ class PipelineSession:
     # ORCHESTRATION (pipeline operations)
     # =========================================================================
 
-    def _get_run_logger(self) -> RunLogger | None:
+    def _get_run_logger(self) -> RunLoggerProtocol | None:
         """Get a RunLogger for the currently active run, if one exists."""
         if self._engine is None:
             return None
         try:
             row = self._engine.execute("SELECT run_id FROM runs WHERE is_active = TRUE").fetchone()
             if row:
-                return RunLogger(run_id=row[0])
+                return cast(RunLoggerProtocol, RunLogger(run_id=row[0]))
         except Exception as e:
             logger.warning("Failed to get run logger: %s", e)
         return None
@@ -773,6 +783,8 @@ class PipelineSession:
         stages: list[str] | None = None,
         description: str = "",
         verbose: bool = False,
+        use_cache: bool = True,
+        nocache_configs: list[str] | None = None,
     ) -> benchmarking.BenchmarkResult:
         """
         Run a full benchmark matrix.
@@ -784,6 +796,8 @@ class PipelineSession:
             stages: Pipeline stages to run (default: all)
             description: Optional description for the session
             verbose: Print progress
+            use_cache: Enable LLM response caching (default: True)
+            nocache_configs: List of config names to skip cache for (for A/B testing)
 
         Returns:
             BenchmarkResult with session details
@@ -794,6 +808,7 @@ class PipelineSession:
                 models=["azure-gpt4", "openai-gpt4o"],
                 runs=3,
                 stages=["extraction", "derivation"],
+                nocache_configs=["ApplicationComponent"],  # Test new prompt
             )
         """
         self._ensure_connected()
@@ -809,6 +824,8 @@ class PipelineSession:
             runs_per_combination=runs,
             stages=stages or ["classification", "extraction", "derivation"],
             description=description,
+            use_cache=use_cache,
+            nocache_configs=nocache_configs or [],
         )
 
         orchestrator = benchmarking.BenchmarkOrchestrator(
@@ -839,6 +856,28 @@ class PipelineSession:
         assert self._engine is not None
 
         return benchmarking.BenchmarkAnalyzer(session_id, self._engine)
+
+    def analyze_config_deviations(self, session_id: str) -> Any:
+        """
+        Analyze which configs produce deviations across benchmark runs.
+
+        Args:
+            session_id: Benchmark session ID to analyze
+
+        Returns:
+            ConfigDeviationAnalyzer instance for computing per-config deviation stats
+
+        Example:
+            analyzer = session.analyze_config_deviations("bench_20240115_103000")
+            report = analyzer.analyze()
+            analyzer.export_json("deviations.json")
+        """
+        self._ensure_connected()
+        assert self._engine is not None
+
+        from deriva.services import config_deviation
+
+        return config_deviation.ConfigDeviationAnalyzer(session_id, self._engine)
 
     def list_benchmarks(self, limit: int = 10) -> list[dict]:
         """

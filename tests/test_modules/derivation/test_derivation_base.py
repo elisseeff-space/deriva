@@ -7,6 +7,7 @@ from deriva.modules.derivation.base import (
     RELATIONSHIP_SCHEMA,
     build_derivation_prompt,
     build_element,
+    build_element_relationship_prompt,
     build_relationship_prompt,
     create_result,
     parse_derivation_response,
@@ -323,3 +324,159 @@ class TestExtractLlmDetails:
 
         assert details["response"] == ""
         assert details["cache_used"] is False
+
+
+class TestBuildElementRelationshipPrompt:
+    """Tests for build_element_relationship_prompt function."""
+
+    def test_includes_source_elements(self):
+        """Should include source elements in prompt."""
+        source_elements = [
+            {"identifier": "app_auth", "name": "Auth Component", "element_type": "ApplicationComponent"},
+        ]
+        target_elements = [
+            {"identifier": "svc_login", "name": "Login Service", "element_type": "ApplicationService"},
+        ]
+        valid_relationships = [
+            {"relationship_type": "Serving", "description": "Provides services to", "allowed_targets": ["ApplicationService"]},
+        ]
+
+        prompt = build_element_relationship_prompt(
+            source_elements=source_elements,
+            target_elements=target_elements,
+            source_element_type="ApplicationComponent",
+            valid_relationships=valid_relationships,
+        )
+
+        assert "app_auth" in prompt
+        assert "Auth Component" in prompt
+        assert "Source Elements" in prompt
+
+    def test_includes_target_elements(self):
+        """Should include target elements in prompt."""
+        source_elements = [
+            {"identifier": "app_auth", "name": "Auth", "element_type": "ApplicationComponent"},
+        ]
+        target_elements = [
+            {"identifier": "svc_login", "name": "Login Service", "element_type": "ApplicationService"},
+            {"identifier": "data_user", "name": "User Data", "element_type": "DataObject"},
+        ]
+        valid_relationships = []
+
+        prompt = build_element_relationship_prompt(
+            source_elements=source_elements,
+            target_elements=target_elements,
+            source_element_type="ApplicationComponent",
+            valid_relationships=valid_relationships,
+        )
+
+        assert "svc_login" in prompt
+        assert "Login Service" in prompt
+        assert "data_user" in prompt
+        assert "Target Elements" in prompt
+
+    def test_includes_valid_relationship_types(self):
+        """Should include valid relationship types from metamodel."""
+        source_elements = [{"identifier": "app_auth", "name": "Auth", "element_type": "ApplicationComponent"}]
+        target_elements = [{"identifier": "svc_login", "name": "Login", "element_type": "ApplicationService"}]
+        valid_relationships = [
+            {"relationship_type": "Serving", "description": "Provides services to", "allowed_targets": ["ApplicationService"]},
+            {"relationship_type": "Composition", "description": "Consists of", "allowed_targets": ["ApplicationComponent"]},
+        ]
+
+        prompt = build_element_relationship_prompt(
+            source_elements=source_elements,
+            target_elements=target_elements,
+            source_element_type="ApplicationComponent",
+            valid_relationships=valid_relationships,
+        )
+
+        assert "Serving" in prompt
+        assert "Composition" in prompt
+        assert "Provides services to" in prompt
+        assert "ApplicationService" in prompt
+
+    def test_uses_custom_instruction(self):
+        """Should use custom instruction when provided."""
+        source_elements = [{"identifier": "app_auth", "name": "Auth", "element_type": "ApplicationComponent"}]
+        target_elements = []
+        valid_relationships = []
+        custom_instruction = "Custom instruction for deriving ApplicationComponent relationships"
+
+        prompt = build_element_relationship_prompt(
+            source_elements=source_elements,
+            target_elements=target_elements,
+            source_element_type="ApplicationComponent",
+            valid_relationships=valid_relationships,
+            instruction=custom_instruction,
+        )
+
+        assert custom_instruction in prompt
+
+    def test_uses_custom_example(self):
+        """Should use custom example when provided."""
+        source_elements = [{"identifier": "app_auth", "name": "Auth", "element_type": "ApplicationComponent"}]
+        target_elements = []
+        valid_relationships = []
+        custom_example = '{"relationships": [{"source": "custom_src", "target": "custom_tgt", "relationship_type": "Flow"}]}'
+
+        prompt = build_element_relationship_prompt(
+            source_elements=source_elements,
+            target_elements=target_elements,
+            source_element_type="ApplicationComponent",
+            valid_relationships=valid_relationships,
+            example=custom_example,
+        )
+
+        assert custom_example in prompt
+
+    def test_uses_default_instruction_when_not_provided(self):
+        """Should use default instruction when not provided."""
+        source_elements = [{"identifier": "app_auth", "name": "Auth", "element_type": "ApplicationComponent"}]
+        target_elements = []
+        valid_relationships = []
+
+        prompt = build_element_relationship_prompt(
+            source_elements=source_elements,
+            target_elements=target_elements,
+            source_element_type="ApplicationComponent",
+            valid_relationships=valid_relationships,
+        )
+
+        # Default instruction mentions deriving relationships FROM the element type
+        assert "Derive relationships FROM" in prompt
+        assert "ApplicationComponent" in prompt
+
+    def test_includes_identifier_validation_rules(self):
+        """Should include strict identifier validation rules."""
+        source_elements = [{"identifier": "app_auth", "name": "Auth", "element_type": "ApplicationComponent"}]
+        target_elements = [{"identifier": "svc_login", "name": "Login", "element_type": "ApplicationService"}]
+        valid_relationships = []
+
+        prompt = build_element_relationship_prompt(
+            source_elements=source_elements,
+            target_elements=target_elements,
+            source_element_type="ApplicationComponent",
+            valid_relationships=valid_relationships,
+        )
+
+        # Should include the identifier lists for validation
+        assert "app_auth" in prompt
+        assert "svc_login" in prompt
+        assert "CRITICAL RULES" in prompt
+
+    def test_mentions_source_element_type(self):
+        """Should mention the source element type throughout prompt."""
+        source_elements = [{"identifier": "svc_auth", "name": "Auth Service", "element_type": "ApplicationService"}]
+        target_elements = []
+        valid_relationships = []
+
+        prompt = build_element_relationship_prompt(
+            source_elements=source_elements,
+            target_elements=target_elements,
+            source_element_type="ApplicationService",
+            valid_relationships=valid_relationships,
+        )
+
+        # Element type should appear multiple times in context
+        assert prompt.count("ApplicationService") >= 2

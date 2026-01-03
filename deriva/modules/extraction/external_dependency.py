@@ -11,6 +11,8 @@ import json
 from collections.abc import Callable
 from typing import Any
 
+from deriva.common.json_utils import extract_json_from_response
+
 from .base import current_timestamp
 
 # JSON schema for LLM structured output
@@ -191,29 +193,44 @@ def parse_llm_response(response_content: str) -> dict[str, Any]:
         Dictionary with success, data, and errors
     """
     try:
-        parsed = json.loads(response_content)
+        # Extract JSON from potential markdown wrapping
+        extracted = extract_json_from_response(response_content)
+        parsed = json.loads(extracted)
 
-        if "dependencies" not in parsed:
-            return {
-                "success": False,
-                "data": [],
-                "errors": ['Response missing "dependencies" array'],
-            }
+        # Handle null/None response (LLM returning "null")
+        if parsed is None:
+            return {"success": True, "data": [], "errors": []}
 
-        if not isinstance(parsed["dependencies"], list):
-            return {
-                "success": False,
-                "data": [],
-                "errors": ['"dependencies" must be an array'],
-            }
+        # Handle case where response is a list directly
+        if isinstance(parsed, list):
+            return {"success": True, "data": parsed, "errors": []}
 
-        return {"success": True, "data": parsed["dependencies"], "errors": []}
+        # Check for expected key first (must be a dict at this point)
+        if not isinstance(parsed, dict):
+            return {"success": True, "data": [], "errors": []}
+
+        if "dependencies" in parsed:
+            data = parsed["dependencies"]
+            if isinstance(data, list):
+                return {"success": True, "data": data, "errors": []}
+            # Handle {"dependencies": null} or {"dependencies": "none"} - treat as empty
+            return {"success": True, "data": [], "errors": []}
+
+        # Try alternate key names that LLM might use (not "data" - too generic)
+        alternate_keys = ["result", "results", "items", "externalDependencies"]
+        for key in alternate_keys:
+            if key in parsed and isinstance(parsed[key], list):
+                return {"success": True, "data": parsed[key], "errors": []}
+
+        # If dict has no recognized keys, treat as empty (no dependencies found)
+        # This handles edge cases like {"status": "empty"} or {"message": "no deps"}
+        return {"success": True, "data": [], "errors": []}
 
     except json.JSONDecodeError as e:
         return {
             "success": False,
             "data": [],
-            "errors": [f"JSON parsing error: {str(e)}"],
+            "errors": [f"JSON parsing error: {e!s}"],
         }
 
 

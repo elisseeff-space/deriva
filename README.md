@@ -319,7 +319,7 @@ uv run python -m deriva.cli.cli export -o workspace/output/model.archimate
 
 ## Benchmarking
 
-Deriva includes a multi-model benchmarking system for comparing LLM performance across different providers and models.
+Deriva includes a multi-model benchmarking system for comparing LLM performance across different providers and models. See [benchmarks.md](benchmarks.md) for the full optimization guide.
 
 ### Running Benchmarks
 
@@ -330,16 +330,16 @@ uv run python -m deriva.cli.cli benchmark models
 # Run a benchmark with specific models
 uv run python -m deriva.cli.cli benchmark run \
   --repos flask_invoice_generator \
-  --models azure-gpt4mini,ollama-llama \
+  --models openai-gptx,ollama-devstral \
   -n 3 \
-  -d "Comparing Azure vs Ollama" \
+  -d "Comparing gptx with devstral" \
   -v
 
 # List benchmark sessions
-uv run python -m deriva.cli.cli benchmark list
+uv run python -m cli benchmark list
 
 # Analyze a benchmark session
-uv run python -m deriva.cli.cli benchmark analyze bench_20260101_150724
+uv run python -m cli benchmark analyze bench_20260101_150724
 ```
 
 ### Configuring Benchmark Models
@@ -349,13 +349,13 @@ Add models to `.env` using the pattern:
 ```bash
 # Azure GPT-4o-mini
 LLM_AZURE_GPT4MINI_PROVIDER=azure
-LLM_AZURE_GPT4MINI_MODEL=gpt-4o-mini
+LLM_AZURE_GPT4MINI_MODEL=gpt-4
 LLM_AZURE_GPT4MINI_URL=https://your-resource.openai.azure.com/...
 LLM_AZURE_GPT4MINI_KEY=your-api-key
 
 # Ollama local model
 LLM_OLLAMA_LLAMA_PROVIDER=ollama
-LLM_OLLAMA_LLAMA_MODEL=llama3.2
+LLM_OLLAMA_LLAMA_MODEL=devstral
 LLM_OLLAMA_LLAMA_URL=http://localhost:11434/api/chat
 ```
 
@@ -415,7 +415,7 @@ python --version  # Should be 3.14+
 uv sync --reinstall
 
 # Run without watch mode
-uv run marimo edit deriva/app/app.py
+uv run marimo edit app.py
 ```
 
 ---

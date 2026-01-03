@@ -182,7 +182,8 @@ class TestRunDerivation:
         prep_cfg.params = None
 
         with patch.object(derivation.config, "get_derivation_configs") as mock_get:
-            mock_get.side_effect = [[prep_cfg], []]  # prep returns config, generate returns empty
+            # Order: relationship phase check, prep phase, generate phase
+            mock_get.side_effect = [[], [prep_cfg], []]
             with patch.dict(derivation.PREP_FUNCTIONS, {"pagerank": MagicMock(return_value={"success": True})}):
                 result = derivation.run_derivation(
                     engine=engine,
@@ -205,9 +206,12 @@ class TestRunDerivation:
         gen_cfg.input_graph_query = "MATCH (n) RETURN n"
         gen_cfg.instruction = "Generate"
         gen_cfg.example = "{}"
+        gen_cfg.temperature = None
+        gen_cfg.max_tokens = None
 
         with patch.object(derivation.config, "get_derivation_configs") as mock_get:
-            mock_get.side_effect = [[], [gen_cfg]]  # prep empty, generate has config
+            # Order: relationship phase check, prep phase, generate phase
+            mock_get.side_effect = [[], [], [gen_cfg]]
             with patch.object(derivation, "generate_element") as mock_gen:
                 mock_gen.return_value = {"elements_created": 2, "created_elements": []}
                 result = derivation.run_derivation(
@@ -232,9 +236,12 @@ class TestRunDerivation:
         gen_cfg.input_graph_query = "MATCH (n) RETURN n"
         gen_cfg.instruction = ""
         gen_cfg.example = ""
+        gen_cfg.temperature = None
+        gen_cfg.max_tokens = None
 
         with patch.object(derivation.config, "get_derivation_configs") as mock_get:
-            mock_get.side_effect = [[], [gen_cfg]]
+            # Order: relationship phase check, prep phase, generate phase
+            mock_get.side_effect = [[], [], [gen_cfg]]
             with patch.object(derivation, "generate_element") as mock_gen:
                 mock_gen.side_effect = Exception("LLM failed")
                 result = derivation.run_derivation(
@@ -300,11 +307,7 @@ class TestDeriveRelationships:
         archimate_manager = MagicMock()
 
         mock_response = MagicMock()
-        mock_response.content = json.dumps({
-            "relationships": [
-                {"source": "comp1", "target": "comp2", "relationship_type": "Composition"}
-            ]
-        })
+        mock_response.content = json.dumps({"relationships": [{"source": "comp1", "target": "comp2", "relationship_type": "Composition"}]})
         llm_query_fn = MagicMock(return_value=mock_response)
 
         result = derivation._derive_relationships(elements, archimate_manager, llm_query_fn)
@@ -318,11 +321,7 @@ class TestDeriveRelationships:
         archimate_manager = MagicMock()
 
         mock_response = MagicMock()
-        mock_response.content = json.dumps({
-            "relationships": [
-                {"source": "unknown", "target": "comp2", "relationship_type": "Composition"}
-            ]
-        })
+        mock_response.content = json.dumps({"relationships": [{"source": "unknown", "target": "comp2", "relationship_type": "Composition"}]})
         llm_query_fn = MagicMock(return_value=mock_response)
 
         result = derivation._derive_relationships(elements, archimate_manager, llm_query_fn)
@@ -336,11 +335,7 @@ class TestDeriveRelationships:
         archimate_manager = MagicMock()
 
         mock_response = MagicMock()
-        mock_response.content = json.dumps({
-            "relationships": [
-                {"source": "comp1", "target": "unknown", "relationship_type": "Composition"}
-            ]
-        })
+        mock_response.content = json.dumps({"relationships": [{"source": "comp1", "target": "unknown", "relationship_type": "Composition"}]})
         llm_query_fn = MagicMock(return_value=mock_response)
 
         result = derivation._derive_relationships(elements, archimate_manager, llm_query_fn)
@@ -357,11 +352,7 @@ class TestDeriveRelationships:
         archimate_manager = MagicMock()
 
         mock_response = MagicMock()
-        mock_response.content = json.dumps({
-            "relationships": [
-                {"source": "my_component", "target": "other_component", "relationship_type": "Composition"}
-            ]
-        })
+        mock_response.content = json.dumps({"relationships": [{"source": "my_component", "target": "other_component", "relationship_type": "Composition"}]})
         llm_query_fn = MagicMock(return_value=mock_response)
 
         result = derivation._derive_relationships(elements, archimate_manager, llm_query_fn)
@@ -375,14 +366,264 @@ class TestDeriveRelationships:
         archimate_manager.add_relationship.side_effect = Exception("DB error")
 
         mock_response = MagicMock()
-        mock_response.content = json.dumps({
-            "relationships": [
-                {"source": "comp1", "target": "comp2", "relationship_type": "Composition"}
-            ]
-        })
+        mock_response.content = json.dumps({"relationships": [{"source": "comp1", "target": "comp2", "relationship_type": "Composition"}]})
         llm_query_fn = MagicMock(return_value=mock_response)
 
         result = derivation._derive_relationships(elements, archimate_manager, llm_query_fn)
 
         assert result["relationships_created"] == 0
         assert any("Failed to persist" in e for e in result["errors"])
+
+
+class TestDeriveElementRelationships:
+    """Tests for _derive_element_relationships function (per-element relationship derivation)."""
+
+    def test_returns_zero_without_llm(self):
+        """Should return zero relationships without LLM function."""
+        source_elements = [{"identifier": "ac:comp1", "element_type": "ApplicationComponent"}]
+        all_elements = source_elements + [{"identifier": "as:svc1", "element_type": "ApplicationService"}]
+        archimate_manager = MagicMock()
+
+        result = derivation._derive_element_relationships(
+            source_element_type="ApplicationComponent",
+            source_elements=source_elements,
+            all_elements=all_elements,
+            archimate_manager=archimate_manager,
+            llm_query_fn=None,
+        )
+
+        assert result["relationships_created"] == 0
+        assert "LLM not configured" in result["errors"]
+
+    def test_returns_zero_for_empty_source_elements(self):
+        """Should return zero when no source elements provided."""
+        archimate_manager = MagicMock()
+        llm_query_fn = MagicMock()
+
+        result = derivation._derive_element_relationships(
+            source_element_type="ApplicationComponent",
+            source_elements=[],
+            all_elements=[],
+            archimate_manager=archimate_manager,
+            llm_query_fn=llm_query_fn,
+        )
+
+        assert result["relationships_created"] == 0
+        assert result["errors"] == []
+
+    def test_handles_llm_error(self):
+        """Should handle LLM errors gracefully."""
+        source_elements = [{"identifier": "ac:comp1", "element_type": "ApplicationComponent"}]
+        all_elements = source_elements
+        archimate_manager = MagicMock()
+        llm_query_fn = MagicMock(side_effect=Exception("API error"))
+
+        result = derivation._derive_element_relationships(
+            source_element_type="ApplicationComponent",
+            source_elements=source_elements,
+            all_elements=all_elements,
+            archimate_manager=archimate_manager,
+            llm_query_fn=llm_query_fn,
+        )
+
+        assert result["relationships_created"] == 0
+        assert any("LLM error" in e for e in result["errors"])
+
+    def test_creates_valid_relationships_with_metamodel_validation(self):
+        """Should create relationships that pass metamodel validation."""
+        source_elements = [
+            {"identifier": "ac:comp1", "name": "Component 1", "element_type": "ApplicationComponent"},
+        ]
+        all_elements = source_elements + [
+            {"identifier": "as:svc1", "name": "Service 1", "element_type": "ApplicationService"},
+        ]
+        archimate_manager = MagicMock()
+
+        mock_response = MagicMock()
+        mock_response.content = json.dumps({"relationships": [{"source": "ac:comp1", "target": "as:svc1", "relationship_type": "Assignment", "confidence": 0.9}]})
+        llm_query_fn = MagicMock(return_value=mock_response)
+
+        result = derivation._derive_element_relationships(
+            source_element_type="ApplicationComponent",
+            source_elements=source_elements,
+            all_elements=all_elements,
+            archimate_manager=archimate_manager,
+            llm_query_fn=llm_query_fn,
+        )
+
+        assert result["relationships_created"] == 1
+        archimate_manager.add_relationship.assert_called_once()
+
+    def test_rejects_invalid_relationship_type_for_source(self):
+        """Should reject relationships that violate metamodel constraints."""
+        # Use ApplicationComponent which can use Composition, but test invalid target
+        source_elements = [
+            {"identifier": "ac:comp1", "name": "Component 1", "element_type": "ApplicationComponent"},
+        ]
+        all_elements = source_elements + [
+            # BusinessProcess is a behavior element - Composition to it is invalid
+            {"identifier": "bp:proc1", "name": "Process 1", "element_type": "BusinessProcess"},
+        ]
+        archimate_manager = MagicMock()
+
+        # Composition is valid for ApplicationComponent but only to other structure elements
+        # BusinessProcess is a behavior element, so Composition to it should be rejected
+        mock_response = MagicMock()
+        mock_response.content = json.dumps({"relationships": [{"source": "ac:comp1", "target": "bp:proc1", "relationship_type": "Composition"}]})
+        llm_query_fn = MagicMock(return_value=mock_response)
+
+        result = derivation._derive_element_relationships(
+            source_element_type="ApplicationComponent",
+            source_elements=source_elements,
+            all_elements=all_elements,
+            archimate_manager=archimate_manager,
+            llm_query_fn=llm_query_fn,
+        )
+
+        # Should be rejected - Composition from ApplicationComponent can only target structure elements
+        assert result["relationships_created"] == 0
+        assert any("Invalid relationship rejected" in e for e in result["errors"])
+
+    def test_rejects_source_not_in_source_elements(self):
+        """Should reject relationships where source is not from source_elements list."""
+        source_elements = [
+            {"identifier": "ac:comp1", "name": "Component 1", "element_type": "ApplicationComponent"},
+        ]
+        all_elements = source_elements + [
+            {"identifier": "ac:comp2", "name": "Component 2", "element_type": "ApplicationComponent"},
+        ]
+        archimate_manager = MagicMock()
+
+        mock_response = MagicMock()
+        mock_response.content = json.dumps(
+            {
+                "relationships": [
+                    # Source is comp2, but source_elements only contains comp1
+                    {"source": "ac:comp2", "target": "ac:comp1", "relationship_type": "Composition"}
+                ]
+            }
+        )
+        llm_query_fn = MagicMock(return_value=mock_response)
+
+        result = derivation._derive_element_relationships(
+            source_element_type="ApplicationComponent",
+            source_elements=source_elements,
+            all_elements=all_elements,
+            archimate_manager=archimate_manager,
+            llm_query_fn=llm_query_fn,
+        )
+
+        assert result["relationships_created"] == 0
+        assert any("source not found" in e for e in result["errors"])
+
+    def test_passes_temperature_and_max_tokens_to_llm(self):
+        """Should pass temperature and max_tokens overrides to LLM."""
+        source_elements = [
+            {"identifier": "ac:comp1", "element_type": "ApplicationComponent"},
+        ]
+        all_elements = source_elements
+        archimate_manager = MagicMock()
+
+        mock_response = MagicMock()
+        mock_response.content = json.dumps({"relationships": []})
+        llm_query_fn = MagicMock(return_value=mock_response)
+
+        derivation._derive_element_relationships(
+            source_element_type="ApplicationComponent",
+            source_elements=source_elements,
+            all_elements=all_elements,
+            archimate_manager=archimate_manager,
+            llm_query_fn=llm_query_fn,
+            temperature=0.5,
+            max_tokens=2000,
+        )
+
+        # Verify temperature and max_tokens were passed
+        call_args = llm_query_fn.call_args
+        assert call_args.kwargs.get("temperature") == 0.5
+        assert call_args.kwargs.get("max_tokens") == 2000
+
+
+class TestPerElementRelationshipInRunDerivation:
+    """Tests for per-element relationship derivation in run_derivation."""
+
+    def test_uses_per_element_relationships_when_configs_exist(self):
+        """Should use per-element relationship derivation when relationship configs exist."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+        llm_query_fn = MagicMock()
+
+        gen_cfg = MagicMock()
+        gen_cfg.step_name = "ApplicationComponent"
+        gen_cfg.element_type = "ApplicationComponent"
+        gen_cfg.input_graph_query = "MATCH (n) RETURN n"
+        gen_cfg.instruction = "Generate"
+        gen_cfg.example = "{}"
+        gen_cfg.temperature = None
+        gen_cfg.max_tokens = None
+
+        rel_cfg = MagicMock()
+        rel_cfg.step_name = "ApplicationComponent_relationships"
+        rel_cfg.instruction = "Derive relationships"
+        rel_cfg.example = "{}"
+        rel_cfg.temperature = 0.3
+        rel_cfg.max_tokens = 1000
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            # Returns: relationship configs, prep configs, generate configs
+            mock_get.side_effect = [[rel_cfg], [], [gen_cfg]]
+            with patch.object(derivation, "generate_element") as mock_gen:
+                mock_gen.return_value = {"elements_created": 1, "created_elements": [{"identifier": "ac:comp1", "element_type": "ApplicationComponent"}]}
+                with patch.object(derivation, "_derive_element_relationships") as mock_derive:
+                    mock_derive.return_value = {"relationships_created": 2, "errors": []}
+                    result = derivation.run_derivation(
+                        engine=engine,
+                        graph_manager=graph_manager,
+                        archimate_manager=archimate_manager,
+                        llm_query_fn=llm_query_fn,
+                    )
+
+        # Should have called _derive_element_relationships
+        mock_derive.assert_called_once()
+        assert result["stats"]["relationships_created"] == 2
+
+    def test_falls_back_to_single_pass_when_no_relationship_configs(self):
+        """Should fall back to single-pass when no relationship phase configs exist."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+        llm_query_fn = MagicMock()
+
+        gen_cfg = MagicMock()
+        gen_cfg.step_name = "ApplicationComponent"
+        gen_cfg.element_type = "ApplicationComponent"
+        gen_cfg.input_graph_query = "MATCH (n) RETURN n"
+        gen_cfg.instruction = "Generate"
+        gen_cfg.example = "{}"
+        gen_cfg.temperature = None
+        gen_cfg.max_tokens = None
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            # Returns: empty relationship configs, empty prep, generate configs
+            mock_get.side_effect = [[], [], [gen_cfg]]
+            with patch.object(derivation, "generate_element") as mock_gen:
+                mock_gen.return_value = {
+                    "elements_created": 2,
+                    "created_elements": [
+                        {"identifier": "ac:comp1", "element_type": "ApplicationComponent"},
+                        {"identifier": "ac:comp2", "element_type": "ApplicationComponent"},
+                    ],
+                }
+                with patch.object(derivation, "_derive_relationships") as mock_derive:
+                    mock_derive.return_value = {"relationships_created": 1, "errors": []}
+                    result = derivation.run_derivation(
+                        engine=engine,
+                        graph_manager=graph_manager,
+                        archimate_manager=archimate_manager,
+                        llm_query_fn=llm_query_fn,
+                    )
+
+        # Should have called single-pass _derive_relationships
+        mock_derive.assert_called_once()
+        assert result["stats"]["relationships_created"] == 1

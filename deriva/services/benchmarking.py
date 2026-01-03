@@ -42,15 +42,165 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from deriva.adapters.archimate import ArchimateManager
+
+if TYPE_CHECKING:
+    from deriva.common.types import RunLoggerProtocol
 from deriva.adapters.graph import GraphManager
 from deriva.adapters.llm import LLMManager
 from deriva.adapters.llm.manager import load_benchmark_models
 from deriva.adapters.llm.models import BenchmarkModelConfig
 from deriva.common.ocel import OCELLog, create_run_id, hash_content
 from deriva.services import derivation, extraction
+
+# =============================================================================
+# OCEL RUN LOGGER - Per-config event logging for benchmarks
+# =============================================================================
+
+
+class OCELRunLogger:
+    """
+    A run logger that creates OCEL events for each config step.
+
+    Implements the RunLogger protocol for use with extraction/derivation services,
+    but logs to OCEL format instead of JSONL files.
+
+    Also tracks the current config for per-config cache control.
+    """
+
+    def __init__(
+        self,
+        ocel_log: OCELLog,
+        run_id: str,
+        session_id: str,
+        model: str,
+        repo: str,
+    ):
+        self.ocel_log = ocel_log
+        self.run_id = run_id
+        self.session_id = session_id
+        self.model = model
+        self.repo = repo
+        self._current_phase: str | None = None
+        self._current_config: str | None = None  # Current config being executed
+        self._step_sequence: int = 0
+
+    @property
+    def current_config(self) -> str | None:
+        """Get the currently executing config (node_type or step_name)."""
+        return self._current_config
+
+    def phase_start(self, phase: str, message: str = "") -> None:
+        """Log start of a phase."""
+        self._current_phase = phase
+
+    def phase_complete(self, phase: str, message: str = "", stats: dict | None = None) -> None:
+        """Log completion of a phase."""
+        self._current_phase = None
+        self._current_config = None
+
+    def phase_error(self, phase: str, error: str, message: str = "") -> None:
+        """Log phase error."""
+        self._current_phase = None
+        self._current_config = None
+
+    def step_start(self, step: str, message: str = "") -> OCELStepContext:
+        """
+        Log start of a config step (extraction node_type or derivation step_name).
+
+        Sets current_config for per-config cache control.
+        Returns a context for tracking step completion.
+        """
+        self._current_config = step
+        self._step_sequence += 1
+        return OCELStepContext(self, step, self._step_sequence)
+
+    def log_config_result(
+        self,
+        config_type: str,  # "extraction" or "derivation"
+        config_id: str,  # node_type or step_name
+        objects_created: list[str],
+        stats: dict | None = None,
+        errors: list[str] | None = None,
+    ) -> None:
+        """
+        Log per-config OCEL event with created objects.
+
+        This enables config-deviation correlation in analysis.
+        """
+        activity = "ExtractConfig" if config_type == "extraction" else "DeriveConfig"
+        object_type = "GraphNode" if config_type == "extraction" else "Element"
+
+        self.ocel_log.create_event(
+            activity=activity,
+            objects={
+                "BenchmarkSession": [self.session_id],
+                "BenchmarkRun": [self.run_id],
+                "Repository": [self.repo],
+                "Model": [self.model],
+                "Config": [config_id],
+                object_type: objects_created,
+            },
+            config_type=config_type,
+            config_id=config_id,
+            objects_created=len(objects_created),
+            stats=stats or {},
+            errors=errors or [],
+        )
+
+
+class OCELStepContext:
+    """Context manager for tracking step completion in OCEL."""
+
+    def __init__(self, logger: OCELRunLogger, step: str, sequence: int):
+        self.logger = logger
+        self.step = step
+        self.sequence = sequence
+        self.items_processed = 0
+        self.items_created = 0
+        self.items_failed = 0
+        self.stats: dict | None = None
+        self._completed = False
+        self._created_objects: list[str] = []
+
+    def __enter__(self) -> OCELStepContext:
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        if exc_type is not None:
+            self.error(str(exc_val))
+        elif not self._completed:
+            self.complete()
+
+    def add_object(self, object_id: str) -> None:
+        """Track a created object ID for OCEL logging."""
+        self._created_objects.append(object_id)
+
+    def complete(self, message: str = "") -> None:
+        """Mark step as completed and log to OCEL."""
+        self._completed = True
+        config_type = "extraction" if self.logger._current_phase == "extraction" else "derivation"
+        self.logger.log_config_result(
+            config_type=config_type,
+            config_id=self.step,
+            objects_created=self._created_objects,
+            stats={"items_created": self.items_created, "items_processed": self.items_processed},
+            errors=[],
+        )
+
+    def error(self, error: str, message: str = "") -> None:
+        """Mark step as errored."""
+        self._completed = True
+        config_type = "extraction" if self.logger._current_phase == "extraction" else "derivation"
+        self.logger.log_config_result(
+            config_type=config_type,
+            config_id=self.step,
+            objects_created=self._created_objects,
+            stats={"items_created": self.items_created, "items_failed": self.items_failed},
+            errors=[error],
+        )
 
 
 @dataclass
@@ -63,6 +213,8 @@ class BenchmarkConfig:
     stages: list[str] = field(default_factory=lambda: ["extraction", "derivation"])
     description: str = ""
     clear_between_runs: bool = True
+    use_cache: bool = True  # Global cache setting (True = cache enabled)
+    nocache_configs: list[str] = field(default_factory=list)  # Configs to always skip cache
 
     def total_runs(self) -> int:
         """Calculate total number of runs in the matrix."""
@@ -395,12 +547,36 @@ class BenchmarkOrchestrator:
                 self.graph_manager.clear_graph()
                 self.archimate_manager.clear_model()
 
-            # Create LLM manager for this model
-            model_config = self._model_configs[model_name]
-            llm_manager = LLMManager.from_config(model_config, nocache=True)
+            # Create OCEL run logger for per-config event tracking
+            ocel_run_logger = OCELRunLogger(
+                ocel_log=self.ocel_log,
+                run_id=run_id,
+                session_id=session_id,
+                model=model_name,
+                repo=repo_name,
+            )
 
-            # Create wrapped query function that logs OCEL events
-            llm_query_fn = self._create_logging_query_fn(llm_manager)
+            # Create LLM managers for this model
+            # - cached_llm: uses cache (for stable configs)
+            # - nocache_llm: skips cache (for configs being optimized)
+            model_config = self._model_configs[model_name]
+            global_nocache = not self.config.use_cache
+
+            if global_nocache:
+                # Cache disabled globally - single manager
+                llm_manager = LLMManager.from_config(model_config, nocache=True)
+                nocache_llm_manager = llm_manager
+            else:
+                # Cache enabled - create both managers for per-config control
+                llm_manager = LLMManager.from_config(model_config, nocache=False)
+                nocache_llm_manager = LLMManager.from_config(model_config, nocache=True)
+
+            # Create wrapped query function with per-config cache control
+            llm_query_fn = self._create_logging_query_fn(
+                cached_llm=llm_manager,
+                nocache_llm=nocache_llm_manager,
+                run_logger=ocel_run_logger,
+            )
 
             # Determine which stages to run
             stages = self.config.stages
@@ -413,6 +589,7 @@ class BenchmarkOrchestrator:
                     llm_query_fn=llm_query_fn,
                     repo_name=repo_name,
                     verbose=False,
+                    run_logger=cast("RunLoggerProtocol", ocel_run_logger),
                 )
                 stats["extraction"] = result.get("stats", {})
                 self._log_extraction_results(result)
@@ -426,6 +603,7 @@ class BenchmarkOrchestrator:
                     archimate_manager=self.archimate_manager,
                     llm_query_fn=llm_query_fn,
                     verbose=False,
+                    run_logger=cast("RunLoggerProtocol", ocel_run_logger),
                 )
                 stats["derivation"] = result.get("stats", {})
                 self._log_derivation_results(result)
@@ -469,27 +647,46 @@ class BenchmarkOrchestrator:
             duration_seconds=duration,
         )
 
-    def _create_logging_query_fn(self, llm_manager: LLMManager) -> Callable[[str, dict], Any]:
+    def _create_logging_query_fn(
+        self,
+        cached_llm: LLMManager,
+        nocache_llm: LLMManager,
+        run_logger: OCELRunLogger,
+    ) -> Callable[..., Any]:
         """
-        Create an LLM query function that logs OCEL events.
+        Create an LLM query function with per-config cache control.
 
         Args:
-            llm_manager: The LLM manager to use
+            cached_llm: LLM manager with cache enabled
+            nocache_llm: LLM manager with cache disabled
+            run_logger: OCEL run logger tracking current config
 
         Returns:
-            Wrapped query function
+            Wrapped query function that selects appropriate LLM based on config
         """
+        nocache_configs = self.config.nocache_configs
 
-        def query_fn(prompt: str, schema: dict) -> Any:
-            # Call the actual LLM
-            response = llm_manager.query(prompt, schema=schema)
+        def query_fn(
+            prompt: str,
+            schema: dict,
+            temperature: float | None = None,
+            max_tokens: int | None = None,
+        ) -> Any:
+            # Check if current config should skip cache
+            current_config = run_logger.current_config
+            skip_cache = current_config in nocache_configs if current_config else False
+
+            # Select appropriate LLM manager
+            llm = nocache_llm if skip_cache else cached_llm
+
+            # Call the actual LLM with optional parameters
+            response = llm.query(prompt, schema=schema, temperature=temperature, max_tokens=max_tokens)
 
             # Log the query as an OCEL event (metadata only)
             usage = getattr(response, "usage", None) or {}
             content = getattr(response, "content", "")
             cache_hit = getattr(response, "response_type", None) == "cached"
 
-            # These are set before query_fn is called
             current_run_id = self._current_run_id or ""
             current_model = self._current_model or ""
 
@@ -498,10 +695,13 @@ class BenchmarkOrchestrator:
                 objects={
                     "BenchmarkRun": [current_run_id],
                     "Model": [current_model],
+                    "Config": [current_config] if current_config else [],
                 },
+                config_id=current_config,
                 tokens_in=usage.get("prompt_tokens", 0),
                 tokens_out=usage.get("completion_tokens", 0),
                 cache_hit=cache_hit,
+                cache_skipped=skip_cache,
                 response_hash=hash_content(content) if content else None,
             )
 
