@@ -98,7 +98,7 @@ uv run python -m deriva.cli.cli repo clone https://github.com/marcelemonds/flask
 # (cached runs will show 100% consistency)
 uv run python -m deriva.cli.cli benchmark run \
   --repos flask_invoice_generator \
-  --models azure-gpt4mini \
+  --models openai-gptx \
   --runs 5 \
   --no-cache \
   --verbose
@@ -117,9 +117,9 @@ uv run python -m deriva.cli.cli benchmark analyze bench_20260103_094609
 # Output shows:
 # Overall Consistency: 28.0%
 # INTRA-MODEL CONSISTENCY (stability across runs)
-#   azure-gpt4mini @ flask_invoice_generator: 28.0%
+#   openai-gptx @ flask_invoice_generator: 28.0%
 # INCONSISTENCY HOTSPOTS
-#   [HIGH] model: azure-gpt4mini (28.0%)
+#   [HIGH] model: openai-gptx (28.0%)
 ```
 
 The analysis produces `workspace/benchmarks/<session>/analysis/summary.json` with:
@@ -136,11 +136,11 @@ When you modify a config, Deriva creates a new version (for rollback):
 
 ```bash
 # Update instruction inline
-uv run python -m deriva.cli.cli config update derivation ApplicationComponent \
+uv run python -m cli config update derivation ApplicationComponent \
   -i "Identify software components that encapsulate business logic..."
 
 # Or from file for longer instructions
-uv run python -m deriva.cli.cli config update derivation ApplicationComponent \
+uv run python -m cli config update derivation ApplicationComponent \
   --instruction-file prompts/app_component.txt
 ```
 
@@ -150,9 +150,9 @@ Use `--nocache-configs` to test your change while keeping other configs cached:
 
 ```bash
 # Only ApplicationComponent skips cache, others use cached responses
-uv run python -m deriva.cli.cli benchmark run \
+uv run python -m cli benchmark run \
   --repos flask_invoice_generator \
-  --models azure-gpt4mini \
+  --models openai-gptx \
   --runs 5 \
   --nocache-configs ApplicationComponent
 ```
@@ -166,7 +166,7 @@ This is crucial for cost-efficient testing:
 
 ```bash
 # Check if consistency improved
-uv run python -m deriva.cli.cli benchmark analyze bench_20260103_130000
+uv run python -m cli benchmark analyze bench_20260103_130000
 
 # Compare with baseline
 # If consistency went from 28% → 78%, the change helped
@@ -207,14 +207,14 @@ uv run python -m deriva.cli.cli benchmark analyze bench_20260103_130000
    # Single run first to verify no errors
    uv run python -m deriva.cli.cli benchmark run \
      --repos flask_invoice_generator \
-     --models azure-gpt4mini \
+     --models openai-gptx \
      --runs 1 \
      --nocache-configs ApplicationComponent
 
    # If successful, run 5x for consistency measurement
    uv run python -m deriva.cli.cli benchmark run \
      --repos flask_invoice_generator \
-     --models azure-gpt4mini \
+     --models openai-gptx \
      --runs 5 \
      --nocache-configs ApplicationComponent
    ```
@@ -390,7 +390,7 @@ Benchmark results are stored in `workspace/benchmarks/<session_id>/`:
 ### 2026-01-03: Initial Config Optimization
 
 **Repository:** flask_invoice_generator (small)
-**Model:** azure-gpt4mini
+**Model:** openai-gptx
 **Runs:** 5
 
 #### Baseline Results
@@ -432,7 +432,7 @@ Benchmark results are stored in `workspace/benchmarks/<session_id>/`:
 ### 2026-01-03: Medium Repository Test
 
 **Repository:** full-stack-fastapi-template (medium)
-**Model:** azure-gpt4mini
+**Model:** openai-gptx
 
 #### Issues Encountered
 
@@ -495,7 +495,7 @@ INVALID TYPES (NEVER use these):
 - flask_invoice_generator (small)
 - full-stack-fastapi-template (medium)
 
-**Model:** azure-gpt4mini
+**Model:** openai-gptx
 **Runs:** 3 per repo
 
 #### Results

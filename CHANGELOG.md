@@ -1,10 +1,35 @@
 # Deriva Changelog
 
-Deriving ArchiMate models from code using LLMs - a journey through architectural decisions, strategic purges, and the occasional keyboard smash.
+Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's, a journey through architectural decisions, strategic purges and lot's and lot's of trial and error.
 
 ---
 
 # v0.6.x - Deriva (December 2025 - January 2026)
+
+## v0.6.2 - (Unreleased)
+
+### Bug Fixes
+
+- Fixed LLM handling when response is `null`/`None`
+- Fixed failing tests, type errors, and linting issues
+
+### Relationship Derivation
+
+- Significant improvements to relationship derivation logic
+
+### Benchmarking
+
+- Updated `BENCHMARKING.md` documentation
+- Improved benchmark workflow and usability
+
+### CI & Code Quality
+
+- Aligned CI test coverage with `pyproject.toml` at 70%
+- Ruff formatting and style fixes
+- Improved README badges
+- Added version placeholder to template
+
+---
 
 ## v0.6.1 - Extraction Refactor, Chunking, AST & Tests (January 3, 2026)
 
@@ -17,7 +42,7 @@ Deriving ArchiMate models from code using LLMs - a journey through architectural
 ### AST Parser Foundation
 
 - Enhanced `adapters/ast/manager.py`, Python AST analysis (classes, functions, imports)
-- Added `tree-sitter` dependency for future multi-language support
+- Added generic `tree-sitter` dependency for future multi-language support (flash from the past)
 - Updated `adapters/ast/models.py` with improved code element types
 
 ### Claude/Anthropic Provider Support

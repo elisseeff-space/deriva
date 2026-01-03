@@ -15,7 +15,7 @@ Thanks for your interest in contributing to Deriva!
 
 ```bash
 # Clone the repo
-git clone https://github.com/StevenBtw/Deriva.git
+git clone https://github.com/StevenBtw/deriva.git
 cd Deriva
 
 # Copy environment template
@@ -26,7 +26,7 @@ cp .env.example .env
 uv sync --all-extras
 
 # Run the marimo notebook
-uv run marimo edit deriva/app/app.py
+uv run marimo edit app.py
 
 # Run linter
 uv run ruff check .
