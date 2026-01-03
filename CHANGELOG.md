@@ -6,32 +6,44 @@ Deriving ArchiMate models from code using LLMs - a journey through architectural
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
-## v0.6.1 - Extraction Refactor & AST Foundation (January 3, 2026)
+## v0.6.1 - Extraction Refactor, Chunking, AST & Tests (January 3, 2026)
 
 ### Extraction Module Refactor
 
-- Flattened `modules/extraction/` structure - removed `llm/` and `structural/` subdirs
-- Added `common/chunking.py` (395 lines) - file chunking with overlap support
+- Flattened `modules/extraction/` structure, removed `llm/` and `structural/` subdirs
+- Added `common/chunking.py`, file chunking with overlap support
 - New database scripts: `5_chunking_config.sql`, `6_extraction_method.sql`
 
 ### AST Parser Foundation
 
-- Enhanced `adapters/ast/manager.py` - Python AST analysis (classes, functions, imports)
+- Enhanced `adapters/ast/manager.py`, Python AST analysis (classes, functions, imports)
 - Added `tree-sitter` dependency for future multi-language support
 - Updated `adapters/ast/models.py` with improved code element types
 
+### Claude/Anthropic Provider Support
+
+- Added Claude Haiku model support in `adapters/llm/providers.py`
+- Updated `adapters/llm/models.py` with Anthropic model configurations
+
+### Test Suite Expansion
+
+Comprehensive test coverage across the codebase:
+
+- **Adapters:** AST manager, repository manager, LLM cache/models/providers, ArchiMate validation, graph models
+- **Common:** Chunking, exceptions, file utils, logging, OCEL, schema utils, time utils
+- **Extraction:** Directory, file, input sources, LLM extractors, repository
+- **Derivation:** Element generation, PageRank preparation
+- **Services:** Benchmarking, config, derivation, extraction, pipeline, session
+- **CLI:** Integration tests
+
 ### Code Quality
 
+- Enforced 70% minimum code coverage in CI
+- Fixed type warnings across codebase
+- Consolidated `benchmark_analysis.py` into `benchmarking.py`
 - Added `types-lxml>=2025.3.30` for lxml type stubs
 - Created `@runtime_checkable` `HasToDict` Protocol
 - Reduced `# type: ignore` from 8 to 2 (neo4j stubs limitations)
-- Fixed `ast.get_docstring()` type narrowing
-
-### CI/CD & Tests
-
-- Added Codecov configuration
-- Fixed `test_cypher_query` label mismatch
-- All 166 tests passing
 
 ---
 
