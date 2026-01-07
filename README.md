@@ -15,10 +15,13 @@ Deriva analyzes code repositories and transforms them into [ArchiMate](https://w
 
 1. **Clone** a Git repository
 2. **Extract** a graph representation into Neo4j:
-   - Structural nodes: directories, files (classified by type)
+   - Structural nodes: directories, files (classified by type and subtype)
    - Semantic nodes: TypeDefinitions, Methods, BusinessConcepts, Technologies, etc.
    - Python files use fast AST extraction; other languages use LLM
-3. **Derive** ArchiMate elements (prep → generate → relationship phases)
+3. **Derive** ArchiMate elements using a hybrid approach:
+   - **Prep phase**: Graph enrichment (PageRank, Louvain communities, k-core)
+   - **Generate phase**: LLM-based element derivation with graph metrics
+   - **Relationship phase**: Per-element or single-pass relationship derivation
 4. **Export** to `.archimate` XML file
 
 ## Quick Setup
@@ -244,7 +247,7 @@ Deriva uses a multi-column marimo notebook layout:
 | **0** | **Run Deriva**: Pipeline execution buttons, status display |
 | **1** | **Configuration**: Runs, repositories, Neo4j, graph stats, ArchiMate, LLM |
 | **2** | **Extraction Settings**: File type registry, extraction step configuration |
-| **3** | **Derivation Settings**: Derivation step configuration (prep/generate/relationship phases) |
+| **3** | **Derivation Settings**: Element type configuration (14 types across Business/Application/Technology layers), relationship derivation |
 
 The UI is powered by `PipelineSession` from the services layer, providing a clean separation between presentation and business logic.
 
