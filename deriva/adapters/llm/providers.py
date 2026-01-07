@@ -23,7 +23,7 @@ import requests
 from deriva.common.exceptions import ProviderError as ProviderError
 
 # Valid provider names - shared between providers and benchmark models
-VALID_PROVIDERS = frozenset({"azure", "openai", "anthropic", "ollama", "claudecode"})
+VALID_PROVIDERS = frozenset({"azure", "openai", "anthropic", "ollama", "claudecode", "mistral", "lmstudio"})
 
 __all__ = [
     "VALID_PROVIDERS",
@@ -37,6 +37,8 @@ __all__ = [
     "AnthropicProvider",
     "OllamaProvider",
     "ClaudeCodeProvider",
+    "MistralProvider",
+    "LMStudioProvider",
     "create_provider",
 ]
 
@@ -360,6 +362,111 @@ class OllamaProvider(BaseProvider):
             raise ProviderError(f"Unexpected Ollama response format: {e}") from e
 
 
+class LMStudioProvider(BaseProvider):
+    """LM Studio local LLM provider implementation (OpenAI-compatible API).
+
+    LM Studio provides an OpenAI-compatible REST API at localhost:1234.
+    No API key required - runs locally.
+    """
+
+    @property
+    def name(self) -> str:
+        return "lmstudio"
+
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int | None = None,
+        json_mode: bool = False,
+    ) -> CompletionResult:
+        headers = {
+            "Content-Type": "application/json",
+        }
+
+        body: dict[str, Any] = {
+            "model": self.config.model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+
+        if max_tokens:
+            body["max_tokens"] = max_tokens
+
+        if json_mode:
+            # LM Studio uses json_schema format (not json_object like OpenAI)
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "strict": False,
+                    "schema": {"type": "object"}
+                }
+            }
+
+        response = self._make_request(headers, body)
+
+        try:
+            content = response["choices"][0]["message"]["content"]
+            usage = response.get("usage")
+            finish_reason = response["choices"][0].get("finish_reason")
+            return CompletionResult(
+                content=content,
+                usage=usage,
+                finish_reason=finish_reason,
+                raw_response=response,
+            )
+        except (KeyError, IndexError) as e:
+            raise ProviderError(f"Unexpected LM Studio response format: {e}") from e
+
+
+class MistralProvider(BaseProvider):
+    """Mistral AI provider implementation (OpenAI-compatible API)."""
+
+    @property
+    def name(self) -> str:
+        return "mistral"
+
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        temperature: float = 0.7,
+        max_tokens: int | None = None,
+        json_mode: bool = False,
+    ) -> CompletionResult:
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self.config.api_key}",
+        }
+
+        body: dict[str, Any] = {
+            "model": self.config.model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+
+        if max_tokens:
+            body["max_tokens"] = max_tokens
+
+        if json_mode:
+            body["response_format"] = {"type": "json_object"}
+
+        response = self._make_request(headers, body)
+
+        try:
+            content = response["choices"][0]["message"]["content"]
+            usage = response.get("usage")
+            finish_reason = response["choices"][0].get("finish_reason")
+            return CompletionResult(
+                content=content,
+                usage=usage,
+                finish_reason=finish_reason,
+                raw_response=response,
+            )
+        except (KeyError, IndexError) as e:
+            raise ProviderError(f"Unexpected Mistral response format: {e}") from e
+
+
 class ClaudeCodeProvider(BaseProvider):
     """
     Claude Code provider using the Agent SDK CLI.
@@ -485,10 +592,9 @@ class ClaudeCodeProvider(BaseProvider):
 
         resolved_model = self._resolve_model(self.config.model)
 
+        # Use stdin for prompt to avoid Windows command line length limit
         cmd = [
             "claude",
-            "-p",
-            prompt,
             "--model",
             resolved_model,
             "--output-format",
@@ -499,8 +605,10 @@ class ClaudeCodeProvider(BaseProvider):
 
         try:
             # shell=True needed on Windows where claude is a .cmd script
+            # Pass prompt via stdin to avoid command line length limits
             result = subprocess.run(
                 cmd,
+                input=prompt,
                 capture_output=True,
                 text=True,
                 timeout=self.config.timeout,
@@ -580,7 +688,9 @@ def create_provider(provider_name: str, config: ProviderConfig) -> LLMProvider:
         "openai": OpenAIProvider,
         "anthropic": AnthropicProvider,
         "ollama": OllamaProvider,
+        "lmstudio": LMStudioProvider,
         "claudecode": ClaudeCodeProvider,
+        "mistral": MistralProvider,
     }
 
     provider_class = providers.get(provider_name.lower())
