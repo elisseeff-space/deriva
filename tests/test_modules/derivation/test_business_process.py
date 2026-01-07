@@ -46,13 +46,13 @@ class TestFilterCandidates:
         result = filter_candidates(candidates, {}, {"workflow"}, set(), 5)
         assert len(result) <= 5
 
-    def test_filters_dunder_names(self):
+    def test_filters_empty_names(self):
         from deriva.modules.derivation.business_process import filter_candidates
 
-        candidates = [make_candidate("__init__"), make_candidate("order_workflow")]
+        candidates = [make_candidate(""), make_candidate("order_workflow")]
         result = filter_candidates(candidates, {}, {"workflow"}, set(), 10)
         names = [c.name for c in result]
-        assert "__init__" not in names
+        assert "" not in names
 
     def test_fills_remaining_slots(self):
         from deriva.modules.derivation.business_process import filter_candidates
