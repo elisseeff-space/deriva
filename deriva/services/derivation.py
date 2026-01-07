@@ -32,9 +32,125 @@ from deriva.modules.derivation import (
     build_relationship_prompt,
     parse_relationship_response,
 )
-from deriva.modules.derivation.generate import generate_element
-from deriva.modules.derivation.prep_pagerank import run_pagerank
 from deriva.services import config
+
+# Element generation module registry
+# Maps element_type to module with generate() function
+_ELEMENT_MODULES: dict[str, Any] = {}
+
+
+def _load_element_module(element_type: str) -> Any:
+    """Lazily load element generation module."""
+    if element_type in _ELEMENT_MODULES:
+        return _ELEMENT_MODULES[element_type]
+
+    module = None
+    # Business Layer
+    if element_type == "BusinessObject":
+        from deriva.modules.derivation import business_object as module
+    elif element_type == "BusinessProcess":
+        from deriva.modules.derivation import business_process as module
+    elif element_type == "BusinessActor":
+        from deriva.modules.derivation import business_actor as module
+    elif element_type == "BusinessEvent":
+        from deriva.modules.derivation import business_event as module
+    elif element_type == "BusinessFunction":
+        from deriva.modules.derivation import business_function as module
+    # Application Layer
+    elif element_type == "ApplicationComponent":
+        from deriva.modules.derivation import application_component as module
+    elif element_type == "ApplicationService":
+        from deriva.modules.derivation import application_service as module
+    elif element_type == "ApplicationInterface":
+        from deriva.modules.derivation import application_interface as module
+    elif element_type == "DataObject":
+        from deriva.modules.derivation import data_object as module
+    # Technology Layer
+    elif element_type == "TechnologyService":
+        from deriva.modules.derivation import technology_service as module
+    elif element_type == "Node":
+        from deriva.modules.derivation import node as module
+    elif element_type == "Device":
+        from deriva.modules.derivation import device as module
+    elif element_type == "SystemSoftware":
+        from deriva.modules.derivation import system_software as module
+
+    _ELEMENT_MODULES[element_type] = module
+    return module
+
+
+def generate_element(
+    graph_manager: GraphManager,
+    archimate_manager: ArchimateManager,
+    llm_query_fn: Callable[..., Any],
+    element_type: str,
+    engine: Any,
+    query: str,
+    instruction: str,
+    example: str,
+    max_candidates: int,
+    batch_size: int,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> dict[str, Any]:
+    """
+    Generate ArchiMate elements of a specific type.
+
+    Routes to the appropriate module based on element_type.
+    All configuration parameters are required - no defaults, no fallbacks.
+
+    Args:
+        graph_manager: Connected GraphManager for Cypher queries
+        archimate_manager: Connected ArchimateManager for element creation
+        llm_query_fn: Function to call LLM (prompt, schema, **kwargs) -> response
+        element_type: ArchiMate element type (e.g., 'ApplicationService')
+        engine: DuckDB connection for enrichment data and patterns
+        query: Cypher query to get candidate nodes
+        instruction: LLM instruction prompt
+        example: Example output for LLM
+        max_candidates: Maximum candidates to send to LLM
+        batch_size: Batch size for LLM processing
+        temperature: Optional LLM temperature override
+        max_tokens: Optional LLM max_tokens override
+
+    Returns:
+        Dict with success, elements_created, created_elements, errors
+    """
+    module = _load_element_module(element_type)
+
+    if module is None:
+        return {
+            "success": False,
+            "elements_created": 0,
+            "errors": [f"No generation module for element type: {element_type}"],
+        }
+
+    try:
+        result = module.generate(
+            graph_manager=graph_manager,
+            archimate_manager=archimate_manager,
+            engine=engine,
+            llm_query_fn=llm_query_fn,
+            query=query,
+            instruction=instruction,
+            example=example,
+            max_candidates=max_candidates,
+            batch_size=batch_size,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        return {
+            "success": result.success,
+            "elements_created": result.elements_created,
+            "created_elements": result.created_elements,
+            "errors": result.errors,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "elements_created": 0,
+            "errors": [f"Generation failed for {element_type}: {e}"],
+        }
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +178,9 @@ def _normalize_relationship_type(rel_type: str) -> str:
 # PREP STEP REGISTRY
 # =============================================================================
 
-PREP_FUNCTIONS = {
-    "pagerank": run_pagerank,
+# Prep functions are disabled for now - modules being refactored
+PREP_FUNCTIONS: dict[str, Callable[..., Any]] = {
+    # "pagerank": run_pagerank,  # TODO: implement
 }
 
 
@@ -200,15 +317,39 @@ def run_derivation(
                     max_tokens=cfg.max_tokens,
                 )
 
+            # Validate required config parameters
+            missing_params = []
+            if not cfg.input_graph_query:
+                missing_params.append("input_graph_query")
+            if not cfg.instruction:
+                missing_params.append("instruction")
+            if not cfg.example:
+                missing_params.append("example")
+            if cfg.max_candidates is None:
+                missing_params.append("max_candidates")
+            if cfg.batch_size is None:
+                missing_params.append("batch_size")
+
+            if missing_params:
+                error_msg = f"Missing required config for {cfg.step_name}: {', '.join(missing_params)}"
+                errors.append(error_msg)
+                stats["steps_skipped"] += 1
+                if step_ctx:
+                    step_ctx.error(error_msg)
+                continue
+
             try:
                 step_result = generate_element(
                     graph_manager=graph_manager,
                     archimate_manager=archimate_manager,
                     llm_query_fn=step_llm_query_fn,
                     element_type=cfg.element_type,
-                    query=cfg.input_graph_query or "",
-                    instruction=cfg.instruction or "",
-                    example=cfg.example or "",
+                    engine=engine,
+                    query=cfg.input_graph_query,
+                    instruction=cfg.instruction,
+                    example=cfg.example,
+                    max_candidates=cfg.max_candidates,
+                    batch_size=cfg.batch_size,
                 )
 
                 elements_created = step_result.get("elements_created", 0)

@@ -102,21 +102,38 @@ src/
 │
 └── modules/ (Pure business logic)
     └── analysis/
-        ├── consistency.py/   - 
-        └── deviation.py/     -   
-        └── types.py.p/       -             
+        ├── consistency.py    - Model consistency checks
+        ├── deviation.py      - Deviation analysis
+        └── types.py          - Shared analysis types
     └── extraction/
-        ├── classification.py - File type classification
         ├── base.py           - Shared extraction utilities (ID generation, deduplication)
+        ├── classification.py - File type classification
         ├── repository.py     - Repository node extraction
         ├── directory.py      - Directory node extraction
-        ├── file.py           - File node extraction
-        ├── type_definition.py - Classes/functions (LLM)
+        ├── file.py           - File node extraction (with type/subtype)
+        ├── type_definition.py - Classes/functions (AST for Python, LLM for others)
+        ├── method.py         - Methods within type definitions
         ├── business_concept.py - Domain concepts (LLM)
-        └── ...               - Other extraction modules
+        ├── technology.py     - Frameworks/libraries detection
+        ├── external_dependency.py - External dependencies
+        ├── test.py           - Test definitions
+        ├── ast_extraction.py - Python AST parsing
+        └── input_sources.py  - Input source filtering
     └── derivation/
-        ├── graph/            - Graph algorithms for refinement phase
-        └── llm/              - LLM-based derivation
+        ├── base.py           - Shared utilities (prompts, parsing, graph filtering)
+        ├── application_component.py - ApplicationComponent derivation
+        ├── application_interface.py - ApplicationInterface derivation
+        ├── application_service.py   - ApplicationService derivation
+        ├── business_actor.py        - BusinessActor derivation
+        ├── business_event.py        - BusinessEvent derivation
+        ├── business_function.py     - BusinessFunction derivation
+        ├── business_object.py       - BusinessObject derivation
+        ├── business_process.py      - BusinessProcess derivation
+        ├── data_object.py           - DataObject derivation
+        ├── device.py                - Device derivation
+        ├── node.py                  - Node derivation
+        ├── system_software.py       - SystemSoftware derivation
+        └── technology_service.py    - TechnologyService derivation
 ```
 
 ### Layer Responsibilities
@@ -177,11 +194,12 @@ User clicks "Run Pipeline" in app/app.py  OR  runs `deriva run` in CLI
 ┌─────────────────────────────────────────────────────────────┐
 │ DERIVATION (inside services.derivation)                     │
 ├─────────────────────────────────────────────────────────────┤
-│ Phases: prep → generate → refine                            │
-│ 1. Query GraphManager for source nodes [I/O]                │
-│ 2. Call modules.derivation.llm/* [PURE + LLM]               │
-│ 3. Call modules.derivation.graph/* for refinement [PURE]    │
-│ 4. Persist via ArchimateManager.add_element() [I/O]         │
+│ Phases: prep → generate → relationship                      │
+│ 1. Prep: Graph enrichment (PageRank, communities, k-core)   │
+│ 2. Generate: Query candidates with enrichment data [I/O]    │
+│ 3. Generate: Call modules.derivation.{element}.generate()   │
+│ 4. Generate: Persist via ArchimateManager.add_element()     │
+│ 5. Relationship: Derive relationships per-element or batch  │
 └─────────────────────────────────────────────────────────────┘
     ↓
 Export via ArchimateManager.export_to_xml() [I/O]
@@ -196,7 +214,7 @@ Marimo: displays results in UI  |  CLI: prints summary to stdout
 | Column 0 | Run Deriva (pipeline buttons, status callouts) |
 | Column 1 | Configuration (runs, repos, Neo4j, graph stats, ArchiMate, LLM) |
 | Column 2 | Extraction Settings (file types, extraction step config) |
-| Column 3 | Derivation Settings (derivation step config with prep/generate/refine phases) |
+| Column 3 | Derivation Settings (14 element types across Business/Application/Technology layers) |
 
 The app/app.py uses PipelineSession for all operations.
 
@@ -899,51 +917,68 @@ All base files also provide:
 - `create_empty_llm_details()` - Initialize LLM details dict
 - `extract_llm_details_from_response()` - Parse LLM response metadata
 
-### Registry Pattern (`__init__.py`)
+### Lazy Module Loading (`services/derivation.py`)
 
-Each module folder uses a registry dict mapping types to functions:
+Derivation modules are loaded lazily by element type:
 
 ```python
-# modules/derivation/__init__.py
-DERIVATION_FUNCTIONS: Dict[str, DerivationFunction] = {
-    'ApplicationComponent': derive_application_components,
-    'ApplicationService': derive_application_services,
-    # ...
-}
+# services/derivation.py
+def _load_element_module(element_type: str) -> Any:
+    """Lazily load element generation module."""
+    if element_type == "ApplicationComponent":
+        from deriva.modules.derivation import application_component as module
+    elif element_type == "BusinessObject":
+        from deriva.modules.derivation import business_object as module
+    # ... other element types
+    return module
 
-def derive_elements(graph_manager, archimate_manager, llm_query_fn, config):
-    """Generic dispatch to element-specific derivation."""
-    element_type = config['element_type']
-    if element_type not in DERIVATION_FUNCTIONS:
-        return {'success': False, 'errors': [...]}
-    return DERIVATION_FUNCTIONS[element_type](...)
+def generate_element(graph_manager, archimate_manager, llm_query_fn, element_type, ...):
+    """Route to appropriate module based on element_type."""
+    module = _load_element_module(element_type)
+    return module.generate(graph_manager, archimate_manager, ...)
 ```
 
 ### Adding New Element Types
 
-To add a new derivation element type (e.g., `ApplicationService`):
+To add a new derivation element type (e.g., `Contract`):
 
-1. Create `modules/derivation/application_service.py`:
-
-   ```python
-   from .derivation_base import build_derivation_prompt, parse_derivation_response
-
-   APPLICATION_SERVICE_SCHEMA = {...}
-
-   def derive_application_services(graph_manager, archimate_manager, llm_query_fn, config, progress_callback=None):
-       # Implementation
-   ```
-
-2. Register in `modules/derivation/__init__.py`:
+1. Create `modules/derivation/contract.py` with a `generate()` function:
 
    ```python
-   from .application_service import derive_application_services, APPLICATION_SERVICE_SCHEMA
+   """Contract element derivation."""
+   from __future__ import annotations
 
-   DERIVATION_FUNCTIONS['ApplicationService'] = derive_application_services
-   DERIVATION_SCHEMAS['ApplicationService'] = APPLICATION_SERVICE_SCHEMA
+   from deriva.modules.derivation.base import (
+       Candidate, GenerationResult, batch_candidates, build_derivation_prompt,
+       build_element, get_enrichments, parse_derivation_response, query_candidates,
+       DERIVATION_SCHEMA,
+   )
+
+   def generate(
+       graph_manager, archimate_manager, engine, llm_query_fn,
+       query: str, instruction: str, example: str,
+       max_candidates: int, batch_size: int,
+       temperature: float | None = None, max_tokens: int | None = None,
+   ) -> GenerationResult:
+       # 1. Get enrichments from DuckDB
+       enrichments = get_enrichments(engine)
+       # 2. Query candidates using the Cypher query
+       candidates = query_candidates(graph_manager, query, enrichments)
+       # 3. Filter/limit candidates
+       candidates = candidates[:max_candidates]
+       # 4. Batch and process with LLM
+       # ... (see existing modules for full pattern)
+       return GenerationResult(success=True, elements_created=count, ...)
    ```
 
-3. Add derivation config in DuckDB (via SQL script)
+2. Register in `services/derivation.py` `_load_element_module()`:
+
+   ```python
+   elif element_type == "Contract":
+       from deriva.modules.derivation import contract as module
+   ```
+
+3. Add derivation config in DuckDB via SQL script in `adapters/database/scripts/`
 
 </details>
 
@@ -1093,58 +1128,79 @@ def has_node_sources(config: Dict) -> bool
 
 ### Derivation Modules (`modules/derivation/`)
 
-Derivation is organized by method and runs in three phases:
+Derivation uses a hybrid approach combining graph algorithms with LLM:
 
-- **prep phase** - Pre-derivation graph analysis
-- **generate phase** - LLM-based ArchiMate element derivation (`llm/`)
-- **refine phase** - Post-derivation model refinement and quality checks (`graph/`)
+- **prep phase** - Graph enrichment (PageRank, Louvain communities, k-core analysis)
+- **generate phase** - LLM-based element derivation using graph metrics for filtering
+- **relationship phase** - Per-element or single-pass relationship derivation
 
-**Goal:** Transform Graph nodes into ArchiMate elements and refine the model.
+**Goal:** Transform Graph nodes into ArchiMate elements across Business, Application, and Technology layers.
 
-Each derivation module follows this pattern:
+#### Base Module (`base.py`)
+
+Provides shared utilities for all derivation modules:
 
 ```python
-# Derive elements from graph data
-def derive_{element_type}s(
-    graph_manager,
-    archimate_manager,
-    llm_query_fn,
-    config: Dict
-) -> Dict[str, Any]:
-    """
-    Returns: {
-        'success': bool,
-        'data': {'elements_created': [...]},
-        'errors': [...],
-        'stats': {...},
-        'llm_details': {...}
-    }
-    """
+from deriva.modules.derivation import (
+    Candidate,              # Dataclass for candidate nodes with enrichment data
+    query_candidates,       # Execute Cypher and return enriched candidates
+    batch_candidates,       # Split candidates into batches for LLM
+    build_derivation_prompt,    # Build LLM prompt for elements
+    build_relationship_prompt,  # Build LLM prompt for relationships
+    parse_derivation_response,  # Parse LLM element response
+    build_element,              # Build ArchiMate element from LLM output
+    DERIVATION_SCHEMA,          # JSON schema for element derivation
+    RELATIONSHIP_SCHEMA,        # JSON schema for relationship derivation
+)
 ```
 
-#### LLM-Based Derivation (`llm/`)
+#### Element Modules
 
-| Module | Element Type | Input Graph Nodes | Purpose |
-|--------|--------------|-------------------|---------|
-| `application_component.py` | ApplicationComponent | Directory | Group code directories into components |
+Each element type has its own module with a `generate()` function:
 
-**Rules for LLM derivation modules:**
-- Query Graph namespace via `graph_manager.query()` using config's Cypher query
-- Build LLM prompt, services call LLM, module parses response
+| Layer | Module | Element Type | Purpose |
+|-------|--------|--------------|---------|
+| **Business** | `business_actor.py` | BusinessActor | Roles, users, stakeholders |
+| | `business_event.py` | BusinessEvent | Business events and triggers |
+| | `business_function.py` | BusinessFunction | Business capabilities |
+| | `business_object.py` | BusinessObject | Data entities, domain objects |
+| | `business_process.py` | BusinessProcess | Activities, workflows |
+| **Application** | `application_component.py` | ApplicationComponent | Software modules, packages |
+| | `application_interface.py` | ApplicationInterface | APIs, interfaces |
+| | `application_service.py` | ApplicationService | Endpoints, services |
+| | `data_object.py` | DataObject | Files, data structures |
+| **Technology** | `device.py` | Device | Hardware, containers |
+| | `node.py` | Node | Compute infrastructure |
+| | `system_software.py` | SystemSoftware | Operating systems, runtimes |
+| | `technology_service.py` | TechnologyService | Infrastructure services |
+
+#### Module Pattern
+
+Each element module exports a `generate()` function:
+
+```python
+def generate(
+    graph_manager: GraphManager,
+    archimate_manager: ArchimateManager,
+    engine: Any,  # DuckDB connection for enrichment
+    llm_query_fn: Callable,
+    query: str,           # Cypher query for candidates
+    instruction: str,     # LLM derivation instructions
+    example: str,         # Example output
+    max_candidates: int,
+    batch_size: int,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> GenerationResult:
+    """Returns GenerationResult with success, elements_created, created_elements, errors."""
+```
+
+**Rules for derivation modules:**
+- Query candidates using config's Cypher query
+- Enrich candidates with graph metrics (PageRank, community, k-core)
+- Filter and batch candidates before sending to LLM
 - Persist elements via `archimate_manager.add_element()`
-
-#### Graph-Based Refinement (`graph/`)
-
-| Module | Purpose |
-|--------|---------|
-| `graph_analysis.py` | Graph algorithms for cross-refinement |
-| `model_validation.py` | Model consistency checks |
-| `quality_metrics.py` | Quality scoring and metrics |
-
-**Rules for graph modules:**
-- Pure graph algorithm implementations
-- No LLM calls - algorithmic refinement only
-- Return refinement results as data structures
+- Configuration comes from DuckDB (instruction, example, query, etc.)
 
 </details>
 

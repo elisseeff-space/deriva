@@ -1,7 +1,6 @@
--- Extraction Config Versions (Initial Seed)
--- Auto-generated from extraction_config.json
-
+-- Extraction Config Seed Data
 -- Sequence order: 1=Repository, 2=Directory, 3=File, 4=BusinessConcept, 5=Technology, 6=ExternalDependency, 7=TypeDefinition, 8=Method, 9=Test
+-- extraction_method: 'structural' (no LLM), 'llm' (LLM-based), 'ast' (AST parsing)
 
 -- input_sources format:
 -- {
@@ -9,23 +8,31 @@
 --   "nodes": [{"label": "TypeDefinition", "property": "codeSnippet"}]  -- graph node label and property
 -- }
 
-INSERT INTO extraction_config
-    (id, node_type, version, sequence, enabled, input_sources, instruction, example, is_active)
-VALUES
-    (1, 'Repository', 1, 1, TRUE, '{"files": [], "nodes": []}', 'Extract repository metadata including name, URL, branch, and commit hash from the repository root.', '{"repoName": "my-repo", "url": "https://github.com/user/my-repo", "branch": "main", "commit": "abc123", "confidence": 1.0}', TRUE);
+-- =============================================================================
+-- STRUCTURAL EXTRACTION (no LLM needed)
+-- =============================================================================
 
 INSERT INTO extraction_config
-    (id, node_type, version, sequence, enabled, input_sources, instruction, example, is_active)
+    (id, node_type, version, sequence, enabled, input_sources, instruction, example, extraction_method, is_active)
 VALUES
-    (2, 'Directory', 1, 2, TRUE, '{"files": [], "nodes": [{"label": "Repository", "property": null}]}', 'Extract directory structure from the repository. Create a node for each directory in the hierarchy.', '{"name": "src", "path": "my-repo/src", "confidence": 1.0}', TRUE);
+    (1, 'Repository', 1, 1, TRUE, '{"files": [], "nodes": []}', 'Extract repository metadata including name, URL, branch, and commit hash from the repository root.', '{"repoName": "my-repo", "url": "https://github.com/user/my-repo", "branch": "main", "commit": "abc123", "confidence": 1.0}', 'structural', TRUE);
 
 INSERT INTO extraction_config
-    (id, node_type, version, sequence, enabled, input_sources, instruction, example, is_active)
+    (id, node_type, version, sequence, enabled, input_sources, instruction, example, extraction_method, is_active)
 VALUES
-    (3, 'File', 1, 3, TRUE, '{"files": [{"type": "source", "subtype": "*"}, {"type": "config", "subtype": "*"}, {"type": "docs", "subtype": "*"}, {"type": "test", "subtype": "*"}, {"type": "build", "subtype": "*"}, {"type": "data", "subtype": "*"}, {"type": "dependency", "subtype": "*"}], "nodes": [{"label": "Directory", "property": null}]}', 'Extract individual files from directories, classify by type using the file type registry, and calculate basic metrics.', '{"fileName": "auth.py", "filePath": "src/auth/auth.py", "fileType": "source", "subtype": "python", "size": 2048, "confidence": 1.0}', TRUE);
+    (2, 'Directory', 1, 2, TRUE, '{"files": [], "nodes": [{"label": "Repository", "property": null}]}', 'Extract directory structure from the repository. Create a node for each directory in the hierarchy.', '{"name": "src", "path": "my-repo/src", "confidence": 1.0}', 'structural', TRUE);
 
 INSERT INTO extraction_config
-    (id, node_type, version, sequence, enabled, input_sources, instruction, example, is_active)
+    (id, node_type, version, sequence, enabled, input_sources, instruction, example, extraction_method, is_active)
+VALUES
+    (3, 'File', 1, 3, TRUE, '{"files": [{"type": "source", "subtype": "*"}, {"type": "config", "subtype": "*"}, {"type": "docs", "subtype": "*"}, {"type": "test", "subtype": "*"}, {"type": "build", "subtype": "*"}, {"type": "data", "subtype": "*"}, {"type": "dependency", "subtype": "*"}], "nodes": [{"label": "Directory", "property": null}]}', 'Extract individual files from directories, classify by type using the file type registry, and calculate basic metrics.', '{"fileName": "auth.py", "filePath": "src/auth/auth.py", "fileType": "source", "subtype": "python", "size": 2048, "confidence": 1.0}', 'structural', TRUE);
+
+-- =============================================================================
+-- LLM-BASED EXTRACTION (semantic understanding required)
+-- =============================================================================
+
+INSERT INTO extraction_config
+    (id, node_type, version, sequence, enabled, input_sources, instruction, example, extraction_method, is_active)
 VALUES
     (4, 'BusinessConcept', 1, 4, FALSE, '{"files": [{"type": "docs", "subtype": "*"}], "nodes": []}', 'Extract ONLY high-level business domain concepts from the documentation. Focus on the "what" of the business, NOT the "how" of implementation.
 
@@ -44,10 +51,10 @@ EXCLUDE (Technical/Implementation):
 - Generic actors like User, System, Admin
 
 LIMIT: Maximum 5-7 concepts per file
-CONFIDENCE: Only include concepts with confidence >= 0.7', '{"conceptName": "Invoice", "conceptType": "entity", "description": "Document representing a billing transaction with line items and payment terms", "originSource": "docs/readme.md", "confidence": 0.9}', TRUE);
+CONFIDENCE: Only include concepts with confidence >= 0.7', '{"conceptName": "Invoice", "conceptType": "entity", "description": "Document representing a billing transaction with line items and payment terms", "originSource": "docs/readme.md", "confidence": 0.9}', 'llm', TRUE);
 
 INSERT INTO extraction_config
-    (id, node_type, version, sequence, enabled, input_sources, instruction, example, is_active)
+    (id, node_type, version, sequence, enabled, input_sources, instruction, example, extraction_method, is_active)
 VALUES
     (5, 'Technology', 1, 5, TRUE, '{"files": [{"type": "dependency", "subtype": "*"}, {"type": "config", "subtype": "*"}, {"type": "build", "subtype": "*"}], "nodes": []}', 'Extract HIGH-LEVEL technology infrastructure components that will map to ArchiMate Technology Layer elements.
 
@@ -75,10 +82,10 @@ Look for clues in:
 - Docker/container configurations
 - Cloud service references
 - Authentication/authorization setup
-- API gateway or proxy configurations', '{"techName": "PostgreSQL", "techCategory": "system_software", "description": "Primary relational database for application data", "version": "15", "confidence": 0.95}', TRUE);
+- API gateway or proxy configurations', '{"techName": "PostgreSQL", "techCategory": "system_software", "description": "Primary relational database for application data", "version": "15", "confidence": 0.95}', 'llm', TRUE);
 
 INSERT INTO extraction_config
-    (id, node_type, version, sequence, enabled, input_sources, instruction, example, is_active)
+    (id, node_type, version, sequence, enabled, input_sources, instruction, example, extraction_method, is_active)
 VALUES
     (6, 'ExternalDependency', 1, 6, TRUE, '{"files": [{"type": "dependency", "subtype": "*"}, {"type": "config", "subtype": "*"}, {"type": "source", "subtype": "*"}], "nodes": []}', 'Extract external dependencies including libraries, external APIs, and external service integrations.
 
@@ -109,10 +116,10 @@ Look for clues in:
 - Dependency manifest files (requirements.txt, package.json, pyproject.toml)
 - Import statements referencing external packages
 - API client initializations and URL patterns
-- Environment variable references to external services', '{"dependencyName": "stripe", "dependencyCategory": "external_api", "version": "5.0.0", "ecosystem": "pypi", "description": "Payment processing API client", "confidence": 0.95}', TRUE);
+- Environment variable references to external services', '{"dependencyName": "stripe", "dependencyCategory": "external_api", "version": "5.0.0", "ecosystem": "pypi", "description": "Payment processing API client", "confidence": 0.95}', 'llm', TRUE);
 
 INSERT INTO extraction_config
-    (id, node_type, version, sequence, enabled, input_sources, instruction, example, is_active)
+    (id, node_type, version, sequence, enabled, input_sources, instruction, example, extraction_method, is_active)
 VALUES
     (7, 'TypeDefinition', 1, 7, FALSE, '{"files": [{"type": "source", "subtype": "*"}], "nodes": []}', 'Extract type definitions (classes, interfaces, structs, enums, functions) from source files.
 
@@ -125,10 +132,10 @@ For each type definition, identify:
 - endLine: Line number where the type definition ends (include the full body)
 - confidence: Your confidence in this extraction (0.0 to 1.0)
 
-IMPORTANT: Use the exact line numbers shown in the file content.', '{"typeName": "UserRepository", "category": "class", "description": "Data access layer for User entities", "interfaceType": "Internal API", "startLine": 15, "endLine": 45, "confidence": 0.9}', TRUE);
+IMPORTANT: Use the exact line numbers shown in the file content.', '{"typeName": "UserRepository", "category": "class", "description": "Data access layer for User entities", "interfaceType": "Internal API", "startLine": 15, "endLine": 45, "confidence": 0.9}', 'llm', TRUE);
 
 INSERT INTO extraction_config
-    (id, node_type, version, sequence, enabled, input_sources, instruction, example, is_active)
+    (id, node_type, version, sequence, enabled, input_sources, instruction, example, extraction_method, is_active)
 VALUES
     (8, 'Method', 1, 8, FALSE, '{"files": [], "nodes": [{"label": "TypeDefinition", "property": "codeSnippet"}]}', 'Extract methods and functions from the type definition code snippet.
 
@@ -149,10 +156,10 @@ For each method, identify:
 Include special methods like __init__, __str__, __repr__, etc.
 Skip module-level imports and constants.
 
-IMPORTANT: Use the exact line numbers shown in the code snippet.', '{"methodName": "authenticate", "returnType": "bool", "visibility": "public", "parameters": "self, username: str, password: str", "description": "Authenticates a user with credentials", "isStatic": false, "isAsync": false, "startLine": 5, "endLine": 12, "confidence": 0.9}', TRUE);
+IMPORTANT: Use the exact line numbers shown in the code snippet.', '{"methodName": "authenticate", "returnType": "bool", "visibility": "public", "parameters": "self, username: str, password: str", "description": "Authenticates a user with credentials", "isStatic": false, "isAsync": false, "startLine": 5, "endLine": 12, "confidence": 0.9}', 'llm', TRUE);
 
 INSERT INTO extraction_config
-    (id, node_type, version, sequence, enabled, input_sources, instruction, example, is_active)
+    (id, node_type, version, sequence, enabled, input_sources, instruction, example, extraction_method, is_active)
 VALUES
     (9, 'Test', 1, 9, FALSE, '{"files": [{"type": "test", "subtype": "*"}], "nodes": []}', 'Extract test definitions from test files.
 
@@ -171,4 +178,4 @@ Identify the test type based on:
 - Test name patterns (test_unit_*, test_integration_*)
 - Test content and what it''s testing (mocking = unit, real services = integration)
 
-IMPORTANT: Use the exact line numbers shown in the file content.', '{"testName": "test_user_authentication", "testType": "unit", "description": "Tests user login with valid credentials", "testedElement": "UserService.authenticate", "framework": "pytest", "startLine": 10, "endLine": 25, "confidence": 0.9}', TRUE);
+IMPORTANT: Use the exact line numbers shown in the file content.', '{"testName": "test_user_authentication", "testType": "unit", "description": "Tests user login with valid credentials", "testedElement": "UserService.authenticate", "framework": "pytest", "startLine": 10, "endLine": 25, "confidence": 0.9}', 'llm', TRUE);

@@ -1,6 +1,6 @@
 [project]
 name = "Deriva"
-version = "0.6.1"
+version = "0.6.2"
 description = "Automatically generate ArchiMate enterprise architecture models from software repositories"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -53,7 +53,7 @@ dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.10",
-    "ty>=0.0.8",
+    "ty>=0.0.9",
     "types-lxml>=2025.3.30",
     "pre-commit>=4.5.1",
 ]
