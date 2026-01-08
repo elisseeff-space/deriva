@@ -359,7 +359,6 @@ def run_derivation(
 
     # Load per-element relationship configs from dedicated table
     rel_configs = config.get_relationship_configs(engine, enabled_only=enabled_only)
-    rel_config_map = {c.element_type: c for c in rel_configs}
     derive_relationships = bool(rel_configs) and "relationship" in phases
 
     # Start phase logging

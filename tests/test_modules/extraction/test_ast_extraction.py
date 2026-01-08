@@ -6,13 +6,13 @@ from unittest.mock import MagicMock, patch
 
 from deriva.adapters.ast.models import ExtractedMethod, ExtractedType
 from deriva.modules.extraction.base import is_python_file
-from deriva.modules.extraction.type_definition import (
-    _build_type_node_from_ast,
-    extract_types_from_python,
-)
 from deriva.modules.extraction.method import (
     _build_method_node_from_ast,
     extract_methods_from_python,
+)
+from deriva.modules.extraction.type_definition import (
+    _build_type_node_from_ast,
+    extract_types_from_python,
 )
 
 

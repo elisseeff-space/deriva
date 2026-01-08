@@ -1420,7 +1420,6 @@ class BenchmarkAnalyzer:
 
         # Compute consistency for each type
         breakdown: dict[str, float] = {}
-        num_runs = len(objects_by_run)
 
         for rel_type, objects in type_objects.items():
             # Count objects that appear in ALL runs

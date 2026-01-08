@@ -19,7 +19,6 @@ from .base import (
     create_empty_llm_details,
     current_timestamp,
     generate_edge_id,
-    is_python_file,
     parse_json_response,
     strip_chunk_suffix,
 )
