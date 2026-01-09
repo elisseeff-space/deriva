@@ -828,10 +828,7 @@ def run_extraction_iter(
 
     # Get file type registry for classification
     file_types = config.get_file_types(engine)
-    registry_list = [
-        {"extension": ft.extension, "file_type": ft.file_type, "subtype": ft.subtype}
-        for ft in file_types
-    ]
+    registry_list = [{"extension": ft.extension, "file_type": ft.file_type, "subtype": ft.subtype} for ft in file_types]
 
     total_steps = len(configs) * len(repos)
     current_step = 0
@@ -850,11 +847,7 @@ def run_extraction_iter(
         # Get all files for classification
         file_paths = []
         for f in repo_path.rglob("*"):
-            if (
-                f.is_file()
-                and not any(x in f.parts for x in [".git", "__pycache__"])
-                and not str(f).endswith(".pyc")
-            ):
+            if f.is_file() and not any(x in f.parts for x in [".git", "__pycache__"]) and not str(f).endswith(".pyc"):
                 file_paths.append(str(f.relative_to(repo_path)).replace("\\", "/"))
 
         # Classify files
@@ -919,10 +912,7 @@ def run_extraction_iter(
                 )
 
     # Yield final completion
-    final_message = (
-        f"{stats['nodes_created']} nodes, {stats['edges_created']} edges "
-        f"from {stats['repos_processed']} repo(s)"
-    )
+    final_message = f"{stats['nodes_created']} nodes, {stats['edges_created']} edges from {stats['repos_processed']} repo(s)"
     if errors:
         final_message += f" ({len(errors)} errors)"
 

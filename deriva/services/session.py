@@ -742,9 +742,7 @@ class PipelineSession:
             for c in configs
         ]
 
-    def get_extraction_step_count(
-        self, repo_name: str | None = None, enabled_only: bool = True
-    ) -> int:
+    def get_extraction_step_count(self, repo_name: str | None = None, enabled_only: bool = True) -> int:
         """Get total number of extraction steps for progress tracking.
 
         Args:

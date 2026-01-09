@@ -562,10 +562,12 @@ class ClaudeCodeProvider(BaseProvider):
             return
         try:
             # shell=True needed on Windows where claude is a .cmd script
+            # encoding='utf-8' for consistent output handling
             result = subprocess.run(
                 ["claude", "--version"],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=10,
                 check=False,
                 shell=(sys.platform == "win32"),
@@ -669,11 +671,13 @@ class ClaudeCodeProvider(BaseProvider):
         try:
             # shell=True needed on Windows where claude is a .cmd script
             # Pass prompt via stdin to avoid command line length limits
+            # encoding='utf-8' required for Unicode characters on Windows
             result = subprocess.run(
                 cmd,
                 input=prompt,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=self.config.timeout,
                 check=False,
                 shell=(sys.platform == "win32"),

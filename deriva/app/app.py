@@ -56,6 +56,7 @@ async def _(
 
     if run_deriva_btn.value:
         import time
+
         _start = time.time()
         print("[Deriva] Running full pipeline...")
 
@@ -119,6 +120,7 @@ async def _(
 
     elif extraction_btn.value:
         import time
+
         _start = time.time()
         print("[Deriva] Running extraction...")
 
@@ -175,6 +177,7 @@ async def _(
 
     elif derivation_btn.value:
         import time
+
         _start = time.time()
         print("[Deriva] Running derivation...")
 

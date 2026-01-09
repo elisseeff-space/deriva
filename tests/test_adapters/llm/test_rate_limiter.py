@@ -189,10 +189,7 @@ class TestRateLimiterRecordSuccess:
         limiter._consecutive_rate_limits = 10
 
         # Call from multiple threads
-        threads = [
-            threading.Thread(target=limiter.record_success)
-            for _ in range(5)
-        ]
+        threads = [threading.Thread(target=limiter.record_success) for _ in range(5)]
         for t in threads:
             t.start()
         for t in threads:
