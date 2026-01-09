@@ -38,66 +38,197 @@ def _(mo):
 
 
 @app.cell
-def _(MarimoProgressReporter, derivation_btn, extraction_btn, mo, run_deriva_btn, session):
+async def _(
+    MarimoLiveProgressReporter,
+    MarimoProgressReporter,
+    asyncio,
+    derivation_btn,
+    extraction_btn,
+    mo,
+    run_deriva_btn,
+    session,
+):
     # Run pipeline based on button clicks
     _result = None
     _kind = "neutral"
-    _progress = None
     _summary = None
+    _elapsed = 0.0
 
     if run_deriva_btn.value:
+        import time
+        _start = time.time()
         print("[Deriva] Running full pipeline...")
-        _progress = MarimoProgressReporter()
-        with mo.status.spinner("Running pipeline..."):
-            _result = session.run_pipeline(verbose=False, progress=_progress)
-        _summary = _progress.get_summary()
-        _kind = "success" if _result.get("success") else "danger"
-        _stats = _result.get("stats", {})
-        print(f"[Deriva] Pipeline complete: {_summary['steps_completed']} steps in {_summary['elapsed_seconds']:.1f}s")
-        _msg = f"""**Pipeline Complete** ({_summary["elapsed_seconds"]:.1f}s)
-- Extraction: {_stats.get("extraction", {}).get("nodes_created", 0)} nodes
-- Derivation: {_stats.get("derivation", {}).get("elements_created", 0)} elements
-- Steps completed: {_summary["steps_completed"]}
-- Errors: {len(_result.get("errors", []))}"""
+
+        _extraction_stats = {}
+        _derivation_stats = {}
+        _all_errors = []
+
+        # Phase 1: Extraction with progress bar
+        _ext_total = session.get_extraction_step_count()
+        _ext_last = None
+
+        for _update in mo.status.progress_bar(
+            session.run_extraction_iter(),
+            total=_ext_total,
+            title="Extraction",
+            subtitle=lambda u: f"{u.step}: {u.message}" if u.step else "Starting...",
+            show_rate=True,
+            show_eta=True,
+        ):
+            _ext_last = _update
+            await asyncio.sleep(0.5)
+
+        if _ext_last and _ext_last.stats:
+            _extraction_stats = _ext_last.stats.get("stats", {})
+            _all_errors.extend(_ext_last.stats.get("errors", []))
+
+        # Phase 2: Derivation with progress bar
+        _der_total = session.get_derivation_step_count()
+        _der_last = None
+
+        for _update in mo.status.progress_bar(
+            session.run_derivation_iter(),
+            total=_der_total,
+            title="Derivation",
+            subtitle=lambda u: f"{u.step}: {u.message}" if u.step else "Starting...",
+            show_rate=True,
+            show_eta=True,
+        ):
+            _der_last = _update
+            await asyncio.sleep(0.5)
+
+        if _der_last and _der_last.stats:
+            _derivation_stats = _der_last.stats.get("stats", {})
+            _all_errors.extend(_der_last.stats.get("errors", []))
+
+        _elapsed = time.time() - _start
+        _kind = "success" if len(_all_errors) == 0 else "danger"
+        _steps_completed = _extraction_stats.get("steps_completed", 0) + _derivation_stats.get("steps_completed", 0)
+
+        print(f"[Deriva] Pipeline complete: {_steps_completed} steps in {_elapsed:.1f}s")
+        _msg = f"""**Pipeline Complete** ({_elapsed:.1f}s)
+- Extraction: {_extraction_stats.get("nodes_created", 0)} nodes
+- Derivation: {_derivation_stats.get("elements_created", 0)} elements
+- Steps completed: {_steps_completed}
+- Errors: {len(_all_errors)}"""
+
+        if _all_errors:
+            _result = {"errors": _all_errors}
+        else:
+            _result = None
+
     elif extraction_btn.value:
+        import time
+        _start = time.time()
         print("[Deriva] Running extraction...")
-        _progress = MarimoProgressReporter()
-        with mo.status.spinner("Running extraction..."):
-            _result = session.run_extraction(verbose=False, progress=_progress)
-        _summary = _progress.get_summary()
-        _kind = "success" if _result.get("success") else "danger"
-        _stats = _result.get("stats", {})
-        print(f"[Deriva] Extraction complete: {_stats.get('nodes_created', 0)} nodes in {_summary['elapsed_seconds']:.1f}s")
-        _msg = f"""**Extraction Complete** ({_summary["elapsed_seconds"]:.1f}s)
+
+        # Get total step count for determinate progress bar
+        _total_steps = session.get_extraction_step_count()
+
+        # Use progress_bar as iterator wrapper (documented pattern)
+        _last_update = None
+        _step_messages = []
+
+        for _update in mo.status.progress_bar(
+            session.run_extraction_iter(),
+            total=_total_steps,
+            title="Extraction",
+            subtitle=lambda u: f"{u.step}: {u.message}" if u.step else "Starting...",
+            show_rate=True,
+            show_eta=True,
+        ):
+            _last_update = _update
+            if _update.status == "complete" and _update.step:
+                _step_messages.append(f"- {_update.step}: {_update.message}")
+            await asyncio.sleep(0.5)
+
+        _elapsed = time.time() - _start
+
+        # Extract final stats from last update
+        if _last_update and _last_update.stats:
+            _final = _last_update.stats
+            _success = _final.get("success", True)
+            _stats = _final.get("stats", {})
+            _errors = _final.get("errors", [])
+        else:
+            _success = False
+            _stats = {}
+            _errors = ["No updates received"]
+
+        _kind = "success" if _success else "danger"
+
+        # Build step details
+        _step_details = ""
+        if _step_messages:
+            _step_details = "\n\n**Steps:**\n" + "\n".join(_step_messages)
+
+        _msg = f"""**Extraction Complete** ({_elapsed:.1f}s)
 - Repos: {_stats.get("repos_processed", 0)}
 - Nodes: {_stats.get("nodes_created", 0)}
 - Edges: {_stats.get("edges_created", 0)}
-- Steps completed: {_summary["steps_completed"]}"""
+- Steps: {_stats.get("steps_completed", 0)}{_step_details}"""
+
+        if _errors:
+            _result = {"errors": _errors}
+        else:
+            _result = None
+
     elif derivation_btn.value:
+        import time
+        _start = time.time()
         print("[Deriva] Running derivation...")
-        _progress = MarimoProgressReporter()
-        with mo.status.spinner("Running derivation..."):
-            _result = session.run_derivation(verbose=False, progress=_progress)
-        _summary = _progress.get_summary()
-        _kind = "success" if _result.get("success") else "danger"
-        _stats = _result.get("stats", {})
-        print(f"[Deriva] Derivation complete: {_stats.get('elements_created', 0)} elements in {_summary['elapsed_seconds']:.1f}s")
-        _msg = f"""**Derivation Complete** ({_summary["elapsed_seconds"]:.1f}s)
+
+        # Get total step count for determinate progress bar
+        _total_steps = session.get_derivation_step_count()
+
+        # Use progress_bar as iterator wrapper (documented pattern)
+        _last_update = None
+        _step_messages = []
+
+        for _update in mo.status.progress_bar(
+            session.run_derivation_iter(),
+            total=_total_steps,
+            title="Derivation",
+            subtitle=lambda u: f"{u.step}: {u.message}" if u.step else "Starting...",
+            show_rate=True,
+            show_eta=True,
+        ):
+            _last_update = _update
+            if _update.status == "complete" and _update.step:
+                _step_messages.append(f"- {_update.step}: {_update.message}")
+            await asyncio.sleep(0.5)
+
+        _elapsed = time.time() - _start
+
+        # Extract final stats from last update
+        if _last_update and _last_update.stats:
+            _final = _last_update.stats
+            _success = _final.get("success", True)
+            _stats = _final.get("stats", {})
+            _errors = _final.get("errors", [])
+        else:
+            _success = False
+            _stats = {}
+            _errors = ["No updates received"]
+
+        _kind = "success" if _success else "danger"
+
+        print(f"[Deriva] Derivation complete: {_stats.get('elements_created', 0)} elements in {_elapsed:.1f}s")
+        _msg = f"""**Derivation Complete** ({_elapsed:.1f}s)
 - Elements: {_stats.get("elements_created", 0)}
 - Relationships: {_stats.get("relationships_created", 0)}
-- Steps completed: {_summary["steps_completed"]}
-- Issues: {_stats.get("issues_found", 0)}"""
+- Steps: {_stats.get("steps_completed", 0)}"""
+
+        if _errors:
+            _result = {"errors": _errors}
+        else:
+            _result = None
+
     else:
         _msg = "Click a button to run pipeline steps"
 
     if _result and _result.get("errors"):
         _msg += "\n\n**Errors:**\n" + "\n".join(f"- {e}" for e in _result["errors"][:5])
-
-    # Show step details if available
-    if _summary and _summary.get("step_details"):
-        _steps = _summary["step_details"]
-        if _steps:
-            _msg += "\n\n**Steps:**\n" + "\n".join(f"- {s['name']}: {s['message']}" for s in _steps if s["message"])
 
     mo.callout(mo.md(_msg), kind=_kind)
     return
@@ -814,11 +945,13 @@ def _(mo):
 
 @app.cell
 def _():
-    from deriva.app.progress import MarimoProgressReporter
+    import asyncio
+
+    from deriva.app.progress import MarimoLiveProgressReporter, MarimoProgressReporter
     from deriva.services.session import PipelineSession
 
     session = PipelineSession(auto_connect=True)
-    return MarimoProgressReporter, session
+    return MarimoLiveProgressReporter, MarimoProgressReporter, PipelineSession, asyncio, session
 
 
 @app.cell
@@ -844,5 +977,10 @@ def _(mo):
     return
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Entry point for the Marimo app."""
     app.run()
+
+
+if __name__ == "__main__":
+    main()

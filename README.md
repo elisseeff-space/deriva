@@ -503,7 +503,7 @@ python --version  # Should be 3.14+
 uv sync --reinstall
 
 # Run without watch mode
-uv run marimo edit app.py
+uv run marimo edit deriva/app/app.py
 ```
 
 ---

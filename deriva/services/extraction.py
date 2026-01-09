@@ -12,13 +12,14 @@ Used by both Marimo (visual) and CLI (headless).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from deriva.adapters.graph import GraphManager
 from deriva.common.chunking import chunk_content, should_chunk
+from deriva.common.types import ProgressUpdate
 
 if TYPE_CHECKING:
     from deriva.common.types import ProgressReporter, RunLoggerProtocol
@@ -469,6 +470,9 @@ def _extract_llm_based(
         # Check if this is a Python file and we can use AST
         is_python = extraction.is_python_file(file_info.get("subtype"))
 
+        # Track extraction method for this file
+        extraction_method = "llm"  # Default
+
         # ExternalDependency: use unified function (handles deterministic/AST/LLM)
         if node_type == "ExternalDependency":
             result = extraction.extract_external_dependencies(
@@ -482,6 +486,8 @@ def _extract_llm_based(
             file_nodes = result["data"]["nodes"] if result["success"] else []
             file_edges = result["data"].get("edges", []) if result["success"] else []
             file_errors = result.get("errors", [])
+            # ExternalDependency uses AST for Python deps, structural for config files
+            extraction_method = result.get("extraction_method", "llm")
         elif use_ast_for_python and is_python:
             # Use AST extraction for Python - faster and more precise
             if node_type == "TypeDefinition":
@@ -491,6 +497,7 @@ def _extract_llm_based(
             file_nodes = result["data"]["nodes"] if result["success"] else []
             file_edges = result["data"].get("edges", []) if result["success"] else []
             file_errors = result.get("errors", [])
+            extraction_method = "ast"
         else:
             # Use LLM extraction for non-Python files or other node types
             file_nodes, file_edges, file_errors = _extract_file_content(
@@ -501,6 +508,7 @@ def _extract_llm_based(
                 extraction_config=extraction_config,
                 llm_query_fn=step_llm_query_fn,
             )
+            extraction_method = "llm"
 
         errors.extend(file_errors)
 
@@ -510,7 +518,7 @@ def _extract_llm_based(
 
         # Persist extracted nodes
         for node_data in file_nodes:
-            node = _create_node_from_data(node_type, node_data, repo.name)
+            node = _create_node_from_data(node_type, node_data, repo.name, extraction_method)
             if node:
                 node_id = node_data.get("node_id")
                 graph_manager.add_node(node, node_id=node_id)
@@ -656,8 +664,15 @@ def _build_llm_prompt(node_type: str, content: str, instruction: str | None, exa
     return prompt
 
 
-def _create_node_from_data(node_type: str, node_data: dict, repo_name: str) -> Any:
-    """Create a node model instance from extracted data."""
+def _create_node_from_data(node_type: str, node_data: dict, repo_name: str, extraction_method: str = "llm") -> Any:
+    """Create a node model instance from extracted data.
+
+    Args:
+        node_type: Type of node to create
+        node_data: Extracted data for the node
+        repo_name: Repository name
+        extraction_method: How the node was extracted ('structural', 'ast', or 'llm')
+    """
     props = node_data.get("properties", node_data)
 
     if node_type == "BusinessConcept":
@@ -668,6 +683,7 @@ def _create_node_from_data(node_type: str, node_data: dict, repo_name: str) -> A
             origin_source=props.get("originSource", props.get("origin_source", props.get("source_file", props.get("file_path", "")))),
             repository_name=repo_name,
             confidence=props.get("confidence", 0.8),
+            extraction_method=extraction_method,
         )
     elif node_type == "TypeDefinition":
         return TypeDefinitionNode(
@@ -681,6 +697,7 @@ def _create_node_from_data(node_type: str, node_data: dict, repo_name: str) -> A
             end_line=props.get("endLine", props.get("end_line", 0)),
             code_snippet=props.get("codeSnippet", props.get("code_snippet")),
             confidence=props.get("confidence", 0.8),
+            extraction_method=extraction_method,
         )
     elif node_type == "Method":
         return MethodNode(
@@ -697,6 +714,7 @@ def _create_node_from_data(node_type: str, node_data: dict, repo_name: str) -> A
             start_line=props.get("startLine", props.get("start_line", 0)),
             end_line=props.get("endLine", props.get("end_line", 0)),
             confidence=props.get("confidence", 0.8),
+            extraction_method=extraction_method,
         )
     elif node_type == "Technology":
         return TechnologyNode(
@@ -707,6 +725,7 @@ def _create_node_from_data(node_type: str, node_data: dict, repo_name: str) -> A
             version=props.get("version"),
             origin_source=props.get("originSource", props.get("origin_source", props.get("source_file"))),
             confidence=props.get("confidence", 0.8),
+            extraction_method=extraction_method,
         )
     elif node_type == "ExternalDependency":
         return ExternalDependencyNode(
@@ -718,6 +737,7 @@ def _create_node_from_data(node_type: str, node_data: dict, repo_name: str) -> A
             description=props.get("description"),
             origin_source=props.get("origin_source", props.get("source_file")),
             confidence=props.get("confidence", 0.8),
+            extraction_method=extraction_method,
         )
     elif node_type == "Test":
         return TestNode(
@@ -731,6 +751,191 @@ def _create_node_from_data(node_type: str, node_data: dict, repo_name: str) -> A
             start_line=props.get("start_line", 0),
             end_line=props.get("end_line", 0),
             confidence=props.get("confidence", 0.8),
+            extraction_method=extraction_method,
         )
 
     return None
+
+
+def run_extraction_iter(
+    engine: Any,
+    graph_manager: GraphManager,
+    llm_query_fn: Callable[[str, dict], Any] | None = None,
+    repo_name: str | None = None,
+    enabled_only: bool = True,
+    verbose: bool = False,
+) -> Iterator[ProgressUpdate]:
+    """
+    Run extraction pipeline as a generator, yielding progress updates.
+
+    This is the generator version of run_extraction() designed for use with
+    Marimo's mo.status.progress_bar iterator pattern.
+
+    Args:
+        engine: DuckDB connection for config
+        graph_manager: Connected GraphManager for persistence
+        llm_query_fn: Function to call LLM (prompt, schema) -> response
+        repo_name: Specific repo to extract, or None for all repos
+        enabled_only: Only run enabled extraction steps
+        verbose: Print progress to stdout
+
+    Yields:
+        ProgressUpdate objects for each step in the pipeline
+
+    Example:
+        for update in mo.status.progress_bar(
+            run_extraction_iter(engine, graph_manager),
+            title="Extraction"
+        ):
+            pass  # Marimo renders between yields
+    """
+    stats = {
+        "repos_processed": 0,
+        "nodes_created": 0,
+        "edges_created": 0,
+        "steps_completed": 0,
+        "steps_skipped": 0,
+    }
+    errors: list[str] = []
+
+    # Get repositories
+    repo_mgr = RepoManager()
+    repos = repo_mgr.list_repositories(detailed=True)
+
+    if repo_name:
+        repos = [r for r in repos if hasattr(r, "name") and r.name == repo_name]
+
+    if not repos:
+        yield ProgressUpdate(
+            phase="extraction",
+            status="error",
+            message="No repositories found",
+            stats=stats,
+        )
+        return
+
+    # Get extraction configs
+    configs = config.get_extraction_configs(engine, enabled_only=enabled_only)
+
+    if not configs:
+        yield ProgressUpdate(
+            phase="extraction",
+            status="error",
+            message="No extraction configs enabled",
+            stats=stats,
+        )
+        return
+
+    # Get file type registry for classification
+    file_types = config.get_file_types(engine)
+    registry_list = [
+        {"extension": ft.extension, "file_type": ft.file_type, "subtype": ft.subtype}
+        for ft in file_types
+    ]
+
+    total_steps = len(configs) * len(repos)
+    current_step = 0
+
+    # Process each repository (no phase start yield - let progress bar show from first step)
+    for repo in repos:
+        if not hasattr(repo, "name") or not hasattr(repo, "path"):
+            continue
+
+        if verbose:
+            print(f"\nProcessing repository: {repo.name}")
+
+        repo_path = Path(str(repo.path))
+        stats["repos_processed"] += 1
+
+        # Get all files for classification
+        file_paths = []
+        for f in repo_path.rglob("*"):
+            if (
+                f.is_file()
+                and not any(x in f.parts for x in [".git", "__pycache__"])
+                and not str(f).endswith(".pyc")
+            ):
+                file_paths.append(str(f.relative_to(repo_path)).replace("\\", "/"))
+
+        # Classify files
+        classification_result = classification.classify_files(file_paths, registry_list)
+        classified_files = classification_result["classified"]
+        undefined_files = classification_result["undefined"]
+
+        # Process each extraction step
+        for cfg in configs:
+            node_type = cfg.node_type
+            current_step += 1
+
+            if verbose:
+                print(f"  Extracting: {node_type}")
+
+            try:
+                result = _run_extraction_step(
+                    cfg=cfg,
+                    repo=repo,
+                    repo_path=repo_path,
+                    classified_files=classified_files,
+                    undefined_files=undefined_files,
+                    graph_manager=graph_manager,
+                    llm_query_fn=llm_query_fn,
+                    engine=engine,
+                )
+
+                nodes_created = result.get("nodes_created", 0)
+                edges_created = result.get("edges_created", 0)
+                stats["nodes_created"] += nodes_created
+                stats["edges_created"] += edges_created
+                stats["steps_completed"] += 1
+
+                # Yield step complete
+                yield ProgressUpdate(
+                    phase="extraction",
+                    step=node_type,
+                    status="complete",
+                    current=current_step,
+                    total=total_steps,
+                    message=f"{nodes_created} nodes, {edges_created} edges",
+                    stats={"nodes_created": nodes_created, "edges_created": edges_created},
+                )
+
+                for err in result.get("errors", []):
+                    if "LLM required" not in err and "No input sources" not in err:
+                        errors.append(err)
+
+            except Exception as e:
+                error_msg = f"Error in {node_type}: {e!s}"
+                errors.append(error_msg)
+                stats["steps_skipped"] += 1
+
+                # Yield step error
+                yield ProgressUpdate(
+                    phase="extraction",
+                    step=node_type,
+                    status="error",
+                    current=current_step,
+                    total=total_steps,
+                    message=error_msg,
+                )
+
+    # Yield final completion
+    final_message = (
+        f"{stats['nodes_created']} nodes, {stats['edges_created']} edges "
+        f"from {stats['repos_processed']} repo(s)"
+    )
+    if errors:
+        final_message += f" ({len(errors)} errors)"
+
+    yield ProgressUpdate(
+        phase="extraction",
+        step="",
+        status="complete",
+        current=total_steps,
+        total=total_steps,
+        message=final_message,
+        stats={
+            "success": len(errors) == 0,
+            "stats": stats,
+            "errors": errors,
+        },
+    )

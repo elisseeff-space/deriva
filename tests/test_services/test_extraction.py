@@ -496,6 +496,23 @@ class TestCreateNodeFromData:
         assert node.name == "UserAuth"
         assert node.concept_type == "service"
         assert node.repository_name == "myrepo"
+        assert node.extraction_method == "llm"  # default
+
+    def test_creates_node_with_custom_extraction_method(self):
+        """Should create node with custom extraction method."""
+        node_data = {
+            "properties": {
+                "name": "UserAuth",
+                "concept_type": "service",
+                "description": "User authentication service",
+                "origin_source": "auth.py",
+            }
+        }
+
+        node = _create_node_from_data("BusinessConcept", node_data, "myrepo", extraction_method="ast")
+
+        assert node is not None
+        assert node.extraction_method == "ast"
 
     def test_creates_type_definition_node(self):
         """Should create TypeDefinitionNode from data."""
@@ -513,6 +530,23 @@ class TestCreateNodeFromData:
         assert node is not None
         assert node.name == "UserModel"
         assert node.type_category == "class"
+        assert node.extraction_method == "llm"  # default when called directly
+
+    def test_creates_type_definition_with_ast_method(self):
+        """Should create TypeDefinitionNode with AST extraction method."""
+        node_data = {
+            "properties": {
+                "name": "UserModel",
+                "type_category": "class",
+                "file_path": "models/user.py",
+                "description": "User model",
+            }
+        }
+
+        node = _create_node_from_data("TypeDefinition", node_data, "myrepo", extraction_method="ast")
+
+        assert node is not None
+        assert node.extraction_method == "ast"
 
     def test_creates_method_node(self):
         """Should create MethodNode from data."""

@@ -8,7 +8,48 @@ across extraction, derivation, and validation modules.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any, Protocol, TypedDict, runtime_checkable
+
+
+# =============================================================================
+# Progress Update (for generator-based progress)
+# =============================================================================
+
+
+@dataclass
+class ProgressUpdate:
+    """
+    Progress update yielded by generator-based pipeline functions.
+
+    Used with Marimo's mo.status.progress_bar iterator pattern for real-time updates.
+
+    Attributes:
+        phase: Current phase name (e.g., 'extraction', 'derivation')
+        step: Current step name (e.g., 'TypeDefinition', 'ApplicationComponent')
+        status: Status of this update ('starting', 'processing', 'complete', 'error')
+        current: Current step number (1-indexed)
+        total: Total number of steps
+        message: Optional message (e.g., '15 nodes created')
+        stats: Optional statistics dict for completed steps
+    """
+
+    phase: str = ""
+    step: str = ""
+    status: str = "processing"  # starting, processing, complete, error
+    current: int = 0
+    total: int = 0
+    message: str = ""
+    stats: dict[str, Any] = field(default_factory=dict)
+
+    def __str__(self) -> str:
+        """Human-readable representation for progress display."""
+        if self.status == "complete" and not self.step:
+            return f"{self.phase} complete: {self.message}"
+        if self.step:
+            return f"{self.phase} ({self.current}/{self.total}): {self.step} - {self.status}"
+        return f"{self.phase}: {self.status}"
+
 
 # =============================================================================
 # Base Result Types
@@ -507,6 +548,8 @@ ValidationRegistry = dict[str, ValidationFunction]
 
 
 __all__ = [
+    # Progress update (generator-based)
+    "ProgressUpdate",
     # Base types
     "BaseResult",
     "PipelineResult",

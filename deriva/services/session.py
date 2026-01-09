@@ -21,8 +21,10 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any, cast
+
+from deriva.common.types import ProgressUpdate
 
 if TYPE_CHECKING:
     from deriva.common.types import BenchmarkProgressReporter, ProgressReporter
@@ -374,6 +376,51 @@ class PipelineSession:
             progress=progress,
         )
 
+    def run_extraction_iter(
+        self,
+        repo_name: str | None = None,
+        verbose: bool = False,
+        no_llm: bool = False,
+    ) -> Iterator[ProgressUpdate]:
+        """
+        Run extraction pipeline as a generator, yielding progress updates.
+
+        Designed for use with Marimo's mo.status.progress_bar iterator pattern
+        to provide real-time visual feedback during extraction.
+
+        Args:
+            repo_name: Specific repo to extract, or None for all
+            verbose: Print progress to stdout
+            no_llm: Skip LLM-based extraction steps
+
+        Yields:
+            ProgressUpdate objects for each step in the pipeline
+
+        Example (Marimo):
+            for update in mo.status.progress_bar(
+                session.run_extraction_iter(),
+                title="Extraction",
+                subtitle="Starting...",
+            ):
+                pass  # Marimo renders between yields
+
+            # Get final result from last update
+            final_stats = update.stats
+        """
+        self._ensure_connected()
+        assert self._engine is not None
+        assert self._graph_manager is not None
+
+        llm_query_fn = None if no_llm else self._get_llm_query_fn()
+
+        yield from extraction.run_extraction_iter(
+            engine=self._engine,
+            graph_manager=self._graph_manager,
+            llm_query_fn=llm_query_fn,
+            repo_name=repo_name,
+            verbose=verbose,
+        )
+
     def run_derivation(
         self,
         verbose: bool = False,
@@ -416,6 +463,63 @@ class PipelineSession:
             run_logger=run_logger,
             progress=progress,
         )
+
+    def run_derivation_iter(
+        self,
+        verbose: bool = False,
+        phases: list[str] | None = None,
+    ) -> Iterator[ProgressUpdate]:
+        """
+        Run derivation pipeline as a generator, yielding progress updates.
+
+        Designed for use with Marimo's mo.status.progress_bar iterator pattern
+        to provide real-time visual feedback during derivation.
+
+        Args:
+            verbose: Print progress to stdout
+            phases: List of phases to run ("prep", "generate")
+
+        Yields:
+            ProgressUpdate objects for each step in the pipeline
+        """
+        self._ensure_connected()
+        assert self._engine is not None
+        assert self._graph_manager is not None
+        assert self._archimate_manager is not None
+
+        llm_query_fn = self._get_llm_query_fn()
+        if llm_query_fn is None:
+            yield ProgressUpdate(
+                phase="derivation",
+                status="error",
+                message="LLM not configured. Derivation requires LLM.",
+            )
+            return
+
+        yield from derivation.run_derivation_iter(
+            engine=self._engine,
+            graph_manager=self._graph_manager,
+            archimate_manager=self._archimate_manager,
+            llm_query_fn=llm_query_fn,
+            verbose=verbose,
+            phases=phases,
+        )
+
+    def get_derivation_step_count(self, enabled_only: bool = True) -> int:
+        """Get total number of derivation steps for progress tracking.
+
+        Args:
+            enabled_only: Only count enabled derivation steps
+
+        Returns:
+            Total number of steps (prep + generate phases)
+        """
+        self._ensure_connected()
+        assert self._engine is not None
+
+        prep_configs = config.get_derivation_configs(self._engine, enabled_only=enabled_only, phase="prep")
+        gen_configs = config.get_derivation_configs(self._engine, enabled_only=enabled_only, phase="generate")
+        return len(prep_configs) + len(gen_configs)
 
     def run_pipeline(
         self,
@@ -637,6 +741,33 @@ class PipelineSession:
             }
             for c in configs
         ]
+
+    def get_extraction_step_count(
+        self, repo_name: str | None = None, enabled_only: bool = True
+    ) -> int:
+        """Get total number of extraction steps for progress tracking.
+
+        Args:
+            repo_name: Specific repo to count, or None for all repos
+            enabled_only: Only count enabled extraction steps
+
+        Returns:
+            Total number of steps (configs * repos)
+        """
+        self._ensure_connected()
+        assert self._engine is not None
+
+        # Count configs
+        configs = config.get_extraction_configs(self._engine, enabled_only=enabled_only)
+
+        # Count repos
+        if self._repo_manager is None:
+            self._repo_manager = RepoManager()
+        repos = self._repo_manager.list_repositories(detailed=True)
+        if repo_name:
+            repos = [r for r in repos if hasattr(r, "name") and r.name == repo_name]
+
+        return len(configs) * len(repos)
 
     def update_extraction_config(
         self,

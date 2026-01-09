@@ -26,7 +26,7 @@ cp .env.example .env
 uv sync --all-extras
 
 # Run the marimo notebook
-uv run marimo edit app.py
+uv run marimo edit deriva/app/app.py
 
 # Run linter
 uv run ruff check .

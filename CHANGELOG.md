@@ -8,6 +8,17 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 ## v0.6.4 - (Unreleased)
 
+### General Improvements
+
+Multiple minor improvements for different parts of the process:
+- **Extraction Method Property**: Added extraction method (structural/ast/llm) property to the graph nodes
+- **LLM Rate Limiting**: Extended the LLM manager (adapter) with rate limiting capabilities to gracefully deal with llm provider introduced rate limits
+- **Status/Progress Bars**: Both the Marimo app and the cli now have visual indicators of progress during pipeline runs and benchmark runs (cli only)
+
+### Full test pass
+
+Removed and added a lot of tests, now fully caught up with all the changes, test coverage didn't jump because I deleted a lot of weak tests. Marimo (app) tests are still excluded, not sure how to deal with that yet.
+
 ### Graph Enrichment Module
 
 New `modules/derivation/enrich.py` with graph algorithm pre-processing:
@@ -127,7 +138,7 @@ Changes: renamed package directory, updated all imports, CLI commands, Docker co
 
 # v0.5.x - The Adapters/Modules/Services/Marimo+CLI Era (August 2025 - December 2025)
 
-**Architectural paradigm:** Single-file Marimo notebook (`app.py`) with domain adapters and reusable modules.
+**Architectural paradigm:** Marimo notebook (`deriva/app/app.py`) with domain adapters and reusable modules.
 
 **Process model:** Import -> Extraction -> Derivation -> Export
 

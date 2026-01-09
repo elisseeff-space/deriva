@@ -192,6 +192,96 @@ class MarimoProgressReporter:
         self.state.end_time = datetime.now()
 
 
+class MarimoLiveProgressReporter:
+    """
+    Live progress reporter using Marimo's mo.status.progress_bar.
+
+    Unlike MarimoProgressReporter which collects events for post-completion display,
+    this reporter provides real-time visual feedback during pipeline execution.
+
+    Usage in Marimo:
+        configs = session.get_extraction_configs(enabled_only=True)
+        total_steps = len(configs) * len(repos)  # Or estimate
+
+        with mo.status.progress_bar(total=total_steps, title="Extraction") as bar:
+            progress = MarimoLiveProgressReporter(bar)
+            result = session.run_extraction(progress=progress)
+    """
+
+    def __init__(self, progress_bar: Any) -> None:
+        """
+        Initialize with a Marimo progress bar instance.
+
+        Args:
+            progress_bar: A mo.status.progress_bar context manager instance
+        """
+        self._bar = progress_bar
+        self._phase = ""
+        self._step = ""
+        self._current = 0
+        self._total = 0
+        self._step_count = 0
+
+    def start_phase(self, name: str, total_steps: int) -> None:
+        """Start a new phase (e.g., 'extraction', 'derivation')."""
+        self._phase = name
+        self._total = total_steps
+        self._current = 0
+        self._step_count = 0  # Reset step count for new phase
+        self._bar.update(
+            title=f"{name.title()} (0/{total_steps})",
+            subtitle="Starting...",
+            increment=0,
+        )
+
+    def start_step(self, name: str, total_items: int | None = None) -> None:
+        """Start a new step within the current phase."""
+        self._step = name
+        self._step_count += 1
+        self._bar.update(
+            title=f"{self._phase.title()} ({self._step_count}/{self._total})",
+            subtitle=f"Processing: {name}",
+            increment=0,
+        )
+
+    def update(self, current: int | None = None, message: str = "") -> None:
+        """Update progress with optional message."""
+        if message:
+            self._bar.update(subtitle=message, increment=0)
+
+    def advance(self, amount: int = 1) -> None:
+        """Advance progress by given amount."""
+        self._current += amount
+
+    def complete_step(self, message: str = "") -> None:
+        """Mark current step as complete and advance the progress bar."""
+        subtitle = f"Done: {self._step}"
+        if message:
+            subtitle += f" ({message})"
+        self._bar.update(
+            title=f"{self._phase.title()} ({self._step_count}/{self._total})",
+            subtitle=subtitle,
+            increment=1,
+        )
+        self._step = ""
+
+    def complete_phase(self, message: str = "") -> None:
+        """Mark current phase as complete."""
+        self._bar.update(
+            title=f"{self._phase.title()} Complete",
+            subtitle=message or "All steps finished",
+            increment=0,
+        )
+        self._phase = ""
+
+    def log(self, message: str, level: str = "info") -> None:
+        """Log a message (prints to console for visibility)."""
+        if level == "error":
+            print(f"[ERROR] {message}")
+        elif level == "warning":
+            print(f"[WARN] {message}")
+
+
 class MarimoBenchmarkProgressReporter(MarimoProgressReporter):
     """
     Progress reporter for Marimo benchmark operations.
@@ -325,11 +415,26 @@ def create_marimo_benchmark_progress_reporter() -> MarimoBenchmarkProgressReport
     return MarimoBenchmarkProgressReporter()
 
 
+def create_live_progress_reporter(progress_bar: Any) -> MarimoLiveProgressReporter:
+    """
+    Create a live progress reporter for real-time visual feedback.
+
+    Args:
+        progress_bar: A mo.status.progress_bar context manager instance
+
+    Returns:
+        MarimoLiveProgressReporter wrapping the progress bar
+    """
+    return MarimoLiveProgressReporter(progress_bar)
+
+
 __all__ = [
     "ProgressEvent",
     "ProgressState",
     "MarimoProgressReporter",
+    "MarimoLiveProgressReporter",
     "MarimoBenchmarkProgressReporter",
     "create_marimo_progress_reporter",
+    "create_live_progress_reporter",
     "create_marimo_benchmark_progress_reporter",
 ]

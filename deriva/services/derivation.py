@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any
 
 from deriva.adapters.archimate import ArchimateManager
-from deriva.common.types import PipelineResult
+from deriva.common.types import PipelineResult, ProgressUpdate
 
 if TYPE_CHECKING:
     from deriva.common.types import ProgressReporter, RunLoggerProtocol
@@ -501,3 +501,218 @@ def run_derivation(
 # have been removed. Each element module's generate() function now handles
 # both element creation AND relationship derivation using the unified flow
 # in base.py (derive_batch_relationships).
+
+
+def run_derivation_iter(
+    engine: Any,
+    graph_manager: GraphManager,
+    archimate_manager: ArchimateManager,
+    llm_query_fn: Callable[..., Any] | None = None,
+    enabled_only: bool = True,
+    verbose: bool = False,
+    phases: list[str] | None = None,
+) -> Iterator[ProgressUpdate]:
+    """
+    Run derivation pipeline as a generator, yielding progress updates.
+
+    This is the generator version of run_derivation() designed for use with
+    Marimo's mo.status.progress_bar iterator pattern.
+
+    Args:
+        engine: DuckDB connection for config
+        graph_manager: Connected GraphManager for querying source nodes
+        archimate_manager: Connected ArchimateManager for persistence
+        llm_query_fn: Function to call LLM (prompt, schema) -> response
+        enabled_only: Only run enabled derivation steps
+        verbose: Print progress to stdout
+        phases: List of phases to run ("prep", "generate")
+
+    Yields:
+        ProgressUpdate objects for each step in the pipeline
+    """
+    if phases is None:
+        phases = ["prep", "generate"]
+
+    stats = {
+        "elements_created": 0,
+        "relationships_created": 0,
+        "steps_completed": 0,
+        "steps_skipped": 0,
+    }
+    errors: list[str] = []
+    all_created_elements: list[dict] = []
+
+    # Calculate total steps for progress
+    prep_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="prep")
+    gen_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="generate")
+    total_steps = 0
+    if "prep" in phases:
+        total_steps += len(prep_configs)
+    if "generate" in phases:
+        total_steps += len(gen_configs)
+
+    if total_steps == 0:
+        yield ProgressUpdate(
+            phase="derivation",
+            status="error",
+            message="No derivation configs enabled",
+            stats=stats,
+        )
+        return
+
+    current_step = 0
+
+    # Run prep phase
+    if "prep" in phases:
+        for cfg in prep_configs:
+            current_step += 1
+
+            if verbose:
+                print(f"  Prep: {cfg.step_name}")
+
+            result = _run_prep_step(cfg, graph_manager)
+            stats["steps_completed"] += 1
+
+            if result.get("errors"):
+                errors.extend(result["errors"])
+
+            # Yield step complete
+            yield ProgressUpdate(
+                phase="derivation",
+                step=cfg.step_name,
+                status="complete",
+                current=current_step,
+                total=total_steps,
+                message="prep complete",
+                stats={"prep": True},
+            )
+
+    # Run generate phase
+    if "generate" in phases:
+        for cfg in gen_configs:
+            current_step += 1
+
+            if verbose:
+                print(f"  Generate: {cfg.step_name}")
+
+            # Wrap llm_query_fn with per-step temperature/max_tokens overrides
+            def step_llm_query_fn(prompt: str, schema: dict) -> Any:
+                if llm_query_fn is None:
+                    raise ValueError("llm_query_fn is required for generate phase")
+                return llm_query_fn(
+                    prompt,
+                    schema,
+                    temperature=cfg.temperature,
+                    max_tokens=cfg.max_tokens,
+                )
+
+            # Validate required config parameters
+            missing_params = []
+            if not cfg.input_graph_query:
+                missing_params.append("input_graph_query")
+            if not cfg.instruction:
+                missing_params.append("instruction")
+            if not cfg.example:
+                missing_params.append("example")
+            if cfg.max_candidates is None:
+                missing_params.append("max_candidates")
+            if cfg.batch_size is None:
+                missing_params.append("batch_size")
+
+            if missing_params:
+                error_msg = f"Missing required config for {cfg.step_name}: {', '.join(missing_params)}"
+                errors.append(error_msg)
+                stats["steps_skipped"] += 1
+
+                yield ProgressUpdate(
+                    phase="derivation",
+                    step=cfg.step_name,
+                    status="error",
+                    current=current_step,
+                    total=total_steps,
+                    message=error_msg,
+                )
+                continue
+
+            # Type assertions for validated config
+            assert cfg.input_graph_query is not None
+            assert cfg.instruction is not None
+            assert cfg.example is not None
+            assert cfg.max_candidates is not None
+            assert cfg.batch_size is not None
+
+            try:
+                step_result = generate_element(
+                    graph_manager=graph_manager,
+                    archimate_manager=archimate_manager,
+                    llm_query_fn=step_llm_query_fn,
+                    element_type=cfg.element_type,
+                    engine=engine,
+                    query=cfg.input_graph_query,
+                    instruction=cfg.instruction,
+                    example=cfg.example,
+                    max_candidates=cfg.max_candidates,
+                    batch_size=cfg.batch_size,
+                    existing_elements=all_created_elements,
+                )
+
+                elements_created = step_result.get("elements_created", 0)
+                relationships_created = step_result.get("relationships_created", 0)
+                stats["elements_created"] += elements_created
+                stats["relationships_created"] += relationships_created
+                stats["steps_completed"] += 1
+
+                step_created_elements = step_result.get("created_elements", [])
+                if step_created_elements:
+                    all_created_elements.extend(step_created_elements)
+
+                msg = f"{elements_created} elements"
+                if relationships_created > 0:
+                    msg += f", {relationships_created} relationships"
+
+                yield ProgressUpdate(
+                    phase="derivation",
+                    step=cfg.step_name,
+                    status="complete",
+                    current=current_step,
+                    total=total_steps,
+                    message=msg,
+                    stats={"elements_created": elements_created, "relationships_created": relationships_created},
+                )
+
+                if step_result.get("errors"):
+                    errors.extend(step_result["errors"])
+
+            except Exception as e:
+                error_msg = f"Error in {cfg.step_name}: {str(e)}"
+                errors.append(error_msg)
+                stats["steps_skipped"] += 1
+
+                yield ProgressUpdate(
+                    phase="derivation",
+                    step=cfg.step_name,
+                    status="error",
+                    current=current_step,
+                    total=total_steps,
+                    message=error_msg,
+                )
+
+    # Yield final completion
+    final_message = f"{stats['elements_created']} elements, {stats['relationships_created']} relationships"
+    if errors:
+        final_message += f" ({len(errors)} errors)"
+
+    yield ProgressUpdate(
+        phase="derivation",
+        step="",
+        status="complete",
+        current=total_steps,
+        total=total_steps,
+        message=final_message,
+        stats={
+            "success": len(errors) == 0,
+            "stats": stats,
+            "errors": errors,
+            "created_elements": all_created_elements,
+        },
+    )
