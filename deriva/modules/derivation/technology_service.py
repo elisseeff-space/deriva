@@ -123,11 +123,13 @@ def filter_candidates(
     filtered = [c for c in candidates if c.name]
 
     likely_tech = [
-        c for c in filtered
+        c
+        for c in filtered
         if _is_likely_tech_service(c.name, include_patterns, exclude_patterns)
     ]
     others = [
-        c for c in filtered
+        c
+        for c in filtered
         if not _is_likely_tech_service(c.name, include_patterns, exclude_patterns)
     ]
 

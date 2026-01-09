@@ -46,40 +46,46 @@ def _(MarimoProgressReporter, derivation_btn, extraction_btn, mo, run_deriva_btn
     _summary = None
 
     if run_deriva_btn.value:
+        print("[Deriva] Running full pipeline...")
         _progress = MarimoProgressReporter()
         with mo.status.spinner("Running pipeline..."):
             _result = session.run_pipeline(verbose=False, progress=_progress)
         _summary = _progress.get_summary()
         _kind = "success" if _result.get("success") else "danger"
         _stats = _result.get("stats", {})
-        _msg = f"""**Pipeline Complete** ({_summary['elapsed_seconds']:.1f}s)
+        print(f"[Deriva] Pipeline complete: {_summary['steps_completed']} steps in {_summary['elapsed_seconds']:.1f}s")
+        _msg = f"""**Pipeline Complete** ({_summary["elapsed_seconds"]:.1f}s)
 - Extraction: {_stats.get("extraction", {}).get("nodes_created", 0)} nodes
 - Derivation: {_stats.get("derivation", {}).get("elements_created", 0)} elements
-- Steps completed: {_summary['steps_completed']}
+- Steps completed: {_summary["steps_completed"]}
 - Errors: {len(_result.get("errors", []))}"""
     elif extraction_btn.value:
+        print("[Deriva] Running extraction...")
         _progress = MarimoProgressReporter()
         with mo.status.spinner("Running extraction..."):
             _result = session.run_extraction(verbose=False, progress=_progress)
         _summary = _progress.get_summary()
         _kind = "success" if _result.get("success") else "danger"
         _stats = _result.get("stats", {})
-        _msg = f"""**Extraction Complete** ({_summary['elapsed_seconds']:.1f}s)
+        print(f"[Deriva] Extraction complete: {_stats.get('nodes_created', 0)} nodes in {_summary['elapsed_seconds']:.1f}s")
+        _msg = f"""**Extraction Complete** ({_summary["elapsed_seconds"]:.1f}s)
 - Repos: {_stats.get("repos_processed", 0)}
 - Nodes: {_stats.get("nodes_created", 0)}
 - Edges: {_stats.get("edges_created", 0)}
-- Steps completed: {_summary['steps_completed']}"""
+- Steps completed: {_summary["steps_completed"]}"""
     elif derivation_btn.value:
+        print("[Deriva] Running derivation...")
         _progress = MarimoProgressReporter()
         with mo.status.spinner("Running derivation..."):
             _result = session.run_derivation(verbose=False, progress=_progress)
         _summary = _progress.get_summary()
         _kind = "success" if _result.get("success") else "danger"
         _stats = _result.get("stats", {})
-        _msg = f"""**Derivation Complete** ({_summary['elapsed_seconds']:.1f}s)
+        print(f"[Deriva] Derivation complete: {_stats.get('elements_created', 0)} elements in {_summary['elapsed_seconds']:.1f}s")
+        _msg = f"""**Derivation Complete** ({_summary["elapsed_seconds"]:.1f}s)
 - Elements: {_stats.get("elements_created", 0)}
 - Relationships: {_stats.get("relationships_created", 0)}
-- Steps completed: {_summary['steps_completed']}
+- Steps completed: {_summary["steps_completed"]}
 - Issues: {_stats.get("issues_found", 0)}"""
     else:
         _msg = "Click a button to run pipeline steps"
@@ -91,9 +97,7 @@ def _(MarimoProgressReporter, derivation_btn, extraction_btn, mo, run_deriva_btn
     if _summary and _summary.get("step_details"):
         _steps = _summary["step_details"]
         if _steps:
-            _msg += "\n\n**Steps:**\n" + "\n".join(
-                f"- {s['name']}: {s['message']}" for s in _steps if s["message"]
-            )
+            _msg += "\n\n**Steps:**\n" + "\n".join(f"- {s['name']}: {s['message']}" for s in _steps if s["message"])
 
     mo.callout(mo.md(_msg), kind=_kind)
     return
@@ -126,10 +130,13 @@ def _(mo):
 @app.cell
 def _(create_run_btn, mo, run_desc_input, session):
     if create_run_btn.value and run_desc_input.value:
+        print(f"[Deriva] Creating run: {run_desc_input.value}")
         _result = session.create_run(run_desc_input.value)
         if _result.get("success"):
+            print(f"[Deriva] Run created: {_result['description']}")
             mo.callout(mo.md(f"Created run: {_result['description']}"), kind="success")
         else:
+            print(f"[Deriva] Run creation failed: {_result.get('error')}")
             mo.callout(mo.md(f"Error: {_result.get('error')}"), kind="danger")
     return
 
@@ -197,14 +204,17 @@ def _(mo):
 @app.cell
 def _(clone_btn, get_repos_refresh, mo, repo_name_input, repo_url_input, session, set_repos_refresh):
     if clone_btn.value and repo_url_input.value:
+        print(f"[Deriva] Cloning repository: {repo_url_input.value}")
         _result = session.clone_repository(
             url=repo_url_input.value,
             name=repo_name_input.value or None,
         )
         if _result.get("success"):
+            print(f"[Deriva] Repository cloned: {_result['name']}")
             set_repos_refresh(get_repos_refresh() + 1)
             mo.callout(mo.md(f"Cloned **{_result['name']}**"), kind="success")
         else:
+            print(f"[Deriva] Clone failed: {_result.get('error')}")
             mo.callout(mo.md(f"Error: {_result.get('error')}"), kind="danger")
     return
 
@@ -224,6 +234,7 @@ def _(mo, repos_table):
 def _(delete_repo_btn, get_repos_refresh, mo, repos_table, session, set_repos_refresh):
     if delete_repo_btn.value and repos_table and repos_table.value:
         _selected = repos_table.value
+        print(f"[Deriva] Deleting {len(_selected)} repository(s)...")
         _deleted = []
         _errors = []
         for repo in _selected:
@@ -235,9 +246,11 @@ def _(delete_repo_btn, get_repos_refresh, mo, repos_table, session, set_repos_re
         # Trigger refresh
         set_repos_refresh(get_repos_refresh() + 1)
         if _deleted:
+            print(f"[Deriva] Deleted: {', '.join(_deleted)}")
             mo.callout(mo.md(f"Deleted: **{', '.join(_deleted)}**"), kind="success")
         if _errors:
-            mo.callout(mo.md(f"Errors:\n" + "\n".join(f"- {e}" for e in _errors)), kind="danger")
+            print(f"[Deriva] Delete errors: {len(_errors)}")
+            mo.callout(mo.md("Errors:\n" + "\n".join(f"- {e}" for e in _errors)), kind="danger")
     return
 
 
@@ -251,42 +264,35 @@ def _(mo):
 
 @app.cell
 def _(mo, session):
-    # Try to get container status, fall back to checking database connectivity
-    _docker_error = None
-    _db_error = None
+    # Always try DB connectivity first - this is the most reliable check
     _db_connected = False
+    _db_error = None
+    _docker_status = None
+
     try:
-        _status = session.get_neo4j_status()
-        _running = _status.get("running", False)
+        _stats = session.get_graph_stats()
+        _db_connected = True
     except Exception as e:
-        _docker_error = str(e)
-        _running = False
-        _status = {}
+        _db_error = str(e)
 
-    # If Docker check failed, try to verify Neo4j connectivity directly
-    if _docker_error:
-        try:
-            _stats = session.get_graph_stats()
-            _db_connected = True
-            _running = True  # Database is accessible
-        except Exception as e:
-            _db_connected = False
-            _db_error = str(e)
+    # Also try Docker status for additional info
+    try:
+        _docker_status = session.get_neo4j_status()
+    except Exception:
+        pass  # Docker status is optional
 
-    if _docker_error and _db_connected:
+    if _db_connected:
         _kind = "success"
-        _text = "**Status:** Connected (Docker status unavailable)\n- Database is accessible"
-    elif _running:
-        _kind = "success"
-        _text = f"**Status:** Running\n- Port: {_status.get('port', 7687)}"
+        _port = _docker_status.get("port", 7687) if _docker_status else 7687
+        _text = f"**Status:** Connected\n- Port: {_port}\n- Nodes: {_stats.get('total_nodes', 0)}"
     else:
         _kind = "warn"
         _text = "**Status:** Not connected"
         if _db_error:
-            _text += f"\n- DB error: {_db_error[:150]}"
+            _text += f"\n- Error: {_db_error[:100]}"
 
-    start_neo4j_btn = mo.ui.run_button(label="Start", disabled=_running)
-    stop_neo4j_btn = mo.ui.run_button(label="Stop", disabled=not _running)
+    start_neo4j_btn = mo.ui.run_button(label="Start", disabled=_db_connected)
+    stop_neo4j_btn = mo.ui.run_button(label="Stop", disabled=not _db_connected)
 
     mo.vstack(
         [
@@ -300,22 +306,30 @@ def _(mo, session):
 @app.cell
 def _(mo, session, start_neo4j_btn, stop_neo4j_btn):
     if start_neo4j_btn.value:
+        print("[Deriva] Starting Neo4j...")
         try:
             _result = session.start_neo4j()
             if _result.get("success", True):
+                print("[Deriva] Neo4j start initiated")
                 mo.callout(mo.md("Neo4j starting..."), kind="info")
             else:
+                print(f"[Deriva] Neo4j start failed: {_result.get('error', 'Unknown')}")
                 mo.callout(mo.md(f"Error: {_result.get('error', 'Unknown')}"), kind="danger")
         except Exception as e:
+            print(f"[Deriva] Neo4j start error: {str(e)[:100]}")
             mo.callout(mo.md(f"Docker error: {str(e)[:100]}"), kind="danger")
     elif stop_neo4j_btn.value:
+        print("[Deriva] Stopping Neo4j...")
         try:
             _result = session.stop_neo4j()
             if _result.get("success", True):
+                print("[Deriva] Neo4j stop initiated")
                 mo.callout(mo.md("Neo4j stopping..."), kind="info")
             else:
+                print(f"[Deriva] Neo4j stop failed: {_result.get('error', 'Unknown')}")
                 mo.callout(mo.md(f"Error: {_result.get('error', 'Unknown')}"), kind="danger")
         except Exception as e:
+            print(f"[Deriva] Neo4j stop error: {str(e)[:100]}")
             mo.callout(mo.md(f"Docker error: {str(e)[:100]}"), kind="danger")
     return
 
@@ -329,7 +343,15 @@ def _(mo):
 
 
 @app.cell
-def _(mo, session):
+def _(mo):
+    # State for graph stats refresh
+    get_graph_refresh, set_graph_refresh = mo.state(0)
+    return get_graph_refresh, set_graph_refresh
+
+
+@app.cell
+def _(get_graph_refresh, mo, session):
+    _ = get_graph_refresh()
     _stats = session.get_graph_stats()
     _total = _stats.get("total_nodes", 0)
     _by_type = _stats.get("by_type", {})
@@ -353,10 +375,16 @@ def _(mo):
 
 
 @app.cell
-def _(clear_graph_btn, mo, session):
+def _(clear_graph_btn, get_graph_refresh, mo, session, set_graph_refresh):
     if clear_graph_btn.value:
+        print("[Deriva] Clearing graph...")
         _result = session.clear_graph()
+        set_graph_refresh(get_graph_refresh() + 1)
         _kind = "success" if _result.get("success") else "danger"
+        if _result.get("success"):
+            print("[Deriva] Graph cleared")
+        else:
+            print(f"[Deriva] Clear graph failed: {_result.get('error', 'Unknown')}")
         mo.callout(mo.md(_result.get("message", _result.get("error", "Unknown"))), kind=_kind)
     return
 
@@ -370,7 +398,15 @@ def _(mo):
 
 
 @app.cell
-def _(mo, session):
+def _(mo):
+    # State for ArchiMate model stats refresh
+    get_model_refresh, set_model_refresh = mo.state(0)
+    return get_model_refresh, set_model_refresh
+
+
+@app.cell
+def _(get_model_refresh, mo, session):
+    _ = get_model_refresh()
     _stats = session.get_archimate_stats()
     _total = _stats.get("total_elements", 0)
     _rels = _stats.get("total_relationships", 0)
@@ -399,14 +435,39 @@ def _(mo):
 @app.cell
 def _(export_btn, export_path_input, mo, session):
     if export_btn.value:
+        print(f"[Deriva] Exporting model to {export_path_input.value}...")
         _result = session.export_model(output_path=export_path_input.value)
         if _result.get("success"):
+            print(f"[Deriva] Model exported: {_result['elements_exported']} elements")
             mo.callout(
                 mo.md(f"Exported {_result['elements_exported']} elements to `{_result['output_path']}`"),
                 kind="success",
             )
         else:
+            print(f"[Deriva] Export failed: {_result.get('error')}")
             mo.callout(mo.md(f"Error: {_result.get('error')}"), kind="danger")
+    return
+
+
+@app.cell
+def _(mo):
+    clear_model_btn = mo.ui.run_button(label="Clear Model", kind="danger")
+    clear_model_btn
+    return (clear_model_btn,)
+
+
+@app.cell
+def _(clear_model_btn, get_model_refresh, mo, session, set_model_refresh):
+    if clear_model_btn.value:
+        print("[Deriva] Clearing ArchiMate model...")
+        _result = session.clear_model()
+        set_model_refresh(get_model_refresh() + 1)
+        _kind = "success" if _result.get("success") else "danger"
+        if _result.get("success"):
+            print("[Deriva] ArchiMate model cleared")
+        else:
+            print(f"[Deriva] Clear model failed: {_result.get('error', 'Unknown')}")
+        mo.callout(mo.md(_result.get("message", _result.get("error", "Unknown"))), kind=_kind)
     return
 
 
@@ -429,6 +490,22 @@ def _(mo, session):
     return
 
 
+@app.cell
+def _(mo):
+    llm_cache_checkbox = mo.ui.checkbox(label="Enable response caching", value=True)
+    llm_cache_checkbox
+    return (llm_cache_checkbox,)
+
+
+@app.cell
+def _(llm_cache_checkbox, mo, session):
+    _status = "enabled" if llm_cache_checkbox.value else "disabled"
+    print(f"[Deriva] LLM cache: {_status}")
+    _result = session.toggle_llm_cache(llm_cache_checkbox.value)
+    mo.md(f"Cache: **{_status}**")
+    return
+
+
 @app.cell(column=2, hide_code=True)
 def _(mo):
     mo.md(r"""
@@ -446,7 +523,15 @@ def _(mo):
 
 
 @app.cell
-def _(mo, session):
+def _(mo):
+    # State for file type refresh
+    get_ft_refresh, set_ft_refresh = mo.state(0)
+    return get_ft_refresh, set_ft_refresh
+
+
+@app.cell
+def _(get_ft_refresh, mo, session):
+    _ = get_ft_refresh()
     _file_types = session.get_file_types()
     _stats = session.get_file_type_stats()
 
@@ -455,11 +540,46 @@ def _(mo, session):
 
 
 @app.cell
-def _(mo, session):
+def _(get_ft_refresh, mo, session):
+    _ = get_ft_refresh()
     _file_types = session.get_file_types()
     _rows = [{"Extension": ft["extension"], "Type": ft["file_type"], "Subtype": ft.get("subtype", "") or ""} for ft in _file_types[:50]]
 
-    mo.ui.table(_rows, label="File Type Registry", selection=None)
+    ft_table = mo.ui.table(_rows, label="File Type Registry", selection="single")
+    ft_table
+    return (ft_table,)
+
+
+@app.cell
+def _(ft_table, mo):
+    _selected = ft_table.value[0] if ft_table and ft_table.value else None
+    if _selected:
+        ft_ext_display = mo.ui.text(value=_selected["Extension"], label="Extension", disabled=True)
+        ft_type_input = mo.ui.text(value=_selected["Type"], label="Type")
+        ft_subtype_input = mo.ui.text(value=_selected["Subtype"], label="Subtype")
+        ft_save_btn = mo.ui.run_button(label="Save")
+        mo.vstack([ft_ext_display, ft_type_input, ft_subtype_input, ft_save_btn])
+    else:
+        ft_ext_display = None
+        ft_type_input = None
+        ft_subtype_input = None
+        ft_save_btn = None
+        mo.md("_Select a file type to edit_")
+    return ft_ext_display, ft_save_btn, ft_subtype_input, ft_type_input
+
+
+@app.cell
+def _(ft_ext_display, ft_save_btn, ft_subtype_input, ft_type_input, get_ft_refresh, mo, session, set_ft_refresh):
+    if ft_save_btn and ft_save_btn.value and ft_ext_display:
+        print(f"[Deriva] Saving file type: {ft_ext_display.value}")
+        _ok = session.update_file_type(ft_ext_display.value, ft_type_input.value, ft_subtype_input.value)
+        set_ft_refresh(get_ft_refresh() + 1)
+        if _ok:
+            print(f"[Deriva] File type saved: {ft_ext_display.value}")
+            mo.callout(mo.md(f"Saved **{ft_ext_display.value}**: {ft_type_input.value}/{ft_subtype_input.value}"), kind="success")
+        else:
+            print(f"[Deriva] File type save failed: {ft_ext_display.value}")
+            mo.callout(mo.md("Save failed"), kind="danger")
     return
 
 
@@ -472,12 +592,22 @@ def _(mo):
 
 
 @app.cell
-def _(mo, session):
+def _(mo):
+    # State for extraction config refresh
+    get_ext_refresh, set_ext_refresh = mo.state(0)
+    return get_ext_refresh, set_ext_refresh
+
+
+@app.cell
+def _(get_ext_refresh, mo, session):
+    _ = get_ext_refresh()
     _configs = session.get_extraction_configs()
+    _versions = session.get_config_versions().get("extraction", {})
     _rows = [
         {
             "Seq": c["sequence"],
             "Node Type": c["node_type"],
+            "Ver": _versions.get(c["node_type"], 1),
             "Enabled": "Yes" if c["enabled"] else "",
             "Input": (c["input_sources"] or "")[:30],
         }
@@ -489,8 +619,8 @@ def _(mo, session):
 
 
 @app.cell
-def _(mo, session):
-    # Editable form for extraction config
+def _(get_ext_refresh, mo, session):
+    _ = get_ext_refresh()
     _configs = session.get_extraction_configs()
     _options = [c["node_type"] for c in _configs]
 
@@ -500,10 +630,18 @@ def _(mo, session):
 
 
 @app.cell
-def _(ext_node_type_select, mo, session):
-    if ext_node_type_select.value:
+def _(ext_node_type_select, get_ext_refresh, mo, session):
+    _ = get_ext_refresh()
+    ext_enabled = None
+    ext_instruction = None
+    ext_input_sources = None
+    ext_save_btn = None
+
+    if ext_node_type_select and ext_node_type_select.value:
         _configs = session.get_extraction_configs()
         _cfg = next((c for c in _configs if c["node_type"] == ext_node_type_select.value), None)
+        _versions = session.get_config_versions().get("extraction", {})
+        _ver = _versions.get(ext_node_type_select.value, 1)
 
         if _cfg:
             ext_enabled = mo.ui.checkbox(label="Enabled", value=_cfg["enabled"])
@@ -511,8 +649,18 @@ def _(ext_node_type_select, mo, session):
             ext_input_sources = mo.ui.text(value=_cfg["input_sources"] or "", label="Input Sources")
             ext_save_btn = mo.ui.run_button(label="Save")
 
-            mo.vstack([ext_enabled, ext_instruction, ext_input_sources, ext_save_btn])
-    return ext_enabled, ext_input_sources, ext_instruction, ext_save_btn
+    # Build form or placeholder
+    if ext_enabled is not None:
+        ext_form = mo.vstack([mo.md(f"**Current version:** {_ver}"), ext_enabled, ext_instruction, ext_input_sources, ext_save_btn])
+    else:
+        ext_form = mo.md("_Select a node type to edit_")
+    return ext_enabled, ext_input_sources, ext_instruction, ext_save_btn, ext_form
+
+
+@app.cell
+def _(ext_form):
+    ext_form
+    return
 
 
 @app.cell
@@ -522,17 +670,27 @@ def _(
     ext_instruction,
     ext_node_type_select,
     ext_save_btn,
+    get_ext_refresh,
     mo,
     session,
+    set_ext_refresh,
 ):
-    if ext_save_btn.value and ext_node_type_select.value:
-        _ok = session.update_extraction_config(
+    if ext_save_btn and ext_save_btn.value and ext_node_type_select and ext_node_type_select.value:
+        print(f"[Deriva] Saving extraction config: {ext_node_type_select.value}")
+        _result = session.save_extraction_config(
             ext_node_type_select.value,
-            enabled=ext_enabled.value,
-            instruction=ext_instruction.value,
-            input_sources=ext_input_sources.value,
+            enabled=ext_enabled.value if ext_enabled else False,
+            instruction=ext_instruction.value if ext_instruction else "",
+            input_sources=ext_input_sources.value if ext_input_sources else "",
         )
-        mo.callout(mo.md("Saved" if _ok else "Failed"), kind="success" if _ok else "danger")
+        set_ext_refresh(get_ext_refresh() + 1)
+        if _result.get("success"):
+            _new_ver = _result.get("new_version", "?")
+            print(f"[Deriva] Extraction config saved: {ext_node_type_select.value} v{_new_ver}")
+            mo.callout(mo.md(f"Saved **{ext_node_type_select.value}** → version {_new_ver}"), kind="success")
+        else:
+            print(f"[Deriva] Extraction config save failed: {ext_node_type_select.value}")
+            mo.callout(mo.md(f"Failed: {_result.get('error', 'Unknown')}"), kind="danger")
     return
 
 
@@ -553,13 +711,23 @@ def _(mo):
 
 
 @app.cell
-def _(mo, session):
+def _(mo):
+    # State for derivation config refresh
+    get_der_refresh, set_der_refresh = mo.state(0)
+    return get_der_refresh, set_der_refresh
+
+
+@app.cell
+def _(get_der_refresh, mo, session):
+    _ = get_der_refresh()
     _configs = session.get_derivation_configs()
+    _versions = session.get_config_versions().get("derivation", {})
     _rows = [
         {
             "Seq": c["sequence"],
             "Phase": c.get("phase", "generate"),
             "Step": c["element_type"],
+            "Ver": _versions.get(c["element_type"], 1),
             "Enabled": "Yes" if c["enabled"] else "",
         }
         for c in sorted(_configs, key=lambda x: x["sequence"])
@@ -570,7 +738,8 @@ def _(mo, session):
 
 
 @app.cell
-def _(mo, session):
+def _(get_der_refresh, mo, session):
+    _ = get_der_refresh()
     _configs = session.get_derivation_configs()
     _options = [c["element_type"] for c in _configs]
 
@@ -580,10 +749,13 @@ def _(mo, session):
 
 
 @app.cell
-def _(der_element_type_select, mo, session):
+def _(der_element_type_select, get_der_refresh, mo, session):
+    _ = get_der_refresh()
     if der_element_type_select.value:
         _configs = session.get_derivation_configs()
         _cfg = next((c for c in _configs if c["element_type"] == der_element_type_select.value), None)
+        _versions = session.get_config_versions().get("derivation", {})
+        _ver = _versions.get(der_element_type_select.value, 1)
 
         if _cfg:
             der_enabled = mo.ui.checkbox(label="Enabled", value=_cfg["enabled"])
@@ -591,7 +763,7 @@ def _(der_element_type_select, mo, session):
             der_query = mo.ui.text_area(value=_cfg["input_graph_query"] or "", label="Graph Query", rows=2)
             der_save_btn = mo.ui.run_button(label="Save")
 
-            mo.vstack([der_enabled, der_instruction, der_query, der_save_btn])
+            mo.vstack([mo.md(f"**Current version:** {_ver}"), der_enabled, der_instruction, der_query, der_save_btn])
     return der_enabled, der_instruction, der_query, der_save_btn
 
 
@@ -602,23 +774,34 @@ def _(
     der_instruction,
     der_query,
     der_save_btn,
+    get_der_refresh,
     mo,
     session,
+    set_der_refresh,
 ):
     if der_save_btn.value and der_element_type_select.value:
-        _ok = session.update_derivation_config(
+        print(f"[Deriva] Saving derivation config: {der_element_type_select.value}")
+        _result = session.save_derivation_config(
             der_element_type_select.value,
             enabled=der_enabled.value,
             instruction=der_instruction.value,
             input_graph_query=der_query.value,
         )
-        mo.callout(mo.md("Saved" if _ok else "Failed"), kind="success" if _ok else "danger")
+        set_der_refresh(get_der_refresh() + 1)
+        if _result.get("success"):
+            _new_ver = _result.get("new_version", "?")
+            print(f"[Deriva] Derivation config saved: {der_element_type_select.value} v{_new_ver}")
+            mo.callout(mo.md(f"Saved **{der_element_type_select.value}** → version {_new_ver}"), kind="success")
+        else:
+            print(f"[Deriva] Derivation config save failed: {der_element_type_select.value}")
+            mo.callout(mo.md(f"Failed: {_result.get('error', 'Unknown')}"), kind="danger")
     return
 
 
 @app.cell
 def _():
     import marimo as mo
+
     return (mo,)
 
 

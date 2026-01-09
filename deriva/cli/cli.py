@@ -199,6 +199,94 @@ def cmd_config_versions(args: argparse.Namespace) -> int:
 
 
 # =============================================================================
+# File Type Commands
+# =============================================================================
+
+
+def cmd_filetype_list(args: argparse.Namespace) -> int:
+    """List all registered file types."""
+    with PipelineSession() as session:
+        file_types = session.get_file_types()
+
+        if not file_types:
+            print("No file types registered.")
+            return 0
+
+        # Group by file_type
+        by_type: dict[str, list] = {}
+        for ft in file_types:
+            ft_type = ft.get("file_type", "unknown")
+            if ft_type not in by_type:
+                by_type[ft_type] = []
+            by_type[ft_type].append(ft)
+
+        print(f"\n{'=' * 60}")
+        print("FILE TYPE REGISTRY")
+        print(f"{'=' * 60}")
+        print(f"Total: {len(file_types)} registered\n")
+
+        for ft_type in sorted(by_type.keys()):
+            entries = by_type[ft_type]
+            print(f"{ft_type.upper()} ({len(entries)}):")
+            for ft in sorted(entries, key=lambda x: x.get("extension", "")):
+                ext = ft.get("extension", "")
+                subtype = ft.get("subtype", "")
+                print(f"  {ext:<25} -> {subtype}")
+            print()
+
+    return 0
+
+
+def cmd_filetype_add(args: argparse.Namespace) -> int:
+    """Add a new file type."""
+    extension = args.extension
+    file_type = args.file_type
+    subtype = args.subtype
+
+    with PipelineSession() as session:
+        success = session.add_file_type(extension, file_type, subtype)
+
+        if success:
+            print(f"Added file type: {extension} -> {file_type}/{subtype}")
+            return 0
+        else:
+            print(f"Failed to add file type (may already exist): {extension}")
+            return 1
+
+
+def cmd_filetype_delete(args: argparse.Namespace) -> int:
+    """Delete a file type."""
+    extension = args.extension
+
+    with PipelineSession() as session:
+        success = session.delete_file_type(extension)
+
+        if success:
+            print(f"Deleted file type: {extension}")
+            return 0
+        else:
+            print(f"File type not found: {extension}")
+            return 1
+
+
+def cmd_filetype_stats(args: argparse.Namespace) -> int:
+    """Show file type statistics."""
+    with PipelineSession() as session:
+        stats = session.get_file_type_stats()
+
+        print(f"\n{'=' * 60}")
+        print("FILE TYPE STATISTICS")
+        print(f"{'=' * 60}\n")
+
+        for ft_type, count in sorted(stats.items(), key=lambda x: -x[1]):
+            print(f"  {ft_type:<20} {count}")
+
+        print(f"\n  {'Total':<20} {sum(stats.values())}")
+
+    return 0
+
+
+# =============================================================================
 # Run Commands
 # =============================================================================
 
@@ -1060,6 +1148,45 @@ def create_parser() -> argparse.ArgumentParser:
     )
     config_versions.set_defaults(func=cmd_config_versions)
 
+    # config filetype (sub-subparser)
+    config_filetype = config_subparsers.add_parser(
+        "filetype", help="Manage file type registry"
+    )
+    filetype_subparsers = config_filetype.add_subparsers(
+        dest="filetype_action", help="File type actions"
+    )
+
+    # filetype list
+    filetype_list = filetype_subparsers.add_parser(
+        "list", help="List registered file types"
+    )
+    filetype_list.set_defaults(func=cmd_filetype_list)
+
+    # filetype add
+    filetype_add = filetype_subparsers.add_parser("add", help="Add a file type")
+    filetype_add.add_argument(
+        "extension", help="File extension (e.g., '.py', 'Dockerfile', '*.test.js')"
+    )
+    filetype_add.add_argument(
+        "file_type",
+        help="File type category (source, config, docs, data, dependency, test, template, unknown)",
+    )
+    filetype_add.add_argument("subtype", help="Subtype (e.g., 'python', 'javascript')")
+    filetype_add.set_defaults(func=cmd_filetype_add)
+
+    # filetype delete
+    filetype_delete = filetype_subparsers.add_parser(
+        "delete", help="Delete a file type"
+    )
+    filetype_delete.add_argument("extension", help="Extension to delete")
+    filetype_delete.set_defaults(func=cmd_filetype_delete)
+
+    # filetype stats
+    filetype_stats = filetype_subparsers.add_parser(
+        "stats", help="Show file type statistics"
+    )
+    filetype_stats.set_defaults(func=cmd_filetype_stats)
+
     # -------------------------------------------------------------------------
     # run command
     # -------------------------------------------------------------------------
@@ -1352,6 +1479,14 @@ def main() -> int:
 
     if args.command == "config" and not args.config_action:
         parser.parse_args(["config", "--help"])
+        return 0
+
+    if (
+        args.command == "config"
+        and args.config_action == "filetype"
+        and not getattr(args, "filetype_action", None)
+    ):
+        parser.parse_args(["config", "filetype", "--help"])
         return 0
 
     if args.command == "benchmark" and not getattr(args, "benchmark_action", None):

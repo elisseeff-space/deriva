@@ -448,3 +448,54 @@ class TestPipelineSessionOrchestration:
 
         connected_session._mock_pipeline.run_full_pipeline.assert_called_once()
         assert result["success"] is True
+
+
+class TestPipelineSessionGetRunLogger:
+    """Tests for PipelineSession._get_run_logger."""
+
+    def test_returns_none_without_engine(self):
+        """Should return None if no engine."""
+        session = PipelineSession()
+        session._engine = None
+
+        logger = session._get_run_logger()
+
+        assert logger is None
+
+    def test_returns_none_if_no_active_run(self):
+        """Should return None if no active run."""
+        session = PipelineSession()
+        mock_engine = MagicMock()
+        mock_engine.execute.return_value.fetchone.return_value = None
+        session._engine = mock_engine
+
+        logger = session._get_run_logger()
+
+        assert logger is None
+
+    def test_returns_run_logger_for_active_run(self):
+        """Should return RunLogger for active run."""
+        session = PipelineSession()
+        mock_engine = MagicMock()
+        mock_engine.execute.return_value.fetchone.return_value = ("run-123",)
+        session._engine = mock_engine
+
+        with patch("deriva.services.session.RunLogger") as mock_logger_cls:
+            mock_logger = MagicMock()
+            mock_logger_cls.return_value = mock_logger
+
+            logger = session._get_run_logger()
+
+            mock_logger_cls.assert_called_with(run_id="run-123")
+            assert logger is mock_logger
+
+    def test_handles_query_error(self):
+        """Should handle query errors gracefully."""
+        session = PipelineSession()
+        mock_engine = MagicMock()
+        mock_engine.execute.side_effect = Exception("Query failed")
+        session._engine = mock_engine
+
+        logger = session._get_run_logger()
+
+        assert logger is None

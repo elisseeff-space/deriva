@@ -140,12 +140,15 @@ class LLMManager:
             cache_path = project_root / cache_path
         self.cache = CacheManager(str(cache_path))
 
-        # Create provider
+        # Create provider with rate limiting
         provider_config = ProviderConfig(
             api_url=self.config["api_url"],
             api_key=self.config["api_key"],
             model=self.config["model"],
             timeout=self.config.get("timeout", 60),
+            requests_per_minute=self.config.get("requests_per_minute", 0),
+            min_request_delay=self.config.get("min_request_delay", 0.0),
+            rate_limit_retries=self.config.get("rate_limit_retries", 3),
         )
         self.provider = create_provider(self.config["provider"], provider_config)
 
@@ -223,12 +226,15 @@ class LLMManager:
             cache_path = project_root / cache_path
         instance.cache = CacheManager(str(cache_path))
 
-        # Create provider
+        # Create provider with rate limiting
         provider_config = ProviderConfig(
             api_url=instance.config["api_url"],
             api_key=instance.config["api_key"],
             model=instance.config["model"],
             timeout=timeout,
+            requests_per_minute=int(os.getenv("LLM_RATE_LIMIT_RPM", "0")),
+            min_request_delay=float(os.getenv("LLM_RATE_LIMIT_DELAY", "0.0")),
+            rate_limit_retries=int(os.getenv("LLM_RATE_LIMIT_RETRIES", "3")),
         )
         instance.provider = create_provider(config.provider, provider_config)
 
@@ -326,6 +332,10 @@ class LLMManager:
             "temperature": float(os.getenv("LLM_TEMPERATURE", "0.7")),
             "max_tokens": max_tokens,  # None = use provider default
             "nocache": os.getenv("LLM_NOCACHE", "false").strip("'\"").lower() == "true",
+            # Rate limiting configuration
+            "requests_per_minute": int(os.getenv("LLM_RATE_LIMIT_RPM", "0")),
+            "min_request_delay": float(os.getenv("LLM_RATE_LIMIT_DELAY", "0.0")),
+            "rate_limit_retries": int(os.getenv("LLM_RATE_LIMIT_RETRIES", "3")),
         }
 
     def _validate_config(self) -> None:

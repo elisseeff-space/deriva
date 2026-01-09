@@ -6,7 +6,7 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
-## v0.6.3 - (Unreleased)
+## v0.6.4 - (Unreleased)
 
 ### Graph Enrichment Module
 
@@ -44,6 +44,10 @@ Refactor of `modules/extraction/base.py`:
 - Canonical package names dictionary for consistent naming
 - Singularization helper with irregular plurals support
 - Removed `ast_extraction.py` and `input_sources.py`
+
+---
+
+## v0.6.3 - Database aAapter and Benchmark Improvements (January 9, 2026)
 
 ### Database Adapter Refactor
 

@@ -206,7 +206,7 @@ class TestExtractFiles:
 
             graph_manager = MagicMock()
 
-            result = _extract_files(mock_repo, Path(tmpdir), classified_files, graph_manager)
+            result = _extract_files(mock_repo, Path(tmpdir), classified_files, [], graph_manager)
 
             assert result["nodes_created"] >= 1
             graph_manager.add_node.assert_called()
@@ -637,6 +637,7 @@ class TestRunExtractionStep:
             repo=mock_repo,
             repo_path=Path("/tmp"),
             classified_files=[],
+            undefined_files=[],
             graph_manager=graph_manager,
             llm_query_fn=None,
             engine=MagicMock(),
@@ -662,6 +663,7 @@ class TestRunExtractionStep:
                 repo=mock_repo,
                 repo_path=Path(tmpdir),
                 classified_files=[],
+                undefined_files=[],
                 graph_manager=graph_manager,
                 llm_query_fn=None,
                 engine=MagicMock(),
@@ -687,6 +689,7 @@ class TestRunExtractionStep:
                 repo=mock_repo,
                 repo_path=Path(tmpdir),
                 classified_files=[],
+                undefined_files=[],
                 graph_manager=graph_manager,
                 llm_query_fn=None,
                 engine=MagicMock(),
@@ -704,6 +707,7 @@ class TestRunExtractionStep:
             repo=MagicMock(),
             repo_path=Path("/tmp"),
             classified_files=[],
+            undefined_files=[],
             graph_manager=MagicMock(),
             llm_query_fn=None,  # No LLM provided
             engine=MagicMock(),
@@ -722,6 +726,7 @@ class TestRunExtractionStep:
             repo=MagicMock(),
             repo_path=Path("/tmp"),
             classified_files=[],
+            undefined_files=[],
             graph_manager=MagicMock(),
             llm_query_fn=None,
             engine=MagicMock(),

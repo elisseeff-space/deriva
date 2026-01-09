@@ -159,7 +159,9 @@ if RICH_AVAILABLE:
                 console=self.console,
                 expand=False,
             )
-            self._live = Live(self._progress, console=self.console, refresh_per_second=10)
+            self._live = Live(
+                self._progress, console=self.console, refresh_per_second=10
+            )
             self._live.__enter__()
             return self
 
@@ -365,7 +367,9 @@ if RICH_AVAILABLE:
 
             content = Group(info, "", self._progress)
 
-            title = f"BENCHMARK: {self._session_id}" if self._session_id else "BENCHMARK"
+            title = (
+                f"BENCHMARK: {self._session_id}" if self._session_id else "BENCHMARK"
+            )
             return Panel(
                 content,
                 title=f"[bold blue]{title}[/bold blue]",
@@ -411,16 +415,18 @@ if RICH_AVAILABLE:
             self._current_iteration = iteration
             self._refresh_display()
 
-        def complete_run(self, status: str, stats: dict[str, Any] | None = None) -> None:
+        def complete_run(
+            self, status: str, stats: dict[str, Any] | None = None
+        ) -> None:
             """Complete a benchmark run."""
             if self._progress and self._benchmark_task is not None:
                 self._progress.advance(self._benchmark_task, 1)
 
             # Clear phase/step tasks
-            if self._phase_task is not None:
+            if self._progress and self._phase_task is not None:
                 self._progress.remove_task(self._phase_task)
                 self._phase_task = None
-            if self._step_task is not None:
+            if self._progress and self._step_task is not None:
                 self._progress.remove_task(self._step_task)
                 self._step_task = None
 
@@ -594,7 +600,9 @@ __all__ = [
 
 # Only export Rich reporters if available
 if RICH_AVAILABLE:
-    __all__.extend([
-        "RichProgressReporter",
-        "RichBenchmarkProgressReporter",
-    ])
+    __all__.extend(
+        [
+            "RichProgressReporter",
+            "RichBenchmarkProgressReporter",
+        ]
+    )

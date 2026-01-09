@@ -58,7 +58,6 @@ OUTBOUND_RULES: list[RelationshipRule] = []
 INBOUND_RULES: list[RelationshipRule] = []
 
 
-
 def filter_candidates(
     candidates: list[Candidate],
     enrichments: dict[str, dict[str, Any]],
@@ -256,7 +255,6 @@ def generate(
                     archimate_manager.add_relationship(relationship)
                 except Exception as e:
                     errors.append(f"Failed to create relationship: {e}")
-
 
     logger.info(f"Created {len(created_elements)} {ELEMENT_TYPE} elements")
 

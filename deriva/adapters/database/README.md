@@ -134,10 +134,12 @@ deriva/adapters/database/
 
 ## CLI Tool
 
-The `db_tool.py` provides a command-line interface for database operations:
+The `db_tool.py` provides a command-line interface for database **backup and restore** operations.
+
+> **Important:** This tool is for **backup/restore and migration only**. Do NOT use it to update configurations. Importing JSON files overwrites the database including version history, which defeats the versioning system. To update configs properly, use the main CLI: `uv run python -m deriva.cli.cli config update extraction BusinessConcept -i "..."` - this creates a new version while preserving history for rollback.
 
 ```bash
-# Export all tables to JSON
+# Export all tables to JSON (backup)
 python -m deriva.adapters.database.db_tool export
 
 # Export specific table
@@ -146,7 +148,7 @@ python -m deriva.adapters.database.db_tool export --table file_type_registry
 # Export to custom directory
 python -m deriva.adapters.database.db_tool export --output /path/to/dir
 
-# Import all JSON files
+# Import all JSON files (restore from backup)
 python -m deriva.adapters.database.db_tool import
 
 # Import specific table
@@ -155,7 +157,7 @@ python -m deriva.adapters.database.db_tool import --table extraction_config
 # Import without clearing existing data
 python -m deriva.adapters.database.db_tool import --no-clear
 
-# Seed database (import if empty)
+# Seed database (initial setup only)
 python -m deriva.adapters.database.db_tool seed
 python -m deriva.adapters.database.db_tool seed --force
 ```

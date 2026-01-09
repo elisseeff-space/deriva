@@ -67,7 +67,9 @@ class Candidate:
 class RelationshipRule:
     """A rule defining valid relationships for an element type."""
 
-    target_type: str  # For outbound: target element type. For inbound: source element type
+    target_type: (
+        str  # For outbound: target element type. For inbound: source element type
+    )
     rel_type: str  # ArchiMate relationship type (Serving, Access, etc.)
     description: str = ""  # Human-readable description
 
@@ -100,7 +102,9 @@ class DerivationResult:
 # =============================================================================
 
 
-def get_enrichments_from_neo4j(graph_manager: "GraphManager") -> dict[str, dict[str, Any]]:
+def get_enrichments_from_neo4j(
+    graph_manager: "GraphManager",
+) -> dict[str, dict[str, Any]]:
     """
     Get all graph enrichment data from Neo4j node properties.
 
@@ -147,7 +151,9 @@ def get_enrichments_from_neo4j(graph_manager: "GraphManager") -> dict[str, dict[
 # Backward compatibility alias (deprecated)
 def get_enrichments(engine: Any) -> dict[str, dict[str, Any]]:
     """Deprecated: Use get_enrichments_from_neo4j() instead."""
-    logger.warning("get_enrichments(engine) is deprecated - enrichments should be read from Neo4j")
+    logger.warning(
+        "get_enrichments(engine) is deprecated - enrichments should be read from Neo4j"
+    )
     return {}
 
 
@@ -722,36 +728,52 @@ def build_unified_relationship_prompt(
         existing_by_type.setdefault(etype, []).append(elem)
 
     existing_json = json.dumps(existing_elements, indent=2, default=str)
-    existing_ids = [e.get("identifier", "") for e in existing_elements if e.get("identifier")]
+    existing_ids = [
+        e.get("identifier", "") for e in existing_elements if e.get("identifier")
+    ]
 
     # Build outbound rules text
     outbound_text = ""
     if outbound_rules:
         outbound_lines = []
         for rule in outbound_rules:
-            targets_of_type = [e for e in existing_elements if e.get("element_type") == rule.target_type]
+            targets_of_type = [
+                e
+                for e in existing_elements
+                if e.get("element_type") == rule.target_type
+            ]
             if targets_of_type:
                 outbound_lines.append(
                     f"- {element_type} --[{rule.rel_type}]--> {rule.target_type}: {rule.description}"
                 )
         if outbound_lines:
-            outbound_text = "OUTBOUND (FROM new elements TO existing):\n" + "\n".join(outbound_lines)
+            outbound_text = "OUTBOUND (FROM new elements TO existing):\n" + "\n".join(
+                outbound_lines
+            )
 
     # Build inbound rules text
     inbound_text = ""
     if inbound_rules:
         inbound_lines = []
         for rule in inbound_rules:
-            sources_of_type = [e for e in existing_elements if e.get("element_type") == rule.target_type]
+            sources_of_type = [
+                e
+                for e in existing_elements
+                if e.get("element_type") == rule.target_type
+            ]
             if sources_of_type:
                 inbound_lines.append(
                     f"- {rule.target_type} --[{rule.rel_type}]--> {element_type}: {rule.description}"
                 )
         if inbound_lines:
-            inbound_text = "INBOUND (FROM existing elements TO new):\n" + "\n".join(inbound_lines)
+            inbound_text = "INBOUND (FROM existing elements TO new):\n" + "\n".join(
+                inbound_lines
+            )
 
     # Combine all valid relationship types
-    valid_rel_types = list({r.rel_type for r in outbound_rules} | {r.rel_type for r in inbound_rules})
+    valid_rel_types = list(
+        {r.rel_type for r in outbound_rules} | {r.rel_type for r in inbound_rules}
+    )
 
     prompt = f"""You are deriving ArchiMate relationships for newly created {element_type} elements.
 
@@ -865,7 +887,9 @@ def derive_batch_relationships(
 
     if not parse_result["success"]:
         logger.warning(
-            "Failed to parse %s relationships: %s", element_type, parse_result.get("errors")
+            "Failed to parse %s relationships: %s",
+            element_type,
+            parse_result.get("errors"),
         )
         return []
 
@@ -875,7 +899,9 @@ def derive_batch_relationships(
     all_ids = new_ids | existing_ids
 
     # Build valid relationship type set
-    valid_types = {r.rel_type for r in outbound_rules} | {r.rel_type for r in inbound_rules}
+    valid_types = {r.rel_type for r in outbound_rules} | {
+        r.rel_type for r in inbound_rules
+    }
 
     relationships = []
     for rel_data in parse_result.get("data", []):
@@ -885,7 +911,9 @@ def derive_batch_relationships(
 
         # Both endpoints must exist
         if source not in all_ids or target not in all_ids:
-            logger.debug("Skipping relationship: endpoint not found (%s -> %s)", source, target)
+            logger.debug(
+                "Skipping relationship: endpoint not found (%s -> %s)", source, target
+            )
             continue
 
         # At least one endpoint must be from new elements
@@ -898,14 +926,18 @@ def derive_batch_relationships(
             logger.debug("Skipping relationship: invalid type %s", rel_type)
             continue
 
-        relationships.append({
-            "source": source,
-            "target": target,
-            "relationship_type": rel_type,
-            "confidence": rel_data.get("confidence", 0.5),
-        })
+        relationships.append(
+            {
+                "source": source,
+                "target": target,
+                "relationship_type": rel_type,
+                "confidence": rel_data.get("confidence", 0.5),
+            }
+        )
 
-    logger.info("Derived %d relationships for %s batch", len(relationships), element_type)
+    logger.info(
+        "Derived %d relationships for %s batch", len(relationships), element_type
+    )
     return relationships
 
 

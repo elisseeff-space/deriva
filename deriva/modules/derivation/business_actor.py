@@ -62,7 +62,6 @@ OUTBOUND_RULES: list[RelationshipRule] = []
 INBOUND_RULES: list[RelationshipRule] = []
 
 
-
 def _is_likely_actor(
     name: str, include_patterns: set[str], exclude_patterns: set[str]
 ) -> bool:

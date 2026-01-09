@@ -111,11 +111,13 @@ def filter_candidates(
     filtered = [c for c in candidates if c.name and not c.name.startswith("__")]
 
     likely_processes = [
-        c for c in filtered
+        c
+        for c in filtered
         if _is_likely_process(c.name, include_patterns, exclude_patterns)
     ]
     others = [
-        c for c in filtered
+        c
+        for c in filtered
         if not _is_likely_process(c.name, include_patterns, exclude_patterns)
     ]
 

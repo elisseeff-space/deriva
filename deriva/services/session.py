@@ -659,6 +659,25 @@ class PipelineSession:
             input_sources=input_sources,
         )
 
+    def save_extraction_config(
+        self,
+        node_type: str,
+        *,
+        enabled: bool | None = None,
+        instruction: str | None = None,
+        input_sources: str | None = None,
+    ) -> dict[str, Any]:
+        """Save extraction config with version tracking."""
+        self._ensure_connected()
+        assert self._engine is not None
+        return config.create_extraction_config_version(
+            self._engine,
+            node_type,
+            enabled=enabled,
+            instruction=instruction,
+            input_sources=input_sources,
+        )
+
     def get_derivation_configs(self, enabled_only: bool = False) -> list[dict]:
         """Get derivation configurations."""
         self._ensure_connected()
@@ -696,6 +715,31 @@ class PipelineSession:
             instruction=instruction,
             example=example,
         )
+
+    def save_derivation_config(
+        self,
+        element_type: str,
+        *,
+        enabled: bool | None = None,
+        input_graph_query: str | None = None,
+        instruction: str | None = None,
+    ) -> dict[str, Any]:
+        """Save derivation config with version tracking."""
+        self._ensure_connected()
+        assert self._engine is not None
+        return config.create_derivation_config_version(
+            self._engine,
+            element_type,
+            enabled=enabled,
+            input_graph_query=input_graph_query,
+            instruction=instruction,
+        )
+
+    def get_config_versions(self) -> dict[str, dict[str, int]]:
+        """Get current active versions for all configs."""
+        self._ensure_connected()
+        assert self._engine is not None
+        return config.get_active_config_versions(self._engine)
 
     def add_file_type(self, extension: str, file_type: str, subtype: str) -> bool:
         """Add a file type to the registry."""

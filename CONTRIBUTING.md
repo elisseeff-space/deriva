@@ -1207,9 +1207,16 @@ def generate(
 <details>
 <summary><strong>Configuration Pattern</strong></summary>
 
-### .env File
+### Two Types of Configuration
 
-- **Single source of truth** for all configuration
+Deriva has two configuration systems:
+
+1. **Environment variables (`.env`)** - Runtime settings for adapters (connections, API keys, paths)
+2. **Database configs (DuckDB)** - Pipeline behavior (extraction steps, derivation prompts, patterns)
+
+### .env File (Adapter Configuration)
+
+- **Single source of truth** for adapter configuration
 - **Required** for all adapters to initialize
 - Loaded via `python-dotenv` at adapter initialization
 - Values **cached** by adapters on init (not re-read on every call)
@@ -1238,6 +1245,32 @@ class SomeManager:
         # Read all config in __init__
         # Cache values as instance variables
 ```
+
+### Database Configs (Pipeline Configuration)
+
+Pipeline configs (extraction steps, derivation prompts) are stored in DuckDB with **version tracking**.
+
+**How versioning works:**
+
+- Each config has `id`, `version`, and `is_active` fields
+- When you update a config via UI or CLI, a **new version** is created
+- The old version is preserved with `is_active=false` for rollback
+- Only one version per config type is active at a time
+
+**Correct way to update configs:**
+
+```bash
+# Via CLI (creates new version)
+uv run python -m deriva.cli.cli config update extraction BusinessConcept \
+  -i "New instruction..."
+
+# View version history
+uv run python -m deriva.cli.cli config versions
+```
+
+**Never update configs by editing JSON and importing.** The `db_tool import` command is for **backup restoration only** - it overwrites the database including version history. This defeats the purpose of versioning and makes rollback impossible.
+
+See [benchmarks.md](benchmarks.md) for the recommended config optimization workflow.
 
 </details>
 

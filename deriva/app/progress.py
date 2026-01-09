@@ -173,10 +173,7 @@ class MarimoProgressReporter:
             "phases_total": len(phases),
             "steps_completed": len(steps),
             "phase_names": [e.name for e in phases],
-            "step_details": [
-                {"name": e.name, "message": e.message}
-                for e in steps
-            ],
+            "step_details": [{"name": e.name, "message": e.message} for e in steps],
             "errors": [e.message for e in errors],
             "log_count": len(logs),
         }
@@ -265,14 +262,16 @@ class MarimoBenchmarkProgressReporter(MarimoProgressReporter):
         else:
             self.runs_failed += 1
 
-        self.run_results.append({
-            "run_number": self.current_run,
-            "repository": self.current_repo,
-            "model": self.current_model,
-            "iteration": self.current_iteration,
-            "status": status,
-            "stats": stats,
-        })
+        self.run_results.append(
+            {
+                "run_number": self.current_run,
+                "repository": self.current_repo,
+                "model": self.current_model,
+                "iteration": self.current_iteration,
+                "status": status,
+                "stats": stats,
+            }
+        )
 
         self.state.events.append(
             ProgressEvent(
@@ -304,13 +303,15 @@ class MarimoBenchmarkProgressReporter(MarimoProgressReporter):
     def get_summary(self) -> dict[str, Any]:
         """Get a summary of the benchmark progress."""
         base = super().get_summary()
-        base.update({
-            "session_id": self.session_id,
-            "total_runs": self.total_runs,
-            "runs_completed": self.runs_completed,
-            "runs_failed": self.runs_failed,
-            "run_results": self.run_results,
-        })
+        base.update(
+            {
+                "session_id": self.session_id,
+                "total_runs": self.total_runs,
+                "runs_completed": self.runs_completed,
+                "runs_failed": self.runs_failed,
+                "run_results": self.run_results,
+            }
+        )
         return base
 
 

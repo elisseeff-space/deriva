@@ -48,6 +48,8 @@ dependencies = [
     "tree-sitter>=0.24.6",
     # SQL parsing
     "sqlglot>=28.5.0",
+    # Progress bar for cli
+    "rich>=14.2.0",
 ]
 
 [project.optional-dependencies]
@@ -58,10 +60,6 @@ dev = [
     "ty>=0.0.10",
     "types-lxml>=2025.3.30",
     "pre-commit>=4.5.1",
-]
-# Progress tracking with Rich library (for CLI progress bars)
-progress = [
-    "rich>=13.0",
 ]
 
 [project.urls]
@@ -163,7 +161,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 70
+fail_under = 75
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

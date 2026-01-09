@@ -156,6 +156,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "requests" },
+    { name = "rich" },
     { name = "solvor" },
     { name = "sqlglot" },
     { name = "tree-sitter" },
@@ -169,9 +170,6 @@ dev = [
     { name = "ruff" },
     { name = "ty" },
     { name = "types-lxml" },
-]
-progress = [
-    { name = "rich" },
 ]
 
 [package.metadata]
@@ -187,7 +185,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "requests", specifier = ">=2.32.5" },
-    { name = "rich", marker = "extra == 'progress'", specifier = ">=13.0" },
+    { name = "rich", specifier = ">=14.2.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.14.11" },
     { name = "solvor", specifier = ">=0.5.3" },
     { name = "sqlglot", specifier = ">=28.5.0" },

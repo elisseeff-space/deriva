@@ -479,20 +479,13 @@ def run_derivation(
     # Complete phase logging
     if run_logger:
         if errors:
-            run_logger.phase_error(
-                "derivation", "; ".join(errors[:3]), "Derivation completed with errors"
-            )
+            run_logger.phase_error("derivation", "; ".join(errors[:3]), "Derivation completed with errors")
         else:
-            run_logger.phase_complete(
-                "derivation", "Derivation completed successfully", stats=stats
-            )
+            run_logger.phase_complete("derivation", "Derivation completed successfully", stats=stats)
 
     # Complete progress tracking
     if progress:
-        msg = (
-            f"Derivation complete: {stats['elements_created']} elements, "
-            f"{stats['relationships_created']} relationships"
-        )
+        msg = f"Derivation complete: {stats['elements_created']} elements, {stats['relationships_created']} relationships"
         progress.complete_phase(msg)
 
     return {
@@ -501,7 +494,6 @@ def run_derivation(
         "errors": errors,
         "created_elements": all_created_elements,
     }
-
 
 
 # NOTE: Relationship derivation is now handled within each element module.

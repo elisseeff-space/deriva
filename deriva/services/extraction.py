@@ -100,10 +100,7 @@ def run_extraction(
 
     # Get file type registry for classification
     file_types = config.get_file_types(engine)
-    registry_list = [
-        {"extension": ft.extension, "file_type": ft.file_type, "subtype": ft.subtype}
-        for ft in file_types
-    ]
+    registry_list = [{"extension": ft.extension, "file_type": ft.file_type, "subtype": ft.subtype} for ft in file_types]
 
     # Start progress tracking
     total_steps = len(configs) * len(repos)
@@ -133,6 +130,7 @@ def run_extraction(
         # Classify files
         classification_result = classification.classify_files(file_paths, registry_list)
         classified_files = classification_result["classified"]
+        undefined_files = classification_result["undefined"]
 
         # Process each extraction step in sequence order
         for cfg in configs:
@@ -156,6 +154,7 @@ def run_extraction(
                     repo=repo,
                     repo_path=repo_path,
                     classified_files=classified_files,
+                    undefined_files=undefined_files,
                     graph_manager=graph_manager,
                     llm_query_fn=llm_query_fn,
                     engine=engine,
@@ -200,13 +199,9 @@ def run_extraction(
     # Complete phase logging
     if run_logger:
         if errors:
-            run_logger.phase_error(
-                "extraction", "; ".join(errors[:3]), "Extraction completed with errors"
-            )
+            run_logger.phase_error("extraction", "; ".join(errors[:3]), "Extraction completed with errors")
         else:
-            run_logger.phase_complete(
-                "extraction", "Extraction completed successfully", stats=stats
-            )
+            run_logger.phase_complete("extraction", "Extraction completed successfully", stats=stats)
 
     # Complete progress tracking
     if progress:
@@ -226,6 +221,7 @@ def _run_extraction_step(
     repo: Any,
     repo_path: Path,
     classified_files: list[dict],
+    undefined_files: list[dict],
     graph_manager: GraphManager,
     llm_query_fn: Callable | None,
     engine: Any,
@@ -238,7 +234,7 @@ def _run_extraction_step(
     elif node_type == "Directory":
         result = _extract_directories(repo, repo_path, graph_manager)
     elif node_type == "File":
-        result = _extract_files(repo, repo_path, classified_files, graph_manager)
+        result = _extract_files(repo, repo_path, classified_files, undefined_files, graph_manager)
     elif node_type in ["BusinessConcept", "TypeDefinition", "Method", "Technology", "ExternalDependency", "Test"]:
         if llm_query_fn is None:
             return {"nodes_created": 0, "edges_created": 0, "errors": [f"LLM required for {node_type}"]}
@@ -322,8 +318,22 @@ def _extract_directories(repo: Any, repo_path: Path, graph_manager: GraphManager
     }
 
 
-def _extract_files(repo: Any, repo_path: Path, classified_files: list[dict], graph_manager: GraphManager) -> dict[str, Any]:
-    """Extract file nodes."""
+def _extract_files(
+    repo: Any,
+    repo_path: Path,
+    classified_files: list[dict],
+    undefined_files: list[dict],
+    graph_manager: GraphManager,
+) -> dict[str, Any]:
+    """Extract file nodes.
+
+    Args:
+        repo: Repository info object
+        repo_path: Path to the repository
+        classified_files: List of classified file dicts with file_type/subtype
+        undefined_files: List of undefined file dicts (files with unknown extensions)
+        graph_manager: GraphManager for persistence
+    """
     # Use the module to scan all files from repo path
     result = extraction.extract_files(str(repo_path), repo.name)
     edge_ids: list[str] = []
@@ -331,17 +341,36 @@ def _extract_files(repo: Any, repo_path: Path, classified_files: list[dict], gra
     # Build a lookup for classification info (normalize paths to forward slashes)
     classification_lookup = {f["path"].replace("\\", "/"): f for f in classified_files}
 
+    # Add undefined files to lookup with default file_type="unknown"
+    for f in undefined_files:
+        path = f["path"].replace("\\", "/")
+        if path not in classification_lookup:
+            classification_lookup[path] = {
+                "path": path,
+                "file_type": "unknown",
+                "subtype": f.get("extension", "").lstrip(".") or None,
+            }
+
     if result["success"]:
         for node_data in result["data"]["nodes"]:
             props = node_data["properties"]
             # Get classification info from lookup
+            # If not found, use "unknown" as default file_type
             class_info = classification_lookup.get(props["path"], {})
+            file_type = class_info.get("file_type") or "unknown"
+            subtype = class_info.get("subtype")
+
+            # If subtype is not set, try to infer from file extension
+            if not subtype:
+                ext = Path(props["path"]).suffix.lower().lstrip(".")
+                subtype = ext if ext else None
+
             file_node = FileNode(
                 name=props["name"],
                 path=props["path"],
                 repository_name=repo.name,
-                file_type=class_info.get("file_type", ""),
-                subtype=class_info.get("subtype"),
+                file_type=file_type,
+                subtype=subtype,
             )
             graph_manager.add_node(file_node, node_id=node_data["node_id"])
 
