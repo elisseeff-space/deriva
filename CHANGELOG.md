@@ -6,19 +6,22 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
-## v0.6.3 - (January 9, 2026)
+## v0.6.3 - Database aAapter and Benchmark Improvements (January 9, 2026)
 
 ### Database Adapter Refactor
 
-- Replaced SQL seed files with JSON data files for better portability and cleaner diffs
+- Replaced SQL seed files with JSON data files for better portability
 - New `db_tool.py` CLI for database export/import operations
-- Renamed `1_schema.sql` to `schema.sql` (schema-only, no seed data)
-- Added `data/` folder with per-table JSON files: `file_types.json`, `extraction_config.json`, `derivation_config.json`, `derivation_patterns.json`
-- Updated `manager.py` to seed from JSON instead of SQL scripts
+- Added `data/` folder with per-table JSON files
 - New exports: `export_database()`, `import_database()` in package API
-- Removed deprecated `export_current_db.py` and numbered SQL seed scripts
-- Fixed DB path inconsistency between manager and export tool
-- Updated README and CONTRIBUTING documentation
+
+### Benchmarking & Other Changes
+
+- New `benchmarks.md` documentation
+- Extended benchmarking service with additional metrics
+- Graph manager: Added new query methods
+- External dependency extractor: Major improvements
+- Config service: New configuration functions
 
 ---
 
