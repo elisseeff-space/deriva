@@ -6,7 +6,7 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
-## v0.6.4 - (Unreleased)
+## v0.6.4 - Benchmark with Deriva (this repo) runs stable and succesfull! (January 10 2026)
 
 ### Refine Module (NEW)
 
