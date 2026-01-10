@@ -378,13 +378,15 @@ class TestPercentileNormalization:
 
     def test_normalize_to_percentiles_multiple_values(self):
         """Should distribute percentiles correctly."""
-        result = enrich.normalize_to_percentiles({
-            "A": 0.1,
-            "B": 0.2,
-            "C": 0.3,
-            "D": 0.4,
-            "E": 0.5,
-        })
+        result = enrich.normalize_to_percentiles(
+            {
+                "A": 0.1,
+                "B": 0.2,
+                "C": 0.3,
+                "D": 0.4,
+                "E": 0.5,
+            }
+        )
         # With 5 values: 0, 25, 50, 75, 100
         assert result["A"] == 0.0
         assert result["B"] == 25.0
@@ -399,12 +401,14 @@ class TestPercentileNormalization:
 
     def test_normalize_to_percentiles_int_with_ties(self):
         """Should handle ties by averaging ranks."""
-        result = enrich.normalize_to_percentiles_int({
-            "A": 1,
-            "B": 1,  # Tie with A
-            "C": 2,
-            "D": 3,
-        })
+        result = enrich.normalize_to_percentiles_int(
+            {
+                "A": 1,
+                "B": 1,  # Tie with A
+                "C": 2,
+                "D": 3,
+            }
+        )
         # A and B share ranks 0 and 1 -> avg rank 0.5
         # C has rank 2, D has rank 3
         assert result["A"] == result["B"]  # Same percentile for ties

@@ -96,7 +96,9 @@ def build_extraction_prompt(
     content, was_truncated = truncate_content(file_content, max_tokens=2000)
     truncation_note = ""
     if was_truncated:
-        truncation_note = "\n**Note:** File content has been truncated. Focus on visible content.\n"
+        truncation_note = (
+            "\n**Note:** File content has been truncated. Focus on visible content.\n"
+        )
 
     prompt = f"""You are analyzing a documentation file to extract business domain concepts.
 

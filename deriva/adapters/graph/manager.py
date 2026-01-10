@@ -48,10 +48,20 @@ GraphNode = (
 logger = logging.getLogger(__name__)
 
 # Node ID prefixes that embed repository name
-_NODE_ID_PREFIXES = frozenset({
-    "file", "dir", "method", "typedef", "concept", "tech",
-    "test", "extdep", "service", "module",
-})
+_NODE_ID_PREFIXES = frozenset(
+    {
+        "file",
+        "dir",
+        "method",
+        "typedef",
+        "concept",
+        "tech",
+        "test",
+        "extdep",
+        "service",
+        "module",
+    }
+)
 
 
 def _extract_repo_from_node_id(node_id: str) -> str | None:

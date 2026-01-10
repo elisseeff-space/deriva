@@ -335,7 +335,7 @@ The UI is powered by `PipelineSession` from the services layer, providing a clea
 - **Neo4j Graph Database**:
   - **Graph namespace**: Intermediate representation (Modules, Files, Dependencies)
   - **Model namespace**: ArchiMate elements and relationships
-- **DuckDB** (`deriva.db`): File type registry, extraction configs, settings
+- **DuckDB** (`deriva/adapters/database/sql.db`): File type registry, extraction configs, settings
 
 ### Clearing Data
 

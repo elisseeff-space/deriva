@@ -301,6 +301,7 @@ def get_articulation_points(candidates: list[Candidate]) -> list[Candidate]:
 def batch_candidates(
     candidates: list[Candidate],
     batch_size: int = 15,
+    group_by_community: bool = True,
 ) -> list[list[Candidate]]:
     """
     Split candidates into batches for LLM processing.
@@ -308,6 +309,8 @@ def batch_candidates(
     Args:
         candidates: List of candidates to batch
         batch_size: Maximum items per batch (default 15)
+        group_by_community: If True, group candidates by Louvain community first,
+                           keeping related nodes together (default True)
 
     Returns:
         List of batches
@@ -315,9 +318,34 @@ def batch_candidates(
     if not candidates:
         return []
 
-    batches = []
-    for i in range(0, len(candidates), batch_size):
-        batches.append(candidates[i : i + batch_size])
+    if not group_by_community:
+        # Simple sequential batching
+        batches = []
+        for i in range(0, len(candidates), batch_size):
+            batches.append(candidates[i : i + batch_size])
+        return batches
+
+    # Group by Louvain community first for coherent batches
+    by_community: dict[str | None, list[Candidate]] = {}
+    for c in candidates:
+        comm = c.louvain_community
+        if comm not in by_community:
+            by_community[comm] = []
+        by_community[comm].append(c)
+
+    # Build batches keeping communities together when possible
+    batches: list[list[Candidate]] = []
+    current_batch: list[Candidate] = []
+
+    for community_candidates in by_community.values():
+        for c in community_candidates:
+            current_batch.append(c)
+            if len(current_batch) >= batch_size:
+                batches.append(current_batch)
+                current_batch = []
+
+    if current_batch:
+        batches.append(current_batch)
 
     return batches
 
@@ -887,9 +915,24 @@ def derive_batch_relationships(
         logger.debug("No applicable relationship rules for %s batch", element_type)
         return []
 
+    # Filter existing_elements to only include relevant types (reduces prompt size)
+    relevant_types = {r.target_type for r in outbound_rules} | {
+        r.target_type for r in inbound_rules
+    }
+    filtered_existing = [
+        e for e in existing_elements if e.get("element_type") in relevant_types
+    ]
+
+    logger.debug(
+        "Filtered existing elements: %d -> %d (relevant types: %s)",
+        len(existing_elements),
+        len(filtered_existing),
+        relevant_types,
+    )
+
     prompt = build_unified_relationship_prompt(
         new_elements=new_elements,
-        existing_elements=existing_elements,
+        existing_elements=filtered_existing,
         element_type=element_type,
         outbound_rules=outbound_rules,
         inbound_rules=inbound_rules,
@@ -923,9 +966,9 @@ def derive_batch_relationships(
         )
         return []
 
-    # Validate relationships
+    # Validate relationships (use filtered_existing for consistency with prompt)
     new_ids = {e.get("identifier", "") for e in new_elements}
-    existing_ids = {e.get("identifier", "") for e in existing_elements}
+    existing_ids = {e.get("identifier", "") for e in filtered_existing}
     all_ids = new_ids | existing_ids
 
     # Build valid relationship type set

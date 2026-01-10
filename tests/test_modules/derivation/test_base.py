@@ -509,11 +509,33 @@ class TestCandidate:
         assert result["labels"] == ["Method"]
         assert result["properties"] == {"module": "auth"}
         assert result["pagerank"] == 0.1235  # Rounded to 4 decimals
-        assert result["community"] == "comm_1"
-        assert result["kcore"] == 3
-        assert result["is_bridge"] is True
         assert result["in_degree"] == 5
         assert result["out_degree"] == 10
+        # community, kcore, is_bridge removed to reduce LLM token usage
+
+    def test_to_dict_with_include_props_filter(self):
+        """Should only include specified properties when include_props is set."""
+        from deriva.modules.derivation.base import Candidate
+
+        candidate = Candidate(
+            node_id="test_456",
+            name="FilteredMethod",
+            labels=["Method"],
+            properties={
+                "name": "method_name",
+                "description": "A test method",
+                "module": "auth",
+                "lineNumber": 42,
+                "complexity": 5,
+            },
+        )
+
+        # Only include name and description
+        result = candidate.to_dict(include_props={"name", "description"})
+
+        assert result["properties"] == {"name": "method_name", "description": "A test method"}
+        assert "module" not in result["properties"]
+        assert "lineNumber" not in result["properties"]
 
 
 class TestGetEnrichmentsFromNeo4j:
@@ -663,6 +685,21 @@ class TestFilterByPagerank:
         result = filter_by_pagerank(candidates)
 
         assert len(result) == 2
+        assert result[0].name == "High"
+
+    def test_filters_by_min_pagerank(self):
+        """Should filter out candidates below min_pagerank threshold."""
+        from deriva.modules.derivation.base import Candidate, filter_by_pagerank
+
+        candidates = [
+            Candidate(node_id="1", name="VeryLow", pagerank=0.0001),
+            Candidate(node_id="2", name="Low", pagerank=0.0005),
+            Candidate(node_id="3", name="High", pagerank=0.01),
+        ]
+
+        result = filter_by_pagerank(candidates, min_pagerank=0.001)
+
+        assert len(result) == 1
         assert result[0].name == "High"
 
 
@@ -823,6 +860,41 @@ class TestBatchCandidates:
 
         assert len(result) == 1
         assert len(result[0]) == 1
+
+    def test_groups_by_community(self):
+        """Should group candidates by Louvain community when enabled."""
+        from deriva.modules.derivation.base import Candidate, batch_candidates
+
+        candidates = [
+            Candidate(node_id="1", name="A1", louvain_community="comm_a"),
+            Candidate(node_id="2", name="B1", louvain_community="comm_b"),
+            Candidate(node_id="3", name="A2", louvain_community="comm_a"),
+            Candidate(node_id="4", name="B2", louvain_community="comm_b"),
+        ]
+
+        result = batch_candidates(candidates, batch_size=10, group_by_community=True)
+
+        # With batch_size=10, all should be in one batch but grouped by community
+        assert len(result) == 1
+        names = [c.name for c in result[0]]
+        # Community members should be adjacent
+        a_indices = [names.index("A1"), names.index("A2")]
+        b_indices = [names.index("B1"), names.index("B2")]
+        assert abs(a_indices[0] - a_indices[1]) == 1
+        assert abs(b_indices[0] - b_indices[1]) == 1
+
+    def test_batches_without_community_grouping(self):
+        """Should do simple sequential batching when group_by_community=False."""
+        from deriva.modules.derivation.base import Candidate, batch_candidates
+
+        candidates = [Candidate(node_id=str(i), name=f"C{i}") for i in range(7)]
+
+        result = batch_candidates(candidates, batch_size=3, group_by_community=False)
+
+        assert len(result) == 3
+        assert len(result[0]) == 3
+        assert len(result[1]) == 3
+        assert len(result[2]) == 1
 
 
 class TestQueryCandidates:

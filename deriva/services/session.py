@@ -63,7 +63,7 @@ class PipelineSession:
         """Initialize session.
 
         Args:
-            db_path: Path to DuckDB database (default: from env or data/deriva.duckdb)
+            db_path: Path to DuckDB database (default: deriva/adapters/database/sql.db)
             auto_connect: If True, connect immediately (useful for Marimo)
             workspace_dir: Repository workspace directory (default: from env)
         """
@@ -953,7 +953,9 @@ class PipelineSession:
 
     def get_database_path(self) -> str:
         """Get the database path."""
-        return os.getenv("DATABASE_PATH", "data/deriva.duckdb")
+        from deriva.adapters.database import DB_PATH
+
+        return str(DB_PATH)
 
     def execute_sql(self, query: str, params: list | None = None) -> list[tuple]:
         """Execute a SQL query (for config UI)."""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+from deriva.modules.derivation.enrich import EnrichmentResult
 from deriva.services import derivation
 
 
@@ -74,8 +75,9 @@ class TestRunEnrichStep:
         cfg.step_name = "pagerank"
         cfg.params = None
 
+        mock_result = EnrichmentResult(enrichments={"n1": {"pagerank": 0.5}})
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph", return_value={"n1": {"pagerank": 0.5}}):
+            with patch.object(derivation.enrich, "enrich_graph", return_value=mock_result):
                 result = derivation._run_enrich_step(cfg, graph_manager)
 
         assert result["success"] is True
@@ -115,7 +117,7 @@ class TestRunEnrichStep:
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
             with patch.object(derivation.enrich, "enrich_graph") as mock_enrich:
-                mock_enrich.return_value = {"n1": {"pagerank": 0.5}}
+                mock_enrich.return_value = EnrichmentResult(enrichments={"n1": {"pagerank": 0.5}})
                 result = derivation._run_enrich_step(cfg, graph_manager)
 
         assert result["success"] is True
@@ -344,7 +346,7 @@ class TestRunDerivationWithConfigs:
         with patch.object(derivation.config, "get_derivation_configs") as mock_get:
             mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "enrich" else [])
             with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "a", "target": "b"}]):
-                with patch.object(derivation.enrich, "enrich_graph", return_value={"a": {"pagerank": 0.5}}):
+                with patch.object(derivation.enrich, "enrich_graph", return_value=EnrichmentResult(enrichments={"a": {"pagerank": 0.5}})):
                     result = derivation.run_derivation(
                         engine=engine,
                         graph_manager=graph_manager,
@@ -697,7 +699,7 @@ class TestRunEnrichStepEdgeCases:
         cfg.params = None
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph", return_value={}):
+            with patch.object(derivation.enrich, "enrich_graph", return_value=EnrichmentResult(enrichments={})):
                 result = derivation._run_enrich_step(cfg, graph_manager)
 
         assert result["success"] is True
@@ -712,7 +714,7 @@ class TestRunEnrichStepEdgeCases:
         cfg.params = "not valid json {"
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph", return_value={"n1": {"pagerank": 0.5}}):
+            with patch.object(derivation.enrich, "enrich_graph", return_value=EnrichmentResult(enrichments={"n1": {"pagerank": 0.5}})):
                 result = derivation._run_enrich_step(cfg, graph_manager)
 
         # Should succeed despite invalid params (uses defaults)
@@ -728,7 +730,7 @@ class TestRunEnrichStepEdgeCases:
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
             with patch.object(derivation.enrich, "enrich_graph") as mock_enrich:
-                mock_enrich.return_value = {"n1": {"pagerank": 0.5}}
+                mock_enrich.return_value = EnrichmentResult(enrichments={"n1": {"pagerank": 0.5}})
                 derivation._run_enrich_step(cfg, graph_manager)
 
         # Verify description was filtered out
@@ -745,7 +747,7 @@ class TestRunEnrichStepEdgeCases:
         cfg.params = None
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph", return_value={"n1": {"community": 1}}):
+            with patch.object(derivation.enrich, "enrich_graph", return_value=EnrichmentResult(enrichments={"n1": {"community": 1}})):
                 result = derivation._run_enrich_step(cfg, graph_manager)
 
         assert result["success"] is True
@@ -760,7 +762,7 @@ class TestRunEnrichStepEdgeCases:
         cfg.params = None
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph", return_value={"n1": {"degree": 2}}):
+            with patch.object(derivation.enrich, "enrich_graph", return_value=EnrichmentResult(enrichments={"n1": {"degree": 2}})):
                 result = derivation._run_enrich_step(cfg, graph_manager)
 
         assert result["success"] is True
