@@ -330,7 +330,7 @@ def run_derivation(
     phases: list[str] | None = None,
     run_logger: RunLoggerProtocol | None = None,
     progress: ProgressReporter | None = None,
-    defer_relationships: bool = False,
+    defer_relationships: bool = True,
 ) -> dict[str, Any]:
     """
     Run the derivation pipeline.
