@@ -34,6 +34,7 @@ from .base import (
     build_derivation_prompt,
     build_element,
     derive_batch_relationships,
+    extract_response_content,
     filter_by_pagerank,
     get_community_roots,
     get_enrichments_from_neo4j,
@@ -187,9 +188,10 @@ def generate(
         # Call LLM
         try:
             response = llm_query_fn(prompt, DERIVATION_SCHEMA, **kwargs)
-            response_content = (
-                response.content if hasattr(response, "content") else str(response)
-            )
+            response_content, error = extract_response_content(response)
+            if error:
+                errors.append(f"LLM error in batch {batch_num}: {error}")
+                continue
         except Exception as e:
             errors.append(f"LLM error in batch {batch_num}: {e}")
             continue

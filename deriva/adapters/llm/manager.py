@@ -556,8 +556,12 @@ Return only the JSON object, no additional text."""
                 if cached and not cached.get("is_error"):
                     content = cached["content"]
 
+                    # Skip cached responses with empty content (invalid)
+                    if not content or not content.strip():
+                        # Invalid cached response, fall through to make fresh API call
+                        pass
                     # If response_model, parse and return the model
-                    if response_model:
+                    elif response_model:
                         try:
                             return response_model.model_validate_json(content)
                         except PydanticValidationError:
@@ -572,8 +576,9 @@ Return only the JSON object, no additional text."""
                             cached_at=cached["cached_at"],
                         )
 
-            # Build messages
+            # Build initial messages (keep original for retry efficiency)
             messages = self._build_messages(effective_prompt, system_prompt)
+            original_messages = messages.copy()
 
             # Attempt API call with retries
             last_error = None
@@ -595,7 +600,21 @@ Return only the JSON object, no additional text."""
                     # Validate JSON if schema provided
                     if json_mode:
                         # Strip markdown code blocks (some providers wrap JSON in ```json...```)
-                        content = _strip_markdown_json(content)
+                        # Skip if provider already stripped it (e.g., ClaudeCode)
+                        if not result.markdown_stripped:
+                            content = _strip_markdown_json(content)
+
+                        # Validate content is non-empty before parsing
+                        if not content or not content.strip():
+                            if attempt < self.max_retries - 1:
+                                last_error = "LLM returned empty content"
+                                # Append retry hint as conversation turn (saves tokens vs rebuilding prompt)
+                                messages = original_messages + [
+                                    {"role": "assistant", "content": content or ""},
+                                    {"role": "user", "content": f"Error: {last_error}. Please provide valid JSON."},
+                                ]
+                                continue
+                            raise ValidationError("LLM returned empty content after all retries")
 
                         try:
                             parsed = json.loads(content)
@@ -619,11 +638,12 @@ Return only the JSON object, no additional text."""
 
                                 except PydanticValidationError as e:
                                     if attempt < self.max_retries - 1:
-                                        last_error = f"Pydantic validation failed: {e}"
-                                        messages = self._build_messages(
-                                            f"{effective_prompt}\n\nPrevious attempt failed: {last_error}\nPlease fix the response.",
-                                            system_prompt,
-                                        )
+                                        last_error = f"Validation error: {e}"
+                                        # Append retry hint as conversation turn (saves tokens)
+                                        messages = original_messages + [
+                                            {"role": "assistant", "content": content},
+                                            {"role": "user", "content": f"Error: {last_error}. Fix the response."},
+                                        ]
                                         continue
                                     raise ValidationError(
                                         f"Failed to validate response after {self.max_retries} attempts: {e}"
@@ -631,11 +651,12 @@ Return only the JSON object, no additional text."""
 
                         except json.JSONDecodeError as e:
                             if attempt < self.max_retries - 1:
-                                last_error = f"JSON parsing failed: {e}"
-                                messages = self._build_messages(
-                                    f"{effective_prompt}\n\nPrevious attempt returned invalid JSON: {last_error}\nPlease return valid JSON.",
-                                    system_prompt,
-                                )
+                                last_error = f"Invalid JSON: {e}"
+                                # Append retry hint as conversation turn (saves tokens)
+                                messages = original_messages + [
+                                    {"role": "assistant", "content": content},
+                                    {"role": "user", "content": f"Error: {last_error}. Return valid JSON."},
+                                ]
                                 continue
                             raise ValidationError(
                                 f"Failed to generate valid JSON after {self.max_retries} attempts: {e}"
@@ -667,6 +688,7 @@ Return only the JSON object, no additional text."""
 
         except (ValidationError, APIError) as e:
             # NOTE: Errors are NOT cached to allow retries on transient failures
+            logger.warning(f"LLM query failed with {type(e).__name__}: {e}")
             return FailedResponse(
                 prompt=prompt,
                 model=self.model,
@@ -724,6 +746,45 @@ Return only the JSON object, no additional text."""
             Dictionary with cache statistics
         """
         return self.cache.get_cache_stats()
+
+    def get_token_usage_stats(self) -> dict[str, Any]:
+        """
+        Aggregate token usage statistics from all cached entries.
+
+        Returns:
+            Dictionary with:
+            - total_prompt_tokens: Total input tokens across all cached calls
+            - total_completion_tokens: Total output tokens across all cached calls
+            - total_tokens: Sum of prompt + completion tokens
+            - total_calls: Number of cached LLM calls
+            - avg_prompt_tokens: Average input tokens per call
+            - avg_completion_tokens: Average output tokens per call
+        """
+        total_prompt = 0
+        total_completion = 0
+        total_calls = 0
+
+        # Scan cached files for usage data
+        for cache_file in self.cache.cache_dir.glob("*.json"):
+            try:
+                with open(cache_file, encoding="utf-8") as f:
+                    data = json.load(f)
+                    usage = data.get("usage", {})
+                    if usage and not data.get("is_error"):
+                        total_prompt += usage.get("prompt_tokens", 0)
+                        total_completion += usage.get("completion_tokens", 0)
+                        total_calls += 1
+            except (json.JSONDecodeError, OSError):
+                continue
+
+        return {
+            "total_prompt_tokens": total_prompt,
+            "total_completion_tokens": total_completion,
+            "total_tokens": total_prompt + total_completion,
+            "total_calls": total_calls,
+            "avg_prompt_tokens": total_prompt / total_calls if total_calls else 0,
+            "avg_completion_tokens": total_completion / total_calls if total_calls else 0,
+        }
 
     def __repr__(self) -> str:
         """String representation."""

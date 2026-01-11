@@ -68,6 +68,7 @@ class CompletionResult:
     usage: dict[str, int] | None = None
     finish_reason: str | None = None
     raw_response: dict[str, Any] | None = None
+    markdown_stripped: bool = False  # True if provider already stripped markdown
 
 
 @runtime_checkable
@@ -197,6 +198,13 @@ class BaseProvider(ABC):
                             backoff = self._rate_limiter.record_rate_limit()
                             time.sleep(backoff)
                             continue
+                    # Log full error response for debugging
+                    try:
+                        import logging
+                        error_body = e.response.text[:500]
+                        logging.getLogger(__name__).error(f"{self.name} API error response: {error_body}")
+                    except Exception:
+                        pass
                 raise ProviderError(f"{self.name} API request failed: {e}") from e
 
             except json.JSONDecodeError as e:
@@ -305,7 +313,10 @@ class OpenAIProvider(BaseProvider):
         response = self._make_request(headers, body)
 
         try:
-            content = response["choices"][0]["message"]["content"]
+            content = response["choices"][0]["message"].get("content", "")
+            if not content or not content.strip():
+                raise ProviderError("OpenAI returned empty content")
+
             usage = response.get("usage")
             finish_reason = response["choices"][0].get("finish_reason")
             return CompletionResult(
@@ -374,10 +385,23 @@ class AnthropicProvider(BaseProvider):
         try:
             # Anthropic returns content as a list of content blocks
             content_blocks = response.get("content", [])
+            if not content_blocks:
+                raise ProviderError("Anthropic response has no content blocks")
+
             content = ""
             for block in content_blocks:
-                if block.get("type") == "text":
+                block_type = block.get("type")
+                if block_type == "text":
                     content += block.get("text", "")
+                elif block_type == "json":
+                    # When using output_format with json_schema, content may be in json block
+                    import json
+                    json_content = block.get("json")
+                    if json_content is not None:
+                        content += json.dumps(json_content) if isinstance(json_content, dict) else str(json_content)
+
+            if not content.strip():
+                raise ProviderError("Anthropic response has no text content")
 
             usage = response.get("usage")
             # Map Anthropic usage format to standard format
@@ -788,6 +812,7 @@ class ClaudeCodeProvider(BaseProvider):
                 usage=usage,
                 finish_reason="stop",
                 raw_response=output if isinstance(output, dict) else None,
+                markdown_stripped=True,  # We already stripped markdown above
             )
 
         except subprocess.TimeoutExpired as exc:

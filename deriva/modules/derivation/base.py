@@ -16,11 +16,40 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+from deriva.adapters.llm import FailedResponse, ResponseType
 from deriva.common import current_timestamp, parse_json_array
 from deriva.common.types import PipelineResult
 
 if TYPE_CHECKING:
     from deriva.adapters.graph import GraphManager
+
+
+def extract_response_content(response: Any) -> tuple[str, str | None]:
+    """
+    Extract content from an LLM response, handling all response types.
+
+    Args:
+        response: LLM response object (LiveResponse, CachedResponse, FailedResponse, or other)
+
+    Returns:
+        Tuple of (content, error) where error is None if successful
+    """
+    # Check for FailedResponse first
+    if isinstance(response, FailedResponse):
+        return "", f"LLM call failed: {response.error}"
+
+    # Check for response_type attribute (dataclass-based responses)
+    if hasattr(response, "response_type"):
+        if response.response_type == ResponseType.FAILED:
+            error = getattr(response, "error", "Unknown error")
+            return "", f"LLM call failed: {error}"
+
+    # Extract content from response
+    if hasattr(response, "content"):
+        return response.content, None
+
+    # Fallback to string representation (shouldn't happen with proper response types)
+    return str(response), None
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +71,30 @@ ESSENTIAL_PROPS: set[str] = {
 
 # Properties to exclude from relationship prompts (invalidate cache)
 EXCLUDED_FROM_CACHE: set[str] = {"derived_at"}
+
+# Essential fields for relationship derivation (reduces tokens by ~50%)
+RELATIONSHIP_ESSENTIAL_FIELDS: set[str] = {"identifier", "name", "element_type"}
+
+
+def strip_for_relationship_prompt(
+    elements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Strip elements to essential fields for relationship derivation.
+
+    For relationship inference, we only need identifier, name, and element_type.
+    Documentation and other properties are not needed and add tokens.
+
+    Args:
+        elements: List of element dictionaries
+
+    Returns:
+        List with only essential fields per element
+    """
+    return [
+        {k: v for k, v in elem.items() if k in RELATIONSHIP_ESSENTIAL_FIELDS}
+        for elem in elements
+    ]
 
 
 def strip_cache_breaking_props(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -323,13 +376,254 @@ def get_articulation_points(candidates: list[Candidate]) -> list[Candidate]:
 
 
 # =============================================================================
+# Token Estimation & Context Limiting (Phase 4)
+# =============================================================================
+
+# Default model context limits (tokens) - conservative estimates
+MODEL_CONTEXT_LIMITS: dict[str, int] = {
+    "gpt-4": 8192,
+    "gpt-4-turbo": 128000,
+    "gpt-4o": 128000,
+    "gpt-4o-mini": 128000,
+    "gpt-4.1-mini": 128000,
+    "gpt-4.1-nano": 128000,
+    "claude-3": 200000,
+    "claude-haiku": 200000,
+    "claude-sonnet": 200000,
+    "claude-opus": 200000,
+    "devstral": 32000,
+    "mistral": 32000,
+    "default": 16000,  # Conservative default
+}
+
+
+def estimate_tokens(text: str) -> int:
+    """
+    Estimate token count for a text string.
+
+    Uses a simple heuristic: ~4 characters per token for English text.
+    This is accurate within ~10% for most LLM tokenizers.
+
+    Args:
+        text: Text to estimate tokens for
+
+    Returns:
+        Estimated token count
+    """
+    return len(text) // 4
+
+
+def get_model_context_limit(model_name: str) -> int:
+    """
+    Get the context limit for a model.
+
+    Args:
+        model_name: Model identifier (e.g., "gpt-4o-mini", "claude-sonnet")
+
+    Returns:
+        Context limit in tokens
+    """
+    model_lower = model_name.lower()
+    for key, limit in MODEL_CONTEXT_LIMITS.items():
+        if key in model_lower:
+            return limit
+    return MODEL_CONTEXT_LIMITS["default"]
+
+
+def limit_existing_elements(
+    elements: list[dict[str, Any]],
+    max_elements: int = 50,
+    sort_by_confidence: bool = True,
+) -> list[dict[str, Any]]:
+    """
+    Limit existing elements to top-N by importance.
+
+    When deriving relationships, we don't need ALL existing elements -
+    just the most important ones. This reduces tokens by up to 80%.
+
+    Args:
+        elements: List of element dictionaries
+        max_elements: Maximum number of elements to keep (default 50)
+        sort_by_confidence: If True, sort by confidence descending (default True)
+
+    Returns:
+        Filtered list of elements
+    """
+    if len(elements) <= max_elements:
+        return elements
+
+    if sort_by_confidence:
+        # Sort by confidence (from properties), highest first
+        sorted_elements = sorted(
+            elements,
+            key=lambda e: e.get("properties", {}).get("confidence", 0.5),
+            reverse=True,
+        )
+        return sorted_elements[:max_elements]
+
+    # Simple truncation if not sorting
+    return elements[:max_elements]
+
+
+def stratified_sample_elements(
+    elements: list[dict[str, Any]],
+    max_per_type: int = 10,
+    relevant_types: list[str] | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Sample elements with stratification by element type.
+
+    Ensures representation from each relevant element type while
+    limiting total count. Improves relationship diversity.
+
+    Args:
+        elements: List of element dictionaries
+        max_per_type: Maximum elements per type (default 10)
+        relevant_types: Only include these types (None = all types)
+
+    Returns:
+        Stratified sample of elements
+    """
+    if not elements:
+        return []
+
+    # Group by element_type
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for elem in elements:
+        etype = elem.get("element_type", "Unknown")
+        if relevant_types is None or etype in relevant_types:
+            if etype not in by_type:
+                by_type[etype] = []
+            by_type[etype].append(elem)
+
+    # Take top max_per_type from each type (sorted by confidence)
+    sampled = []
+    for etype, type_elements in by_type.items():
+        sorted_type = sorted(
+            type_elements,
+            key=lambda e: e.get("properties", {}).get("confidence", 0.5),
+            reverse=True,
+        )
+        sampled.extend(sorted_type[:max_per_type])
+
+    return sampled
+
+
+def check_prompt_size(
+    prompt: str,
+    model_name: str = "default",
+    warn_threshold: float = 0.8,
+) -> tuple[int, bool]:
+    """
+    Check if prompt size is within model limits.
+
+    Args:
+        prompt: The prompt string to check
+        model_name: Model name for context limit lookup
+        warn_threshold: Fraction of limit to warn at (default 0.8 = 80%)
+
+    Returns:
+        Tuple of (estimated_tokens, is_over_threshold)
+    """
+    estimated = estimate_tokens(prompt)
+    limit = get_model_context_limit(model_name)
+    threshold = int(limit * warn_threshold)
+
+    if estimated > threshold:
+        logger.warning(
+            "Prompt size %d tokens exceeds %d%% of %s limit (%d)",
+            estimated,
+            int(warn_threshold * 100),
+            model_name,
+            limit,
+        )
+        return estimated, True
+
+    return estimated, False
+
+
+# =============================================================================
 # Batching
 # =============================================================================
 
 
+def calculate_dynamic_batch_size(
+    num_candidates: int,
+    min_batch: int = 10,
+    max_batch: int = 25,
+) -> int:
+    """
+    Calculate optimal batch size based on candidate count.
+
+    For small candidate sets, use larger batches to reduce LLM calls.
+    For large sets, use moderate batches to balance context and calls.
+
+    Args:
+        num_candidates: Total number of candidates
+        min_batch: Minimum batch size (default 10)
+        max_batch: Maximum batch size (default 25)
+
+    Returns:
+        Calculated batch size
+    """
+    if num_candidates <= min_batch:
+        return num_candidates  # Single batch for small sets
+    # Use ~3-4 batches for most datasets
+    dynamic = max(min_batch, num_candidates // 3)
+    return min(max_batch, dynamic)
+
+
+def adjust_batch_for_tokens(
+    current_batch_size: int,
+    estimated_tokens: int,
+    model_name: str = "default",
+    target_utilization: float = 0.7,
+    min_batch: int = 5,
+) -> int:
+    """
+    Adjust batch size based on estimated token count.
+
+    If the estimated tokens exceed target utilization of model limit,
+    reduce batch size proportionally to fit within limits.
+
+    Args:
+        current_batch_size: Current batch size
+        estimated_tokens: Estimated tokens for current batch
+        model_name: Model name for context limit lookup
+        target_utilization: Target fraction of context limit (default 0.7 = 70%)
+        min_batch: Minimum batch size (default 5)
+
+    Returns:
+        Adjusted batch size
+    """
+    limit = get_model_context_limit(model_name)
+    target = int(limit * target_utilization)
+
+    if estimated_tokens <= target:
+        return current_batch_size
+
+    # Scale down proportionally
+    scale_factor = target / estimated_tokens
+    adjusted = int(current_batch_size * scale_factor)
+
+    # Clamp to minimum
+    adjusted = max(min_batch, adjusted)
+
+    if adjusted < current_batch_size:
+        logger.info(
+            "Reducing batch size %d -> %d due to token limit (est: %d, target: %d)",
+            current_batch_size,
+            adjusted,
+            estimated_tokens,
+            target,
+        )
+
+    return adjusted
+
+
 def batch_candidates(
     candidates: list[Candidate],
-    batch_size: int = 15,
+    batch_size: int | None = None,
     group_by_community: bool = True,
 ) -> list[list[Candidate]]:
     """
@@ -337,7 +631,8 @@ def batch_candidates(
 
     Args:
         candidates: List of candidates to batch
-        batch_size: Maximum items per batch (default 15)
+        batch_size: Maximum items per batch. If None, uses dynamic sizing
+                   based on candidate count (recommended).
         group_by_community: If True, group candidates by Louvain community first,
                            keeping related nodes together (default True)
 
@@ -346,6 +641,10 @@ def batch_candidates(
     """
     if not candidates:
         return []
+
+    # Use dynamic batch sizing if not specified
+    if batch_size is None:
+        batch_size = calculate_dynamic_batch_size(len(candidates))
 
     if not group_by_community:
         # Simple sequential batching
@@ -432,8 +731,14 @@ DERIVATION_SCHEMA: dict[str, Any] = {
                         "source": {"type": "string"},
                         "confidence": {"type": "number"},
                     },
-                    "required": ["identifier", "name"],
-                    "additionalProperties": True,
+                    "required": [
+                        "identifier",
+                        "name",
+                        "documentation",
+                        "source",
+                        "confidence",
+                    ],
+                    "additionalProperties": False,
                 },
             }
         },
@@ -459,8 +764,14 @@ RELATIONSHIP_SCHEMA: dict[str, Any] = {
                         "name": {"type": "string"},
                         "confidence": {"type": "number"},
                     },
-                    "required": ["source", "target", "relationship_type"],
-                    "additionalProperties": True,
+                    "required": [
+                        "source",
+                        "target",
+                        "relationship_type",
+                        "name",
+                        "confidence",
+                    ],
+                    "additionalProperties": False,
                 },
             }
         },
@@ -480,6 +791,8 @@ def build_derivation_prompt(
     instruction: str,
     example: str,
     element_type: str,
+    existing_identifiers: list[str] | None = None,
+    existing_elements_summary: dict[str, list[str]] | None = None,
 ) -> str:
     """
     Build LLM prompt for element derivation.
@@ -489,6 +802,9 @@ def build_derivation_prompt(
         instruction: Element-specific derivation instructions
         example: Example output format
         element_type: ArchiMate element type
+        existing_identifiers: Optional list of already-created identifiers to avoid
+        existing_elements_summary: Optional dict mapping element_type to list of names,
+                                  for naming alignment across types
     """
     # Convert Candidate objects to dicts with minimal properties (reduces tokens)
     if candidates and isinstance(candidates[0], Candidate):
@@ -497,7 +813,29 @@ def build_derivation_prompt(
     else:
         data = candidates
 
-    data_json = json.dumps(data, indent=2, default=str)
+    # Use compact JSON (no indentation) to reduce token usage by ~20-30%
+    data_json = json.dumps(data, separators=(",", ":"), default=str)
+
+    # Build forbidden names section if existing identifiers provided
+    forbidden_section = ""
+    if existing_identifiers:
+        forbidden_section = f"""
+## Already Created (DO NOT duplicate these identifiers)
+{json.dumps(existing_identifiers, separators=(",", ":"))}
+"""
+
+    # Build cross-element reference section for naming alignment
+    context_section = ""
+    if existing_elements_summary:
+        lines = []
+        for etype, names in existing_elements_summary.items():
+            if names:
+                lines.append(f"- {etype}: {', '.join(names[:10])}")  # Limit to 10
+        if lines:
+            context_section = f"""
+## Existing Elements (for naming alignment)
+{chr(10).join(lines)}
+"""
 
     return f"""You are deriving ArchiMate {element_type} elements from source code graph data.
 
@@ -511,7 +849,7 @@ Each includes graph metrics (pagerank, degree) to help assess importance.
 ```json
 {data_json}
 ```
-
+{forbidden_section}{context_section}
 ## Example Output
 {example}
 
@@ -522,6 +860,7 @@ Each includes graph metrics (pagerank, degree) to help assess importance.
 4. Add documentation explaining the element's purpose
 5. Set confidence based on how well the candidate matches {element_type}
 6. If no candidates are suitable, return {{"elements": []}}
+7. Output stable, deterministic results - same inputs should produce same outputs
 
 Return a JSON object with an "elements" array.
 """
@@ -534,7 +873,8 @@ Return a JSON object with an "elements" array.
 
 def build_relationship_prompt(elements: list[dict[str, Any]]) -> str:
     """Build LLM prompt for relationship derivation."""
-    elements_json = json.dumps(elements, indent=2, default=str)
+    # Use compact JSON to reduce token usage
+    elements_json = json.dumps(elements, separators=(",", ":"), default=str)
     valid_ids = [e.get("identifier", "") for e in elements if e.get("identifier")]
 
     return f"""Derive relationships between these ArchiMate elements:
@@ -577,8 +917,9 @@ def build_element_relationship_prompt(
     example: str | None = None,
 ) -> str:
     """Build LLM prompt for element-type-specific relationship derivation."""
-    sources_json = json.dumps(source_elements, indent=2, default=str)
-    targets_json = json.dumps(target_elements, indent=2, default=str)
+    # Use compact JSON to reduce token usage
+    sources_json = json.dumps(source_elements, separators=(",", ":"), default=str)
+    targets_json = json.dumps(target_elements, separators=(",", ":"), default=str)
 
     source_ids = [
         e.get("identifier", "") for e in source_elements if e.get("identifier")
@@ -674,6 +1015,15 @@ def sanitize_identifier(identifier: str) -> str:
     return sanitized
 
 
+def clamp_confidence(value: Any, default: float = 0.5) -> float:
+    """Clamp confidence score to valid [0.0, 1.0] range."""
+    try:
+        conf = float(value) if value is not None else default
+        return max(0.0, min(1.0, conf))
+    except (TypeError, ValueError):
+        return default
+
+
 def build_element(derived: dict[str, Any], element_type: str) -> dict[str, Any]:
     """Build ArchiMate element dict from LLM output."""
     identifier = derived.get("identifier")
@@ -683,6 +1033,8 @@ def build_element(derived: dict[str, Any], element_type: str) -> dict[str, Any]:
         return {"success": False, "errors": ["Missing identifier or name"]}
 
     identifier = sanitize_identifier(identifier)
+    # Clamp confidence to [0.0, 1.0] range (LLM may return out-of-range values)
+    confidence = clamp_confidence(derived.get("confidence"))
 
     return {
         "success": True,
@@ -693,7 +1045,7 @@ def build_element(derived: dict[str, Any], element_type: str) -> dict[str, Any]:
             "documentation": derived.get("documentation", ""),
             "properties": {
                 "source": derived.get("source"),
-                "confidence": derived.get("confidence", 0.5),
+                "confidence": confidence,
                 "derived_at": current_timestamp(),
             },
         },
@@ -727,19 +1079,14 @@ def build_per_element_relationship_prompt(
         example: Example output from database config
         valid_relationship_types: Allowed relationship types (from config)
     """
-    # Strip timestamps to enable caching
-    clean_sources = strip_cache_breaking_props(source_elements)
-    clean_targets = strip_cache_breaking_props(target_elements)
-    source_json = json.dumps(clean_sources, indent=2, default=str)
-    target_json = json.dumps(clean_targets, indent=2, default=str)
+    # Strip to essential fields for relationship derivation (reduces tokens ~50%)
+    clean_sources = strip_for_relationship_prompt(source_elements)
+    clean_targets = strip_for_relationship_prompt(target_elements)
+    # Use compact JSON to reduce token usage
+    source_json = json.dumps(clean_sources, separators=(",", ":"), default=str)
+    target_json = json.dumps(clean_targets, separators=(",", ":"), default=str)
 
-    source_ids = [
-        e.get("identifier", "") for e in source_elements if e.get("identifier")
-    ]
-    target_ids = [
-        e.get("identifier", "") for e in target_elements if e.get("identifier")
-    ]
-
+    # Note: identifier lists removed - they're already in the JSON above (saves tokens)
     prompt = f"""You are deriving ArchiMate relationships FROM {source_element_type} elements.
 
 {instruction}
@@ -754,11 +1101,9 @@ TARGET ELEMENTS (derive relationships TO these):
 {target_json}
 ```
 
-VALID SOURCE IDENTIFIERS (use EXACTLY as shown):
-{json.dumps(source_ids)}
-
-VALID TARGET IDENTIFIERS (use EXACTLY as shown):
-{json.dumps(target_ids)}
+RULES:
+- Use identifiers EXACTLY as shown in the elements above (case-sensitive)
+- Source must be from SOURCE ELEMENTS, target from TARGET ELEMENTS
 """
 
     if valid_relationship_types:
@@ -776,6 +1121,7 @@ EXAMPLE OUTPUT:
 """
 
     prompt += """
+Output stable, deterministic results.
 Return {"relationships": []} with source, target, relationship_type, confidence for each.
 """
     return prompt
@@ -808,23 +1154,13 @@ def build_unified_relationship_prompt(
     if not new_elements:
         return ""
 
-    # Strip timestamps to enable caching
-    clean_new = strip_cache_breaking_props(new_elements)
-    clean_existing = strip_cache_breaking_props(existing_elements)
+    # Strip to essential fields for relationship derivation (reduces tokens ~50%)
+    clean_new = strip_for_relationship_prompt(new_elements)
+    clean_existing = strip_for_relationship_prompt(existing_elements)
 
-    new_json = json.dumps(clean_new, indent=2, default=str)
-    new_ids = [e.get("identifier", "") for e in new_elements if e.get("identifier")]
-
-    # Group existing elements by type for clarity
-    existing_by_type: dict[str, list[dict]] = {}
-    for elem in existing_elements:
-        etype = elem.get("element_type", "Unknown")
-        existing_by_type.setdefault(etype, []).append(elem)
-
-    existing_json = json.dumps(clean_existing, indent=2, default=str)
-    existing_ids = [
-        e.get("identifier", "") for e in existing_elements if e.get("identifier")
-    ]
+    # Use compact JSON to reduce token usage
+    new_json = json.dumps(clean_new, separators=(",", ":"), default=str)
+    existing_json = json.dumps(clean_existing, separators=(",", ":"), default=str)
 
     # Build outbound rules text
     outbound_text = ""
@@ -864,11 +1200,7 @@ def build_unified_relationship_prompt(
                 inbound_lines
             )
 
-    # Combine all valid relationship types
-    valid_rel_types = list(
-        {r.rel_type for r in outbound_rules} | {r.rel_type for r in inbound_rules}
-    )
-
+    # Note: identifier lists and valid_rel_types removed - they're in the JSON/rules (saves tokens)
     prompt = f"""You are deriving ArchiMate relationships for newly created {element_type} elements.
 
 ## New {element_type} Elements (just created)
@@ -886,20 +1218,14 @@ def build_unified_relationship_prompt(
 
 {inbound_text}
 
-## Valid Identifiers
-New element IDs: {json.dumps(new_ids)}
-Existing element IDs: {json.dumps(existing_ids)}
-
-## Allowed Relationship Types
-{json.dumps(valid_rel_types)}
-
 ## Rules
 1. ONLY create relationships that match the rules above
-2. Source and target must BOTH exist in the provided identifiers
-3. Use identifiers EXACTLY as shown (case-sensitive)
-4. Set confidence based on how clear the relationship is (0.5-1.0)
+2. Use identifiers EXACTLY as shown in the elements above (case-sensitive)
+3. Source/target must exist in the elements listed above
+4. Set confidence 0.5-1.0 based on clarity
 5. Maximum 3 relationships per new element
 6. If no valid relationships exist, return empty array
+7. Output stable, deterministic results
 
 Return {{"relationships": []}} with source, target, relationship_type, confidence for each.
 """
@@ -934,8 +1260,15 @@ def derive_batch_relationships(
     Returns:
         List of validated relationship dicts
     """
+    # Early returns to avoid unnecessary processing
     if not new_elements:
         return []
+
+    if not outbound_rules and not inbound_rules:
+        return []  # No rules defined, skip LLM call entirely
+
+    if not existing_elements:
+        return []  # No targets for relationships
 
     # Check if there are any applicable rules with available targets/sources
     has_outbound_targets = any(
@@ -959,6 +1292,18 @@ def derive_batch_relationships(
         e for e in existing_elements if e.get("element_type") in relevant_types
     ]
 
+    # Phase 4: Apply stratified sampling to limit context size
+    # This keeps representation from each type while reducing tokens
+    if len(filtered_existing) > 50:
+        filtered_existing = stratified_sample_elements(
+            filtered_existing,
+            max_per_type=10,
+            relevant_types=list(relevant_types),
+        )
+        logger.debug(
+            "Stratified sampling: reduced to %d elements", len(filtered_existing)
+        )
+
     logger.debug(
         "Filtered existing elements: %d -> %d (relevant types: %s)",
         len(existing_elements),
@@ -976,6 +1321,15 @@ def derive_batch_relationships(
 
     if not prompt:
         return []
+
+    # Phase 4: Check prompt size and warn if too large
+    estimated_tokens, over_threshold = check_prompt_size(prompt)
+    if over_threshold:
+        logger.warning(
+            "Large prompt for %s relationships (%d tokens). Consider fewer elements.",
+            element_type,
+            estimated_tokens,
+        )
 
     llm_kwargs = {}
     if temperature is not None:
@@ -1187,6 +1541,9 @@ def create_result(
 __all__ = [
     # Constants
     "ESSENTIAL_PROPS",
+    "RELATIONSHIP_ESSENTIAL_FIELDS",
+    # Utility functions
+    "strip_for_relationship_prompt",
     # Data structures
     "Candidate",
     "RelationshipRule",
@@ -1202,7 +1559,16 @@ __all__ = [
     "filter_by_community",
     "get_community_roots",
     "get_articulation_points",
+    # Token estimation & context limiting (Phase 4)
+    "MODEL_CONTEXT_LIMITS",
+    "estimate_tokens",
+    "get_model_context_limit",
+    "limit_existing_elements",
+    "stratified_sample_elements",
+    "check_prompt_size",
     # Batching
+    "calculate_dynamic_batch_size",
+    "adjust_batch_for_tokens",
     "batch_candidates",
     # Query
     "query_candidates",
@@ -1215,10 +1581,13 @@ __all__ = [
     "build_element_relationship_prompt",
     "build_per_element_relationship_prompt",
     "build_unified_relationship_prompt",
+    # Response handling
+    "extract_response_content",
     # Parsing
     "parse_derivation_response",
     "parse_relationship_response",
     # Element building
+    "clamp_confidence",
     "sanitize_identifier",
     "build_element",
     # Relationship derivation

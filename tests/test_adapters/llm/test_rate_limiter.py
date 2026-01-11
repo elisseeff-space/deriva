@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 
 from deriva.adapters.llm.rate_limiter import (
     DEFAULT_RATE_LIMITS,
@@ -79,7 +80,7 @@ class TestRateLimiterBasic:
         assert limiter.config.requests_per_minute == 60
         assert limiter._consecutive_rate_limits == 0
         assert limiter._last_request_time == 0.0
-        assert limiter._request_times == []
+        assert len(limiter._request_times) == 0
 
     def test_custom_config(self):
         """Should accept custom config."""
@@ -159,9 +160,9 @@ class TestRateLimiterWaitIfNeeded:
         config = RateLimitConfig(requests_per_minute=60)
         limiter = RateLimiter(config=config)
 
-        # Add an old timestamp
+        # Add an old timestamp (using deque)
         old_time = time.time() - 120  # 2 minutes ago
-        limiter._request_times = [old_time]
+        limiter._request_times = deque([old_time])
 
         # Make a new request
         limiter.wait_if_needed()
@@ -279,8 +280,8 @@ class TestRateLimiterGetStats:
         """Should only count requests in last minute."""
         limiter = RateLimiter()
 
-        # Add old request
-        limiter._request_times = [time.time() - 120]  # 2 minutes ago
+        # Add old request (using deque)
+        limiter._request_times = deque([time.time() - 120])  # 2 minutes ago
 
         # Add recent request
         limiter.wait_if_needed()

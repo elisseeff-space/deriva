@@ -15,6 +15,41 @@ from typing import Any
 from deriva.common.exceptions import CacheError
 
 
+# Cache schema hashes to avoid repeated JSON serialization (improves performance)
+@lru_cache(maxsize=128)
+def _hash_schema(schema_tuple: tuple) -> str:
+    """
+    Generate a hash for a schema tuple.
+
+    Uses frozen tuple representation since dicts aren't hashable.
+    Cached with LRU to avoid re-hashing the same schemas.
+    """
+    import json
+    # Convert back to dict for JSON serialization
+    schema_dict = dict(schema_tuple)
+    return json.dumps(schema_dict, sort_keys=True)
+
+
+def _schema_to_tuple(schema: dict) -> tuple:
+    """Convert a schema dict to a hashable tuple representation."""
+    items = []
+    for k, v in sorted(schema.items()):
+        if isinstance(v, dict):
+            items.append((k, _schema_to_tuple(v)))
+        elif isinstance(v, list):
+            # Convert list items recursively
+            list_items = []
+            for item in v:
+                if isinstance(item, dict):
+                    list_items.append(_schema_to_tuple(item))
+                else:
+                    list_items.append(item)
+            items.append((k, tuple(list_items)))
+        else:
+            items.append((k, v))
+    return tuple(items)
+
+
 class CacheManager:
     """Manages caching of LLM responses with both memory and disk persistence."""
 
@@ -53,8 +88,9 @@ class CacheManager:
         # Combine all inputs into a single string
         cache_input = f"{prompt}|{model}"
         if schema:
-            # Sort schema keys for consistent hashing
-            schema_str = json.dumps(schema, sort_keys=True)
+            # Use cached schema hashing for better performance
+            schema_tuple = _schema_to_tuple(schema)
+            schema_str = _hash_schema(schema_tuple)
             cache_input += f"|{schema_str}"
         if bench_hash:
             # Add benchmark context for per-run cache isolation

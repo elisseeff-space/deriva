@@ -1179,7 +1179,7 @@ class TestBuildPerElementRelationshipPrompt:
         assert "EXAMPLE OUTPUT" in prompt
 
     def test_lists_valid_identifiers(self):
-        """Should list valid source and target identifiers."""
+        """Should include source and target identifiers in element JSON."""
         from deriva.modules.derivation.base import build_per_element_relationship_prompt
 
         prompt = build_per_element_relationship_prompt(
@@ -1194,11 +1194,12 @@ class TestBuildPerElementRelationshipPrompt:
             instruction="Derive.",
         )
 
-        assert "VALID SOURCE IDENTIFIERS" in prompt
+        # Identifiers should appear in the element JSON (no separate list)
         assert "src_1" in prompt
         assert "src_2" in prompt
-        assert "VALID TARGET IDENTIFIERS" in prompt
         assert "tgt_1" in prompt
+        assert "SOURCE ELEMENTS" in prompt
+        assert "TARGET ELEMENTS" in prompt
 
 
 class TestBuildUnifiedRelationshipPrompt:
@@ -1285,7 +1286,7 @@ class TestBuildUnifiedRelationshipPrompt:
         assert "Serving" in prompt
 
     def test_lists_valid_identifiers(self):
-        """Should list new and existing identifiers."""
+        """Should include new and existing identifiers in element JSON."""
         from deriva.modules.derivation.base import build_unified_relationship_prompt
 
         prompt = build_unified_relationship_prompt(
@@ -1299,11 +1300,13 @@ class TestBuildUnifiedRelationshipPrompt:
             inbound_rules=[],
         )
 
+        # Identifiers should appear in the element JSON (no separate list)
         assert "new_1" in prompt
         assert "new_2" in prompt
         assert "old_1" in prompt
-        assert "New element IDs" in prompt
-        assert "Existing element IDs" in prompt
+        # Elements are in their respective sections
+        assert "New ApplicationComponent Elements" in prompt
+        assert "Existing Elements" in prompt
 
 
 class TestDeriveBatchRelationships:
