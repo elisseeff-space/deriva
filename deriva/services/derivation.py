@@ -17,6 +17,7 @@ from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any
 
 from deriva.adapters.archimate import ArchimateManager
+from deriva.adapters.archimate.models import Relationship
 from deriva.common.types import PipelineResult, ProgressUpdate
 
 if TYPE_CHECKING:
@@ -572,11 +573,13 @@ def run_derivation(
 
             # Persist relationships to archimate model
             for rel_data in relationships:
-                archimate_manager.create_relationship(
-                    source_id=rel_data["source"],
-                    target_id=rel_data["target"],
-                    rel_type=rel_data["relationship_type"],
+                relationship = Relationship(
+                    source=rel_data["source"],
+                    target=rel_data["target"],
+                    relationship_type=rel_data["relationship_type"],
+                    properties={"confidence": rel_data.get("confidence", 0.5)},
                 )
+                archimate_manager.add_relationship(relationship)
 
             rel_count = len(relationships)
             stats["relationships_created"] += rel_count
