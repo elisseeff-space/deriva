@@ -73,9 +73,7 @@ def _load_element_module(element_type: str) -> Any:
     return module
 
 
-def _collect_relationship_rules() -> (
-    dict[str, tuple[list[Any], list[Any]]]
-):
+def _collect_relationship_rules() -> dict[str, tuple[list[Any], list[Any]]]:
     """Collect relationship rules from all loaded element modules.
 
     Returns:

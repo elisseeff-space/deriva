@@ -312,8 +312,8 @@ Deriva supports a two-phase derivation architecture via the `defer_relationships
 
 | Mode               | Behavior                                                         | Use Case                              |
 |--------------------|------------------------------------------------------------------|---------------------------------------|
-| Default (`False`)  | Derive relationships after each element batch                    | Standard operation                    |
-| Deferred (`True`)  | Create all elements first, then derive relationships in one pass | Better consistency for complex models |
+| Legacy (`False`)   | Derive relationships after each element batch                    | Debugging, comparison                 |
+| Default (`True`)   | Create all elements first, then derive relationships in one pass | Recommended for all use cases         |
 
 **Benefits of deferred mode:**
 

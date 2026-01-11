@@ -949,20 +949,20 @@ filtered = filter_by_graph_proximity(existing_elements, connected_ids)
 
 ### Separated Derivation Phases (Phase 4.6)
 
-The `defer_relationships` parameter enables a two-phase architecture:
+The `defer_relationships` parameter enables a two-phase architecture.
 
-**Default Mode (defer_relationships=False):**
-
-```text
-For each element type:
-  1. Create elements → 2. Derive relationships → Repeat
-```
-
-**Deferred Mode (defer_relationships=True):**
+**Default Mode (defer_relationships=True):** *(Recommended)*
 
 ```text
 Phase 1: Create ALL elements (skip relationships)
 Phase 2: Single consolidated relationship pass
+```
+
+**Legacy Mode (defer_relationships=False):**
+
+```text
+For each element type:
+  1. Create elements → 2. Derive relationships → Repeat
 ```
 
 **Usage:**
