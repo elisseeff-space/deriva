@@ -723,6 +723,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> int:
     export_models = not getattr(args, "no_export_models", False)
     clear_between_runs = not getattr(args, "no_clear", False)
     bench_hash = getattr(args, "bench_hash", False)
+    defer_relationships = getattr(args, "defer_relationships", False)
     nocache_configs_str = getattr(args, "nocache_configs", None)
     nocache_configs = (
         [c.strip() for c in nocache_configs_str.split(",")]
@@ -1459,6 +1460,11 @@ def create_parser() -> argparse.ArgumentParser:
         "--bench-hash",
         action="store_true",
         help="Include repo/model/run in cache key for per-run isolation. Allows resuming failed runs with cache on.",
+    )
+    benchmark_run.add_argument(
+        "--defer-relationships",
+        action="store_true",
+        help="Two-phase derivation: create all elements first, then derive relationships in one pass",
     )
     benchmark_run.set_defaults(func=cmd_benchmark_run)
 
