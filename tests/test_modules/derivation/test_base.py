@@ -1880,3 +1880,310 @@ class TestSharedGenerateBehavior:
                 )
 
         assert isinstance(result, GenerationResult)
+
+
+class TestStripForRelationshipPrompt:
+    """Tests for strip_for_relationship_prompt function."""
+
+    def test_strips_to_essential_fields(self):
+        """Should keep only identifier, name, element_type."""
+        from deriva.modules.derivation.base import strip_for_relationship_prompt
+
+        elements = [
+            {
+                "identifier": "app_auth",
+                "name": "Auth Component",
+                "element_type": "ApplicationComponent",
+                "documentation": "This should be removed",
+                "properties": {"confidence": 0.9, "source": "test"},
+            }
+        ]
+
+        result = strip_for_relationship_prompt(elements)
+
+        assert len(result) == 1
+        assert result[0]["identifier"] == "app_auth"
+        assert result[0]["name"] == "Auth Component"
+        assert result[0]["element_type"] == "ApplicationComponent"
+        assert "documentation" not in result[0]
+        assert "properties" not in result[0]
+
+    def test_handles_empty_list(self):
+        """Should return empty list for empty input."""
+        from deriva.modules.derivation.base import strip_for_relationship_prompt
+
+        result = strip_for_relationship_prompt([])
+        assert result == []
+
+    def test_handles_missing_fields(self):
+        """Should handle elements with missing optional fields."""
+        from deriva.modules.derivation.base import strip_for_relationship_prompt
+
+        elements = [{"identifier": "test_id"}]
+        result = strip_for_relationship_prompt(elements)
+
+        assert len(result) == 1
+        assert result[0]["identifier"] == "test_id"
+
+
+class TestStripCacheBreakingProps:
+    """Tests for strip_cache_breaking_props function."""
+
+    def test_removes_derived_at_from_properties(self):
+        """Should remove derived_at timestamp from properties."""
+        from deriva.modules.derivation.base import strip_cache_breaking_props
+
+        elements = [
+            {
+                "identifier": "test",
+                "properties": {
+                    "confidence": 0.9,
+                    "derived_at": "2024-01-01T00:00:00Z",
+                    "source": "test_source",
+                },
+            }
+        ]
+
+        result = strip_cache_breaking_props(elements)
+
+        assert len(result) == 1
+        assert "derived_at" not in result[0]["properties"]
+        assert result[0]["properties"]["confidence"] == 0.9
+        assert result[0]["properties"]["source"] == "test_source"
+
+    def test_preserves_elements_without_properties(self):
+        """Should handle elements without properties dict."""
+        from deriva.modules.derivation.base import strip_cache_breaking_props
+
+        elements = [{"identifier": "test", "name": "Test"}]
+        result = strip_cache_breaking_props(elements)
+
+        assert len(result) == 1
+        assert result[0]["identifier"] == "test"
+
+    def test_handles_empty_list(self):
+        """Should return empty list for empty input."""
+        from deriva.modules.derivation.base import strip_cache_breaking_props
+
+        result = strip_cache_breaking_props([])
+        assert result == []
+
+
+class TestExtractResponseContent:
+    """Tests for extract_response_content function."""
+
+    def test_extracts_content_from_response_with_content_attr(self):
+        """Should extract content from response with content attribute."""
+        from deriva.modules.derivation.base import extract_response_content
+
+        class MockResponse:
+            content = '{"elements": []}'
+
+        content, error = extract_response_content(MockResponse())
+
+        assert content == '{"elements": []}'
+        assert error is None
+
+    def test_returns_error_for_failed_response(self):
+        """Should return error message for FailedResponse."""
+        from deriva.adapters.llm.models import FailedResponse
+        from deriva.modules.derivation.base import extract_response_content
+
+        failed = FailedResponse(error="API timeout")
+        content, error = extract_response_content(failed)
+
+        assert content == ""
+        assert "API timeout" in error
+
+    def test_handles_response_with_failed_type(self):
+        """Should detect failed response via response_type attribute."""
+        from deriva.adapters.llm.models import ResponseType
+        from deriva.modules.derivation.base import extract_response_content
+
+        class MockFailedResponse:
+            response_type = ResponseType.FAILED
+            error = "Connection error"
+
+        content, error = extract_response_content(MockFailedResponse())
+
+        assert content == ""
+        assert "Connection error" in error
+
+    def test_falls_back_to_string_conversion(self):
+        """Should convert to string if no content attribute."""
+        from deriva.modules.derivation.base import extract_response_content
+
+        content, error = extract_response_content("plain string response")
+
+        assert content == "plain string response"
+        assert error is None
+
+
+class TestCandidateToDict:
+    """Tests for Candidate.to_dict method."""
+
+    def test_to_dict_includes_all_fields(self):
+        """Should include all fields in dict output."""
+        from deriva.modules.derivation.base import Candidate
+
+        candidate = Candidate(
+            node_id="node_123",
+            name="TestNode",
+            labels=["Label1", "Label2"],
+            properties={"key": "value"},
+            pagerank=0.5,
+            louvain_community="comm_1",
+            kcore_level=3,
+            in_degree=5,
+            out_degree=10,
+        )
+
+        result = candidate.to_dict()
+
+        assert result["id"] == "node_123"
+        assert result["name"] == "TestNode"
+        assert result["labels"] == ["Label1", "Label2"]
+        assert result["properties"]["key"] == "value"
+        assert result["pagerank"] == 0.5
+        assert result["in_degree"] == 5
+        assert result["out_degree"] == 10
+
+    def test_to_dict_with_include_props_filter(self):
+        """Should filter properties when include_props is specified."""
+        from deriva.modules.derivation.base import ESSENTIAL_PROPS, Candidate
+
+        candidate = Candidate(
+            node_id="node_123",
+            name="TestNode",
+            properties={
+                "name": "test",
+                "description": "test desc",
+                "randomProp": "should be filtered",
+            },
+        )
+
+        result = candidate.to_dict(include_props=ESSENTIAL_PROPS)
+
+        assert "name" in result["properties"]
+        assert "description" in result["properties"]
+        assert "randomProp" not in result["properties"]
+
+
+class TestRelationshipRule:
+    """Tests for RelationshipRule dataclass."""
+
+    def test_creates_with_required_fields(self):
+        """Should create rule with required fields."""
+        from deriva.modules.derivation.base import RelationshipRule
+
+        rule = RelationshipRule(
+            target_type="ApplicationService",
+            rel_type="Serving",
+            description="Provides services",
+        )
+
+        assert rule.target_type == "ApplicationService"
+        assert rule.rel_type == "Serving"
+        assert rule.description == "Provides services"
+
+    def test_to_dict_output(self):
+        """Should convert to dict correctly."""
+        from deriva.modules.derivation.base import RelationshipRule
+
+        rule = RelationshipRule(
+            target_type="DataObject",
+            rel_type="Access",
+            description="Accesses data",
+        )
+
+        result = rule.to_dict()
+
+        assert result["target_type"] == "DataObject"
+        assert result["rel_type"] == "Access"
+        assert result["description"] == "Accesses data"
+
+
+class TestSanitizeIdentifier:
+    """Tests for sanitize_identifier function."""
+
+    def test_lowercases_identifier(self):
+        """Should lowercase the identifier."""
+        from deriva.modules.derivation.base import sanitize_identifier
+
+        result = sanitize_identifier("MyIdentifier")
+        assert result == "myidentifier"
+
+    def test_replaces_spaces_with_underscores(self):
+        """Should replace spaces with underscores."""
+        from deriva.modules.derivation.base import sanitize_identifier
+
+        result = sanitize_identifier("my identifier")
+        assert result == "my_identifier"
+
+    def test_replaces_hyphens_with_underscores(self):
+        """Should replace hyphens with underscores."""
+        from deriva.modules.derivation.base import sanitize_identifier
+
+        result = sanitize_identifier("my-identifier")
+        assert result == "my_identifier"
+
+    def test_replaces_colons_with_underscores(self):
+        """Should replace colons with underscores."""
+        from deriva.modules.derivation.base import sanitize_identifier
+
+        result = sanitize_identifier("app:component:auth")
+        assert result == "app_component_auth"
+
+    def test_removes_non_alphanumeric(self):
+        """Should remove non-alphanumeric characters except underscore."""
+        from deriva.modules.derivation.base import sanitize_identifier
+
+        result = sanitize_identifier("my@id#with$special!")
+        assert result == "myidwithspecial"
+
+    def test_prefixes_if_starts_with_number(self):
+        """Should prefix with id_ if starts with number."""
+        from deriva.modules.derivation.base import sanitize_identifier
+
+        result = sanitize_identifier("123abc")
+        assert result == "id_123abc"
+
+
+class TestClampConfidence:
+    """Tests for clamp_confidence function."""
+
+    def test_clamps_high_values(self):
+        """Should clamp values above 1.0 to 1.0."""
+        from deriva.modules.derivation.base import clamp_confidence
+
+        assert clamp_confidence(1.5) == 1.0
+        assert clamp_confidence(100) == 1.0
+
+    def test_clamps_low_values(self):
+        """Should clamp values below 0.0 to 0.0."""
+        from deriva.modules.derivation.base import clamp_confidence
+
+        assert clamp_confidence(-0.5) == 0.0
+        assert clamp_confidence(-100) == 0.0
+
+    def test_preserves_valid_values(self):
+        """Should preserve values in valid range."""
+        from deriva.modules.derivation.base import clamp_confidence
+
+        assert clamp_confidence(0.5) == 0.5
+        assert clamp_confidence(0.0) == 0.0
+        assert clamp_confidence(1.0) == 1.0
+
+    def test_uses_default_for_none(self):
+        """Should use default value for None."""
+        from deriva.modules.derivation.base import clamp_confidence
+
+        assert clamp_confidence(None) == 0.5
+        assert clamp_confidence(None, default=0.7) == 0.7
+
+    def test_handles_invalid_types(self):
+        """Should return default for non-numeric types."""
+        from deriva.modules.derivation.base import clamp_confidence
+
+        assert clamp_confidence("invalid") == 0.5
+        assert clamp_confidence([1, 2, 3]) == 0.5

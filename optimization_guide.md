@@ -908,6 +908,126 @@ See [Graph-Based Optimization](#graph-based-optimization) for the full methodolo
 
 ---
 
+## Phase 4: Advanced Optimizations
+
+The following advanced optimizations were implemented to further improve token efficiency and consistency.
+
+### Token Estimation & Context Limiting
+
+Functions in `deriva/modules/derivation/base.py`:
+
+| Function | Purpose |
+|----------|---------|
+| `estimate_tokens(text)` | Estimates token count (~4 chars/token) |
+| `get_model_context_limit(model)` | Returns context limit for model |
+| `check_prompt_size(prompt, model)` | Warns if prompt exceeds 80% of limit |
+| `limit_existing_elements(elements, max=50)` | Keeps top-N elements by confidence |
+| `stratified_sample_elements(elements, max_per_type=10)` | Samples across element types |
+
+### Graph-Aware Pre-filtering (Phase 4.3)
+
+Only include existing elements with graph proximity to new elements:
+
+```python
+from deriva.modules.derivation.base import (
+    get_connected_source_ids,
+    filter_by_graph_proximity,
+)
+
+# Get nodes connected within 2 hops
+connected_ids = get_connected_source_ids(graph_manager, new_source_ids, max_hops=2)
+
+# Filter to only graph neighbors
+filtered = filter_by_graph_proximity(existing_elements, connected_ids)
+```
+
+**Benefits:**
+
+- 60-90% reduction in context size
+- Better relationship quality (only related elements in context)
+- Reduced hallucination of spurious relationships
+
+### Separated Derivation Phases (Phase 4.6)
+
+The `defer_relationships` parameter enables a two-phase architecture:
+
+**Default Mode (defer_relationships=False):**
+
+```text
+For each element type:
+  1. Create elements → 2. Derive relationships → Repeat
+```
+
+**Deferred Mode (defer_relationships=True):**
+
+```text
+Phase 1: Create ALL elements (skip relationships)
+Phase 2: Single consolidated relationship pass
+```
+
+**Usage:**
+
+```python
+from deriva.services.derivation import generate_element
+from deriva.modules.derivation.base import derive_consolidated_relationships
+
+# Phase 1: Generate all elements without relationships
+all_elements = []
+for element_type in element_types:
+    result = generate_element(
+        element_type=element_type,
+        defer_relationships=True,  # Skip per-batch relationships
+        # ... other params
+    )
+    all_elements.extend(result["elements"])
+
+# Phase 2: Derive all relationships in one pass
+relationships = derive_consolidated_relationships(
+    all_elements=all_elements,
+    relationship_rules=rules_by_type,
+    llm_query_fn=llm.query,
+    graph_manager=graph_manager,
+)
+```
+
+**Benefits:**
+
+- Better context - ALL elements available during relationship derivation
+- Fewer LLM calls - One pass per element type instead of per batch
+- More consistent - Reduces ordering effects
+- Graph-aware filtering works better with complete element set
+
+### Dynamic Batch Sizing
+
+Batch size adapts to candidate count and token limits:
+
+```python
+from deriva.modules.derivation.base import (
+    calculate_dynamic_batch_size,
+    adjust_batch_for_tokens,
+)
+
+# Auto-size based on candidate count
+batch_size = calculate_dynamic_batch_size(len(candidates))  # 10-25 range
+
+# Reduce if tokens exceed model limit
+batch_size = adjust_batch_for_tokens(batch_size, estimated_tokens, model_name)
+```
+
+### Benchmark Results
+
+After Phase 4 optimizations (5 runs, mistral-devstral2, flask_invoice_generator):
+
+| Metric | Result |
+|--------|--------|
+| Structural edge consistency | 100% |
+| Duration | ~411s |
+| Node variance | 87-89 (stable) |
+| Elements per run | 22-24 |
+| Relationships per run | 20-30 |
+
+---
+
 ## References
 
 ### Academic Sources
