@@ -1618,6 +1618,92 @@ def derive_element_relationships(
 
 
 # =============================================================================
+# Consolidated Relationship Derivation (Phase 4.6)
+# =============================================================================
+
+
+def derive_consolidated_relationships(
+    all_elements: list[dict[str, Any]],
+    relationship_rules: dict[str, tuple[list[RelationshipRule], list[RelationshipRule]]],
+    llm_query_fn: Any,
+    graph_manager: "GraphManager | None" = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Derive relationships for all elements in a single consolidated pass.
+
+    This is used when defer_relationships=True in element generation.
+    Instead of deriving relationships per-batch, this function processes
+    all elements together for better context and consistency.
+
+    Args:
+        all_elements: All elements created during generation phase
+        relationship_rules: Dict mapping element_type to (outbound_rules, inbound_rules)
+        llm_query_fn: Function to call LLM
+        graph_manager: Optional GraphManager for graph-aware filtering
+        temperature: Optional temperature override
+        max_tokens: Optional max_tokens override
+
+    Returns:
+        List of all derived relationship dicts
+    """
+    if not all_elements:
+        return []
+
+    all_relationships = []
+
+    # Group elements by type
+    by_type: dict[str, list[dict[str, Any]]] = {}
+    for elem in all_elements:
+        etype = elem.get("element_type", "Unknown")
+        if etype not in by_type:
+            by_type[etype] = []
+        by_type[etype].append(elem)
+
+    logger.info(
+        "Consolidated relationship derivation: %d elements across %d types",
+        len(all_elements),
+        len(by_type),
+    )
+
+    # Process each element type
+    for element_type, type_elements in by_type.items():
+        if element_type not in relationship_rules:
+            continue
+
+        outbound_rules, inbound_rules = relationship_rules[element_type]
+        if not outbound_rules and not inbound_rules:
+            continue
+
+        # Get all other elements as potential targets
+        other_elements = [e for e in all_elements if e.get("element_type") != element_type]
+
+        relationships = derive_batch_relationships(
+            new_elements=type_elements,
+            existing_elements=other_elements,
+            element_type=element_type,
+            outbound_rules=outbound_rules,
+            inbound_rules=inbound_rules,
+            llm_query_fn=llm_query_fn,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            graph_manager=graph_manager,
+        )
+
+        all_relationships.extend(relationships)
+        logger.debug(
+            "Derived %d relationships for %s (%d elements)",
+            len(relationships),
+            element_type,
+            len(type_elements),
+        )
+
+    logger.info("Total relationships derived: %d", len(all_relationships))
+    return all_relationships
+
+
+# =============================================================================
 # Result Creation
 # =============================================================================
 
@@ -1698,6 +1784,7 @@ __all__ = [
     # Relationship derivation
     "derive_element_relationships",
     "derive_batch_relationships",
+    "derive_consolidated_relationships",
     # Results
     "create_result",
 ]
