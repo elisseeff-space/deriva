@@ -304,6 +304,28 @@ Use `--no-export-models` to disable model export and save disk space.
 
 ---
 
+## Advanced Derivation Options
+
+### Separated Phases Mode (defer_relationships)
+
+Deriva supports a two-phase derivation architecture via the `defer_relationships` parameter:
+
+| Mode               | Behavior                                                         | Use Case                              |
+|--------------------|------------------------------------------------------------------|---------------------------------------|
+| Default (`False`)  | Derive relationships after each element batch                    | Standard operation                    |
+| Deferred (`True`)  | Create all elements first, then derive relationships in one pass | Better consistency for complex models |
+
+**Benefits of deferred mode:**
+
+- All elements available as context during relationship derivation
+- Fewer LLM calls (one pass per element type vs per batch)
+- Reduced ordering effects improve consistency
+- Graph-aware filtering more effective with complete element set
+
+See [optimization_guide.md](optimization_guide.md#separated-derivation-phases-phase-46) for implementation details.
+
+---
+
 ## Best Practices
 
 1. **Always benchmark before and after changes** - Quantify improvement
