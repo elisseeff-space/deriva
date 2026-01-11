@@ -25,6 +25,7 @@ def _hash_schema(schema_tuple: tuple) -> str:
     Cached with LRU to avoid re-hashing the same schemas.
     """
     import json
+
     # Convert back to dict for JSON serialization
     schema_dict = dict(schema_tuple)
     return json.dumps(schema_dict, sort_keys=True)

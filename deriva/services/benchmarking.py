@@ -754,12 +754,16 @@ class BenchmarkOrchestrator:
 
             # Determine status
             critical_errors = [
-                e for e in errors
-                if not any(warn in e for warn in [
-                    "Missing required field",
-                    "Response missing",
-                    "Failed to parse",
-                ])
+                e
+                for e in errors
+                if not any(
+                    warn in e
+                    for warn in [
+                        "Missing required field",
+                        "Response missing",
+                        "Failed to parse",
+                    ]
+                )
             ]
             status = "completed" if not critical_errors else "failed"
 

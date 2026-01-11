@@ -611,10 +611,15 @@ Return only the JSON object, no additional text."""
                                 # Append retry hint as conversation turn (saves tokens vs rebuilding prompt)
                                 messages = original_messages + [
                                     {"role": "assistant", "content": content or ""},
-                                    {"role": "user", "content": f"Error: {last_error}. Please provide valid JSON."},
+                                    {
+                                        "role": "user",
+                                        "content": f"Error: {last_error}. Please provide valid JSON.",
+                                    },
                                 ]
                                 continue
-                            raise ValidationError("LLM returned empty content after all retries")
+                            raise ValidationError(
+                                "LLM returned empty content after all retries"
+                            )
 
                         try:
                             parsed = json.loads(content)
@@ -642,7 +647,10 @@ Return only the JSON object, no additional text."""
                                         # Append retry hint as conversation turn (saves tokens)
                                         messages = original_messages + [
                                             {"role": "assistant", "content": content},
-                                            {"role": "user", "content": f"Error: {last_error}. Fix the response."},
+                                            {
+                                                "role": "user",
+                                                "content": f"Error: {last_error}. Fix the response.",
+                                            },
                                         ]
                                         continue
                                     raise ValidationError(
@@ -655,7 +663,10 @@ Return only the JSON object, no additional text."""
                                 # Append retry hint as conversation turn (saves tokens)
                                 messages = original_messages + [
                                     {"role": "assistant", "content": content},
-                                    {"role": "user", "content": f"Error: {last_error}. Return valid JSON."},
+                                    {
+                                        "role": "user",
+                                        "content": f"Error: {last_error}. Return valid JSON.",
+                                    },
                                 ]
                                 continue
                             raise ValidationError(
@@ -783,7 +794,9 @@ Return only the JSON object, no additional text."""
             "total_tokens": total_prompt + total_completion,
             "total_calls": total_calls,
             "avg_prompt_tokens": total_prompt / total_calls if total_calls else 0,
-            "avg_completion_tokens": total_completion / total_calls if total_calls else 0,
+            "avg_completion_tokens": total_completion / total_calls
+            if total_calls
+            else 0,
         }
 
     def __repr__(self) -> str:

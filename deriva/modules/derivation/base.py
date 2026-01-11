@@ -51,6 +51,7 @@ def extract_response_content(response: Any) -> tuple[str, str | None]:
     # Fallback to string representation (shouldn't happen with proper response types)
     return str(response), None
 
+
 logger = logging.getLogger(__name__)
 
 # Essential properties to include in LLM prompts (reduces token usage)
@@ -533,13 +534,16 @@ def get_connected_source_ids(
 
     # Build Cypher query for neighbors within max_hops
     # Using variable-length path pattern for efficiency
-    query = """
+    query = (
+        """
         MATCH (n)
         WHERE n.id IN $source_ids
         MATCH (n)-[*1..%d]-(neighbor)
         WHERE neighbor.active = true OR neighbor.active IS NULL
         RETURN DISTINCT neighbor.id as id
-    """ % max_hops
+    """
+        % max_hops
+    )
 
     try:
         results = graph_manager.query(query, {"source_ids": source_ids})
@@ -1624,7 +1628,9 @@ def derive_element_relationships(
 
 def derive_consolidated_relationships(
     all_elements: list[dict[str, Any]],
-    relationship_rules: dict[str, tuple[list[RelationshipRule], list[RelationshipRule]]],
+    relationship_rules: dict[
+        str, tuple[list[RelationshipRule], list[RelationshipRule]]
+    ],
     llm_query_fn: Any,
     graph_manager: "GraphManager | None" = None,
     temperature: float | None = None,
@@ -1677,7 +1683,9 @@ def derive_consolidated_relationships(
             continue
 
         # Get all other elements as potential targets
-        other_elements = [e for e in all_elements if e.get("element_type") != element_type]
+        other_elements = [
+            e for e in all_elements if e.get("element_type") != element_type
+        ]
 
         relationships = derive_batch_relationships(
             new_elements=type_elements,

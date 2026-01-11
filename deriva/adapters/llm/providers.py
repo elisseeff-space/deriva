@@ -201,8 +201,11 @@ class BaseProvider(ABC):
                     # Log full error response for debugging
                     try:
                         import logging
+
                         error_body = e.response.text[:500]
-                        logging.getLogger(__name__).error(f"{self.name} API error response: {error_body}")
+                        logging.getLogger(__name__).error(
+                            f"{self.name} API error response: {error_body}"
+                        )
                     except Exception:
                         pass
                 raise ProviderError(f"{self.name} API request failed: {e}") from e
@@ -396,9 +399,14 @@ class AnthropicProvider(BaseProvider):
                 elif block_type == "json":
                     # When using output_format with json_schema, content may be in json block
                     import json
+
                     json_content = block.get("json")
                     if json_content is not None:
-                        content += json.dumps(json_content) if isinstance(json_content, dict) else str(json_content)
+                        content += (
+                            json.dumps(json_content)
+                            if isinstance(json_content, dict)
+                            else str(json_content)
+                        )
 
             if not content.strip():
                 raise ProviderError("Anthropic response has no text content")
