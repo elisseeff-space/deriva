@@ -1989,10 +1989,16 @@ class TestExtractResponseContent:
         from deriva.adapters.llm.models import FailedResponse
         from deriva.modules.derivation.base import extract_response_content
 
-        failed = FailedResponse(error="API timeout", error_type="timeout")
+        failed = FailedResponse(
+            error="API timeout",
+            error_type="timeout",
+            prompt="test prompt",
+            model="test-model",
+        )
         content, error = extract_response_content(failed)
 
         assert content == ""
+        assert error is not None
         assert "API timeout" in error
 
     def test_handles_response_with_failed_type(self):
@@ -2007,6 +2013,7 @@ class TestExtractResponseContent:
         content, error = extract_response_content(MockFailedResponse())
 
         assert content == ""
+        assert error is not None
         assert "Connection error" in error
 
     def test_falls_back_to_string_conversion(self):

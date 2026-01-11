@@ -309,6 +309,7 @@ def run_derivation(
     phases: list[str] | None = None,
     run_logger: RunLoggerProtocol | None = None,
     progress: ProgressReporter | None = None,
+    defer_relationships: bool = False,
 ) -> dict[str, Any]:
     """
     Run the derivation pipeline.
@@ -327,6 +328,9 @@ def run_derivation(
         phases: List of phases to run ("enrich", "generate", "refine").
         run_logger: Optional RunLogger for structured logging
         progress: Optional progress reporter for visual feedback
+        defer_relationships: If True, skip per-batch relationship derivation.
+                            Elements will be created but relationships will not
+                            be derived. Use for A/B testing or separated phases.
 
     Returns:
         Dict with success, stats, errors
@@ -478,6 +482,7 @@ def run_derivation(
                     max_candidates=cfg.max_candidates,
                     batch_size=cfg.batch_size,
                     existing_elements=all_created_elements,  # Pass accumulated elements
+                    defer_relationships=defer_relationships,
                 )
 
                 elements_created = step_result.get("elements_created", 0)
@@ -789,6 +794,7 @@ def run_derivation_iter(
                     max_candidates=cfg.max_candidates,
                     batch_size=cfg.batch_size,
                     existing_elements=all_created_elements,
+                    defer_relationships=defer_relationships,
                 )
 
                 elements_created = step_result.get("elements_created", 0)
