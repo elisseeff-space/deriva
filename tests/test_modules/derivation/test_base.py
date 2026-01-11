@@ -1989,7 +1989,7 @@ class TestExtractResponseContent:
         from deriva.adapters.llm.models import FailedResponse
         from deriva.modules.derivation.base import extract_response_content
 
-        failed = FailedResponse(error="API timeout")
+        failed = FailedResponse(error="API timeout", error_type="timeout")
         content, error = extract_response_content(failed)
 
         assert content == ""
