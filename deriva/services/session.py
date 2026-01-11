@@ -983,6 +983,7 @@ class PipelineSession:
         export_models: bool = True,
         clear_between_runs: bool = True,
         bench_hash: bool = False,
+        defer_relationships: bool = False,
     ) -> benchmarking.BenchmarkResult:
         """
         Run a full benchmark matrix.
@@ -1000,6 +1001,7 @@ class PipelineSession:
             export_models: Export ArchiMate model file after each run (default: True)
             clear_between_runs: Clear graph/model between runs (default: True)
             bench_hash: Include repo/model/run in cache key for per-run isolation (default: False)
+            defer_relationships: Two-phase derivation: create elements first, then relationships (default: False)
 
         Returns:
             BenchmarkResult with session details
@@ -1031,6 +1033,7 @@ class PipelineSession:
             export_models=export_models,
             clear_between_runs=clear_between_runs,
             bench_hash=bench_hash,
+            defer_relationships=defer_relationships,
         )
 
         orchestrator = benchmarking.BenchmarkOrchestrator(

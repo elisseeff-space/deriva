@@ -745,6 +745,8 @@ def cmd_benchmark_run(args: argparse.Namespace) -> int:
     print(f"Clear between runs: {'yes' if clear_between_runs else 'no'}")
     if bench_hash:
         print("Bench hash: enabled (per-run cache isolation)")
+    if defer_relationships:
+        print("Defer relationships: enabled (two-phase derivation)")
     if nocache_configs:
         print(f"No-cache configs: {nocache_configs}")
     print(f"{'=' * 60}\n")
@@ -769,6 +771,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> int:
                 export_models=export_models,
                 clear_between_runs=clear_between_runs,
                 bench_hash=bench_hash,
+                defer_relationships=defer_relationships,
             )
 
         print(f"\n{'=' * 60}")

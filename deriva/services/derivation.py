@@ -648,6 +648,7 @@ def run_derivation_iter(
     enabled_only: bool = True,
     verbose: bool = False,
     phases: list[str] | None = None,
+    defer_relationships: bool = False,
 ) -> Iterator[ProgressUpdate]:
     """
     Run derivation pipeline as a generator, yielding progress updates.
@@ -657,6 +658,7 @@ def run_derivation_iter(
 
     Args:
         engine: DuckDB connection for config
+        defer_relationships: If True, skip per-batch relationship derivation.
         graph_manager: Connected GraphManager for querying source nodes
         archimate_manager: Connected ArchimateManager for persistence
         llm_query_fn: Function to call LLM (prompt, schema) -> response
