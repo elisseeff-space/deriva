@@ -34,6 +34,7 @@ from .base import (
     build_derivation_prompt,
     build_element,
     derive_batch_relationships,
+    extract_response_content,
     filter_by_pagerank,
     get_community_roots,
     get_enrichments_from_neo4j,
@@ -112,6 +113,7 @@ def generate(
     existing_elements: list[dict[str, Any]],
     temperature: float | None = None,
     max_tokens: int | None = None,
+    defer_relationships: bool = False,
 ) -> GenerationResult:
     """
     Generate ApplicationComponent elements.
@@ -187,9 +189,10 @@ def generate(
         # Call LLM
         try:
             response = llm_query_fn(prompt, DERIVATION_SCHEMA, **kwargs)
-            response_content = (
-                response.content if hasattr(response, "content") else str(response)
-            )
+            response_content, error = extract_response_content(response)
+            if error:
+                errors.append(f"LLM error in batch {batch_num}: {error}")
+                continue
         except Exception as e:
             errors.append(f"LLM error in batch {batch_num}: {e}")
             continue
@@ -233,7 +236,7 @@ def generate(
             except Exception as e:
                 errors.append(f"Failed to create element {data.get('name')}: {e}")
         # Derive relationships for this batch
-        if batch_elements and existing_elements:
+        if batch_elements and existing_elements and not defer_relationships:
             relationships = derive_batch_relationships(
                 new_elements=batch_elements,
                 existing_elements=existing_elements,
@@ -243,6 +246,7 @@ def generate(
                 llm_query_fn=llm_query_fn,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                graph_manager=graph_manager,
             )
             for rel_data in relationships:
                 try:

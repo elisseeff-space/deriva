@@ -81,19 +81,19 @@ def init_database() -> bool:
     return True
 
 
-def seed_database(force: bool = False) -> bool:
+def seed_database() -> bool:
     """Seed database with initial data from JSON files.
 
-    Args:
-        force: If True, re-seeds even if data exists
+    Only seeds tables that are empty - does not overwrite existing data.
+    To update configurations, use the CLI: `deriva config update`
 
     Returns:
-        True if seeding was performed, False if skipped
+        True if any seeding was performed, False if all tables already have data
     """
     # Import here to avoid circular imports
     from deriva.adapters.database.db_tool import seed_from_json
 
-    return seed_from_json(DB_PATH, force=force)
+    return seed_from_json(DB_PATH)
 
 
 def run_migrations() -> int:

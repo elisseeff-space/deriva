@@ -81,7 +81,7 @@ uv sync
 ### 5. Start Neo4j
 
 ```bash
-cd neo4j_manager
+cd deriva/adapters/neo4j
 docker-compose up -d
 ```
 
@@ -99,7 +99,7 @@ docker ps  # Should show deriva_neo4j container
 ### 6. Launch Deriva
 
 ```bash
-cd ..  # Back to Deriva root
+cd ../../..  # Back to Deriva root
 uv run marimo edit deriva/app/app.py
 ```
 
@@ -198,18 +198,18 @@ uv run python -m deriva.cli.cli export -o workspace/output/model.archimate
 All configuration lives in `.env`. Key settings:
 
 ```bash
-# Neo4j
+# Neo4j (default docker-compose has auth disabled)
 NEO4J_URI=bolt://localhost:7687
-NEO4J_USERNAME=neo4j
-NEO4J_PASSWORD=password
+NEO4J_USERNAME=
+NEO4J_PASSWORD=
 
-# LLM Provider (openai, azure, anthropic)
+# LLM Provider (openai, azure, anthropic, ollama, lmstudio)
 LLM_PROVIDER=openai
 LLM_OPENAI_API_KEY=your-key
-LLM_OPENAI_MODEL=gpt-4
+LLM_OPENAI_MODEL=gpt-4o-mini
 
 # Namespaces
-GRAPH_NAMESPACE=Graph
+NEO4J_GRAPH_NAMESPACE=Graph
 ARCHIMATE_NAMESPACE=Model
 ```
 
@@ -300,7 +300,7 @@ uv run python -m deriva.cli.cli config update derivation ApplicationComponent \
 uv run python -m deriva.cli.cli config versions
 ```
 
-**Do NOT use JSON import/export for config updates.** The `db_tool import` command is only for backup restoration or migration - it overwrites version history. See [benchmarks.md](benchmarks.md) for the optimization workflow.
+**Do NOT use JSON import/export for config updates.** The `db_tool import` command is only for backup restoration or migration - it overwrites version history. See [BENCHMARKS.md](BENCHMARKS.md) for the optimization workflow.
 
 ### Customizing Extraction Prompts
 
@@ -407,7 +407,7 @@ uv run python -m deriva.cli.cli export -o workspace/output/model.archimate
 
 ## Benchmarking
 
-Deriva includes a multi-model benchmarking system for comparing LLM performance across different providers and models. See [benchmarks.md](benchmarks.md) for the full optimization guide.
+Deriva includes a multi-model benchmarking system for comparing LLM performance across different providers and models. See [BENCHMARKS.md](BENCHMARKS.md) for the full guide and [optimization_guide.md](optimization_guide.md) for detailed case studies.
 
 ### Running Benchmarks
 
@@ -424,10 +424,10 @@ uv run python -m deriva.cli.cli benchmark run \
   -v
 
 # List benchmark sessions
-uv run python -m cli benchmark list
+uv run python -m deriva.cli.cli benchmark list
 
 # Analyze a benchmark session
-uv run python -m cli benchmark analyze bench_20260101_150724
+uv run python -m deriva.cli.cli benchmark analyze bench_20260101_150724
 ```
 
 ### Configuring Benchmark Models
@@ -468,7 +468,7 @@ OCEL files can be analyzed with process mining tools like PM4Py, Celonis, or cus
 docker ps
 
 # View logs
-cd neo4j_manager && docker-compose logs
+cd deriva/adapters/neo4j && docker-compose logs
 
 # Restart
 docker-compose restart
@@ -479,7 +479,7 @@ docker-compose down -v
 
 ### Port Conflicts
 
-If ports 7687/7474 are in use, edit `neo4j_manager/docker-compose.yml`:
+If ports 7687/7474 are in use, edit `deriva/adapters/neo4j/docker-compose.yml`:
 
 ```yaml
 ports:

@@ -68,6 +68,7 @@ class CompletionResult:
     usage: dict[str, int] | None = None
     finish_reason: str | None = None
     raw_response: dict[str, Any] | None = None
+    markdown_stripped: bool = False  # True if provider already stripped markdown
 
 
 @runtime_checkable
@@ -85,6 +86,7 @@ class LLMProvider(Protocol):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
     ) -> CompletionResult:
         """
         Send a completion request to the provider.
@@ -94,6 +96,7 @@ class LLMProvider(Protocol):
             temperature: Sampling temperature (0-2)
             max_tokens: Maximum tokens in response
             json_mode: Whether to request JSON output
+            json_schema: Optional JSON schema for structured output (OpenAI only)
 
         Returns:
             CompletionResult with content and metadata
@@ -137,6 +140,7 @@ class BaseProvider(ABC):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
     ) -> CompletionResult:
         """Send a completion request."""
         ...
@@ -194,6 +198,16 @@ class BaseProvider(ABC):
                             backoff = self._rate_limiter.record_rate_limit()
                             time.sleep(backoff)
                             continue
+                    # Log full error response for debugging
+                    try:
+                        import logging
+
+                        error_body = e.response.text[:500]
+                        logging.getLogger(__name__).error(
+                            f"{self.name} API error response: {error_body}"
+                        )
+                    except Exception:
+                        pass
                 raise ProviderError(f"{self.name} API request failed: {e}") from e
 
             except json.JSONDecodeError as e:
@@ -217,6 +231,7 @@ class AzureOpenAIProvider(BaseProvider):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
     ) -> CompletionResult:
         headers = {
             "Content-Type": "application/json",
@@ -231,7 +246,13 @@ class AzureOpenAIProvider(BaseProvider):
         if max_tokens:
             body["max_tokens"] = max_tokens
 
-        if json_mode:
+        if json_schema:
+            # Use structured output with strict schema enforcement
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": json_schema,
+            }
+        elif json_mode:
             body["response_format"] = {"type": "json_object"}
 
         response = self._make_request(headers, body)
@@ -263,6 +284,7 @@ class OpenAIProvider(BaseProvider):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
     ) -> CompletionResult:
         headers = {
             "Content-Type": "application/json",
@@ -276,15 +298,28 @@ class OpenAIProvider(BaseProvider):
         }
 
         if max_tokens:
-            body["max_tokens"] = max_tokens
+            # GPT-5+ models require max_completion_tokens instead of max_tokens
+            if self.config.model.startswith("gpt-5"):
+                body["max_completion_tokens"] = max_tokens
+            else:
+                body["max_tokens"] = max_tokens
 
-        if json_mode:
+        if json_schema:
+            # Use structured output with strict schema enforcement
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": json_schema,
+            }
+        elif json_mode:
             body["response_format"] = {"type": "json_object"}
 
         response = self._make_request(headers, body)
 
         try:
-            content = response["choices"][0]["message"]["content"]
+            content = response["choices"][0]["message"].get("content", "")
+            if not content or not content.strip():
+                raise ProviderError("OpenAI returned empty content")
+
             usage = response.get("usage")
             finish_reason = response["choices"][0].get("finish_reason")
             return CompletionResult(
@@ -310,12 +345,17 @@ class AnthropicProvider(BaseProvider):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
     ) -> CompletionResult:
         headers = {
             "Content-Type": "application/json",
             "x-api-key": self.config.api_key or "",
             "anthropic-version": "2023-06-01",
         }
+
+        # Add beta header for structured outputs if schema provided
+        if json_schema:
+            headers["anthropic-beta"] = "structured-outputs-2025-11-13"
 
         # Anthropic uses a different message format - extract system message
         system_message = None
@@ -336,15 +376,40 @@ class AnthropicProvider(BaseProvider):
         if system_message:
             body["system"] = system_message
 
+        # Anthropic uses output_format (not response_format)
+        if json_schema:
+            body["output_format"] = {
+                "type": "json_schema",
+                "schema": json_schema.get("schema", json_schema),
+            }
+
         response = self._make_request(headers, body)
 
         try:
             # Anthropic returns content as a list of content blocks
             content_blocks = response.get("content", [])
+            if not content_blocks:
+                raise ProviderError("Anthropic response has no content blocks")
+
             content = ""
             for block in content_blocks:
-                if block.get("type") == "text":
+                block_type = block.get("type")
+                if block_type == "text":
                     content += block.get("text", "")
+                elif block_type == "json":
+                    # When using output_format with json_schema, content may be in json block
+                    import json
+
+                    json_content = block.get("json")
+                    if json_content is not None:
+                        content += (
+                            json.dumps(json_content)
+                            if isinstance(json_content, dict)
+                            else str(json_content)
+                        )
+
+            if not content.strip():
+                raise ProviderError("Anthropic response has no text content")
 
             usage = response.get("usage")
             # Map Anthropic usage format to standard format
@@ -380,6 +445,7 @@ class OllamaProvider(BaseProvider):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
     ) -> CompletionResult:
         headers = {
             "Content-Type": "application/json",
@@ -397,7 +463,12 @@ class OllamaProvider(BaseProvider):
         if max_tokens:
             body["options"]["num_predict"] = max_tokens
 
-        if json_mode:
+        if json_schema:
+            # Ollama supports structured output via format parameter
+            # Pass the schema directly (or extract from nested structure)
+            schema = json_schema.get("schema", json_schema)
+            body["format"] = schema
+        elif json_mode:
             body["format"] = "json"
 
         response = self._make_request(headers, body)
@@ -442,10 +513,12 @@ class LMStudioProvider(BaseProvider):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
     ) -> CompletionResult:
         headers = {
             "Content-Type": "application/json",
         }
+        # LMStudio uses json_schema format
 
         body: dict[str, Any] = {
             "model": self.config.model,
@@ -456,7 +529,17 @@ class LMStudioProvider(BaseProvider):
         if max_tokens:
             body["max_tokens"] = max_tokens
 
-        if json_mode:
+        if json_schema:
+            # Use structured output with strict schema enforcement
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": json_schema.get("name", "response"),
+                    "strict": json_schema.get("strict", True),
+                    "schema": json_schema.get("schema", json_schema),
+                },
+            }
+        elif json_mode:
             # LM Studio uses json_schema format (not json_object like OpenAI)
             body["response_format"] = {
                 "type": "json_schema",
@@ -496,6 +579,7 @@ class MistralProvider(BaseProvider):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
     ) -> CompletionResult:
         headers = {
             "Content-Type": "application/json",
@@ -511,7 +595,17 @@ class MistralProvider(BaseProvider):
         if max_tokens:
             body["max_tokens"] = max_tokens
 
-        if json_mode:
+        if json_schema:
+            # Use structured output with strict schema enforcement
+            body["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": json_schema.get("name", "response"),
+                    "strict": json_schema.get("strict", True),
+                    "schema": json_schema.get("schema", json_schema),
+                },
+            }
+        elif json_mode:
             body["response_format"] = {"type": "json_object"}
 
         response = self._make_request(headers, body)
@@ -648,8 +742,10 @@ class ClaudeCodeProvider(BaseProvider):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         json_mode: bool = False,
+        json_schema: dict[str, Any] | None = None,
     ) -> CompletionResult:
         self._verify_cli()
+        # Note: ClaudeCode CLI doesn't support json_schema
 
         prompt = self._format_prompt(messages)
         if json_mode:
@@ -724,6 +820,7 @@ class ClaudeCodeProvider(BaseProvider):
                 usage=usage,
                 finish_reason="stop",
                 raw_response=output if isinstance(output, dict) else None,
+                markdown_stripped=True,  # We already stripped markdown above
             )
 
         except subprocess.TimeoutExpired as exc:

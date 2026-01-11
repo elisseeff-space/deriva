@@ -38,6 +38,7 @@ Analysis Usage:
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
     from deriva.common.types import BenchmarkProgressReporter, RunLoggerProtocol
 from deriva.adapters.graph import GraphManager
 from deriva.adapters.llm import LLMManager
+from deriva.adapters.llm.cache import CacheManager
 from deriva.adapters.llm.manager import load_benchmark_models
 from deriva.adapters.llm.models import BenchmarkModelConfig
 from deriva.common.ocel import OCELLog, create_run_id, hash_content
@@ -255,10 +257,19 @@ class BenchmarkConfig:
     nocache_configs: list[str] = field(default_factory=list)  # Configs to always skip cache
     export_models: bool = True  # Export ArchiMate model file after each run
     bench_hash: bool = False  # Include repo/model/run in cache key for per-run isolation
+    defer_relationships: bool = True  # Two-phase derivation: elements first, then relationships (recommended)
 
     def total_runs(self) -> int:
-        """Calculate total number of runs in the matrix."""
-        return len(self.repositories) * len(self.models) * self.runs_per_combination
+        """Calculate total number of runs in the matrix.
+
+        Each (model, iteration) is ONE run - repos are processed together.
+        """
+        return len(self.models) * self.runs_per_combination
+
+    def get_combined_repo_name(self) -> str:
+        """Get alphabetically sorted concatenated repo name for output files."""
+        sorted_repos = sorted(self.repositories)
+        return "_".join(sorted_repos)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON storage."""
@@ -288,13 +299,23 @@ class RunResult:
     """Result from a single benchmark run."""
 
     run_id: str
-    repository: str
+    repositories: list[str]  # Can be single or multiple repos
     model: str
     iteration: int
     status: str  # completed, failed
     stats: dict[str, Any]
     errors: list[str]
     duration_seconds: float
+
+    @property
+    def repository(self) -> str:
+        """Legacy property for single repo access."""
+        return self.repositories[0] if self.repositories else ""
+
+    @property
+    def combined_repo_name(self) -> str:
+        """Alphabetically sorted concatenated repo name."""
+        return "_".join(sorted(self.repositories))
 
 
 class BenchmarkOrchestrator:
@@ -471,61 +492,66 @@ class BenchmarkOrchestrator:
             print(f"Total runs: {self.config.total_runs()}")
             print(f"{'=' * 60}\n")
 
-        # Execute the matrix
+        # Execute the matrix: model → iteration → [all repos together]
+        # Each (model, iteration) is ONE run - repos are combined
         run_number = 0
         total_runs = self.config.total_runs()
+        combined_repo_name = self.config.get_combined_repo_name()
 
-        for repo_name in self.config.repositories:
-            for model_name in self.config.models:
-                for iteration in range(1, self.config.runs_per_combination + 1):
-                    run_number += 1
+        for model_name in self.config.models:
+            for iteration in range(1, self.config.runs_per_combination + 1):
+                run_number += 1
 
-                    if verbose:
-                        print(f"\n--- Run {run_number}/{total_runs} ---")
-                        print(f"Repository: {repo_name}")
-                        print(f"Model: {model_name}")
-                        print(f"Iteration: {iteration}")
+                if verbose:
+                    print(f"\n--- Run {run_number}/{total_runs} ---")
+                    print(f"Repositories: {', '.join(self.config.repositories)}")
+                    print(f"Model: {model_name}")
+                    print(f"Iteration: {iteration}")
 
-                    # Start progress tracking for this run
-                    if progress:
-                        progress.start_run(
-                            run_number=run_number,
-                            repository=repo_name,
-                            model=model_name,
-                            iteration=iteration,
-                        )
+                # Start progress tracking for this run
+                if progress:
+                    progress.start_run(
+                        run_number=run_number,
+                        repository=combined_repo_name,
+                        model=model_name,
+                        iteration=iteration,
+                    )
 
-                    try:
-                        result = self._run_single(
-                            repo_name=repo_name,
-                            model_name=model_name,
-                            iteration=iteration,
-                            verbose=verbose,
-                            progress=progress,
-                        )
+                try:
+                    result = self._run_combined(
+                        repositories=self.config.repositories,
+                        model_name=model_name,
+                        iteration=iteration,
+                        verbose=verbose,
+                        progress=progress,
+                    )
 
-                        if result.status == "completed":
-                            runs_completed += 1
-                            if verbose:
-                                print(f"[OK] Completed: {result.stats}")
-                            if progress:
-                                progress.complete_run("completed", result.stats)
-                        else:
-                            runs_failed += 1
-                            errors.extend(result.errors)
-                            if verbose:
-                                print(f"[FAIL] Failed: {result.errors}")
-                            if progress:
-                                progress.complete_run("failed", result.stats)
-
-                    except Exception as e:
-                        runs_failed += 1
-                        error_msg = f"Run failed ({repo_name}/{model_name}/{iteration}): {e}"
-                        errors.append(error_msg)
+                    if result.status == "completed":
+                        runs_completed += 1
                         if verbose:
-                            print(f"[FAIL] Exception: {e}")
+                            print(f"[OK] Completed: {result.stats}")
                         if progress:
-                            progress.complete_run("failed")
+                            progress.complete_run("completed", result.stats)
+                    else:
+                        runs_failed += 1
+                        errors.extend(result.errors)
+                        if verbose:
+                            print(f"[FAIL] Failed: {result.errors}")
+                        if progress:
+                            progress.complete_run("failed", result.stats)
+
+                except Exception as e:
+                    runs_failed += 1
+                    error_msg = f"Run failed ({combined_repo_name}/{model_name}/{iteration}): {e}"
+                    errors.append(error_msg)
+                    if verbose:
+                        print(f"[FAIL] Exception: {e}")
+                    if progress:
+                        progress.complete_run("failed")
+
+                # Export events incrementally after each run (success or failure)
+                # This ensures partial results are saved even if benchmark fails later
+                self._export_ocel_incremental()
 
         # Calculate duration
         duration = (datetime.now() - self.session_start).total_seconds()
@@ -573,19 +599,21 @@ class BenchmarkOrchestrator:
             errors=errors,
         )
 
-    def _run_single(
+    def _run_combined(
         self,
-        repo_name: str,
+        repositories: list[str],
         model_name: str,
         iteration: int,
         verbose: bool = False,
         progress: BenchmarkProgressReporter | None = None,
     ) -> RunResult:
         """
-        Execute a single benchmark run.
+        Execute a combined benchmark run with multiple repositories.
+
+        Processes all repos together: extract all repos → derive combined model → export once.
 
         Args:
-            repo_name: Repository to process
+            repositories: List of repositories to process together
             model_name: Model config name to use
             iteration: Run iteration number
             progress: Optional progress reporter for visual feedback
@@ -595,65 +623,63 @@ class BenchmarkOrchestrator:
         """
         run_start = datetime.now()
         assert self.session_id is not None, "session_id must be set before executing runs"
-        run_id = create_run_id(self.session_id, repo_name, model_name, iteration)
+
+        # Create combined repo identifier (alphabetically sorted)
+        combined_repo_name = "_".join(sorted(repositories))
+        run_id = create_run_id(self.session_id, combined_repo_name, model_name, iteration)
 
         # Set current context
         self._current_run_id = run_id
         self._current_model = model_name
-        self._current_repo = repo_name
+        self._current_repo = combined_repo_name
 
         # Create run in database
-        self._create_run(run_id, repo_name, model_name, iteration)
+        self._create_run(run_id, combined_repo_name, model_name, iteration)
 
-        # Log run start
+        # Log run start with all repositories
         session_id = self.session_id  # Validated above
         self.ocel_log.create_event(
             activity="StartRun",
             objects={
                 "BenchmarkSession": [session_id],
                 "BenchmarkRun": [run_id],
-                "Repository": [repo_name],
+                "Repository": repositories,  # List all repos
                 "Model": [model_name],
             },
             iteration=iteration,
         )
 
         errors: list[str] = []
-        stats: dict[str, Any] = {}
+        stats: dict[str, Any] = {"extraction": {}, "derivation": {}}
 
         try:
-            # Clear graph/model if configured
+            # Clear graph/model once at start
             if self.config.clear_between_runs:
                 self.graph_manager.clear_graph()
                 self.archimate_manager.clear_model()
 
-            # Create OCEL run logger for per-config event tracking
+            # Create LLM managers for this model
+            model_config = self._model_configs[model_name]
+            global_nocache = not self.config.use_cache
+
+            if global_nocache:
+                llm_manager = LLMManager.from_config(model_config, nocache=True)
+                nocache_llm_manager = llm_manager
+            else:
+                llm_manager = LLMManager.from_config(model_config, nocache=False)
+                nocache_llm_manager = LLMManager.from_config(model_config, nocache=True)
+
+            # Create OCEL run logger
             ocel_run_logger = OCELRunLogger(
                 ocel_log=self.ocel_log,
                 run_id=run_id,
                 session_id=session_id,
                 model=model_name,
-                repo=repo_name,
+                repo=combined_repo_name,
             )
 
-            # Create LLM managers for this model
-            # - cached_llm: uses cache (for stable configs)
-            # - nocache_llm: skips cache (for configs being optimized)
-            model_config = self._model_configs[model_name]
-            global_nocache = not self.config.use_cache
-
-            if global_nocache:
-                # Cache disabled globally - single manager
-                llm_manager = LLMManager.from_config(model_config, nocache=True)
-                nocache_llm_manager = llm_manager
-            else:
-                # Cache enabled - create both managers for per-config control
-                llm_manager = LLMManager.from_config(model_config, nocache=False)
-                nocache_llm_manager = LLMManager.from_config(model_config, nocache=True)
-
-            # Create wrapped query function with per-config cache control
-            # Build bench_hash if enabled (for per-run cache isolation)
-            bench_hash_str = f"{repo_name}:{model_name}:{iteration}" if self.config.bench_hash else None
+            # Build bench_hash if enabled
+            bench_hash_str = f"{combined_repo_name}:{model_name}:{iteration}" if self.config.bench_hash else None
 
             llm_query_fn = self._create_logging_query_fn(
                 cached_llm=llm_manager,
@@ -662,27 +688,49 @@ class BenchmarkOrchestrator:
                 bench_hash=bench_hash_str,
             )
 
-            # Determine which stages to run
             stages = self.config.stages
 
-            # Run pipeline stages
+            # Run extraction for ALL repositories (accumulate in graph)
             if "extraction" in stages:
-                result = extraction.run_extraction(
-                    engine=self.engine,
-                    graph_manager=self.graph_manager,
-                    llm_query_fn=llm_query_fn,
-                    repo_name=repo_name,
-                    verbose=False,
-                    run_logger=cast("RunLoggerProtocol", ocel_run_logger),
-                    progress=progress,
-                    model=model_config.model,
-                )
-                stats["extraction"] = result.get("stats", {})
-                self._log_extraction_results(result)
-                if not result.get("success"):
-                    errors.extend(result.get("errors", []))
+                total_extraction_stats: dict[str, Any] = {
+                    "nodes_created": 0,
+                    "edges_created": 0,
+                    "steps_completed": 0,
+                    "per_repo": {},
+                }
 
+                for repo_name in repositories:
+                    if verbose:
+                        print(f"  Extracting: {repo_name}")
+
+                    result = extraction.run_extraction(
+                        engine=self.engine,
+                        graph_manager=self.graph_manager,
+                        llm_query_fn=llm_query_fn,
+                        repo_name=repo_name,
+                        verbose=False,
+                        run_logger=cast("RunLoggerProtocol", ocel_run_logger),
+                        progress=progress,
+                        model=model_config.model,
+                    )
+
+                    repo_stats = result.get("stats", {})
+                    total_extraction_stats["per_repo"][repo_name] = repo_stats
+                    total_extraction_stats["nodes_created"] += repo_stats.get("nodes_created", 0)
+                    total_extraction_stats["edges_created"] += repo_stats.get("edges_created", 0)
+                    total_extraction_stats["steps_completed"] += repo_stats.get("steps_completed", 0)
+
+                    self._log_extraction_results(result)
+                    if not result.get("success"):
+                        errors.extend(result.get("errors", []))
+
+                stats["extraction"] = total_extraction_stats
+
+            # Run derivation ONCE on combined graph
             if "derivation" in stages:
+                if verbose:
+                    print("  Deriving combined model...")
+
                 result = derivation.run_derivation(
                     engine=self.engine,
                     graph_manager=self.graph_manager,
@@ -691,19 +739,35 @@ class BenchmarkOrchestrator:
                     verbose=False,
                     run_logger=cast("RunLoggerProtocol", ocel_run_logger),
                     progress=progress,
+                    defer_relationships=self.config.defer_relationships,
                 )
                 stats["derivation"] = result.get("stats", {})
                 self._log_derivation_results(result)
                 if not result.get("success"):
                     errors.extend(result.get("errors", []))
 
-            # Export model file after each run if configured
+            # Export ONCE (combined model)
             if self.config.export_models and "derivation" in stages:
-                model_path = self._export_run_model(repo_name, model_name, iteration)
+                if verbose:
+                    print("  Exporting combined model...")
+                model_path = self._export_run_model(combined_repo_name, model_name, iteration)
                 if model_path:
                     stats["model_file"] = model_path
 
-            status = "completed" if not errors else "failed"
+            # Determine status
+            critical_errors = [
+                e
+                for e in errors
+                if not any(
+                    warn in e
+                    for warn in [
+                        "Missing required field",
+                        "Response missing",
+                        "Failed to parse",
+                    ]
+                )
+            ]
+            status = "completed" if not critical_errors else "failed"
 
         except Exception as e:
             import traceback
@@ -721,7 +785,7 @@ class BenchmarkOrchestrator:
             objects={
                 "BenchmarkSession": [session_id],
                 "BenchmarkRun": [run_id],
-                "Repository": [repo_name],
+                "Repository": repositories,
                 "Model": [model_name],
             },
             status=status,
@@ -732,9 +796,18 @@ class BenchmarkOrchestrator:
         # Update run in database
         self._complete_run(run_id, status, stats)
 
+        # Copy used LLM cache entries to benchmark folder for audit trail
+        try:
+            used_keys = getattr(llm_query_fn, "used_cache_keys", [])
+            if used_keys and llm_manager.cache:
+                copied = self._copy_used_cache_entries(used_keys, llm_manager.cache.cache_dir)
+                stats["cache_entries_copied"] = copied
+        except Exception:
+            pass  # Don't fail run if cache copy fails
+
         return RunResult(
             run_id=run_id,
-            repository=repo_name,
+            repositories=repositories,
             model=model_name,
             iteration=iteration,
             status=status,
@@ -760,9 +833,11 @@ class BenchmarkOrchestrator:
             bench_hash: Optional benchmark hash (repo:model:run) for per-run cache isolation
 
         Returns:
-            Wrapped query function that selects appropriate LLM based on config
+            Wrapped query function that selects appropriate LLM based on config.
+            The function has a `used_cache_keys` attribute for tracking cache entries.
         """
         nocache_configs = self.config.nocache_configs
+        used_cache_keys: list[str] = []  # Track cache keys for later copying
 
         def query_fn(
             prompt: str,
@@ -776,6 +851,15 @@ class BenchmarkOrchestrator:
 
             # Select appropriate LLM manager
             llm = nocache_llm if skip_cache else cached_llm
+
+            # Generate cache key for tracking (uses same logic as CacheManager)
+            cache_key = CacheManager.generate_cache_key(
+                prompt=prompt,
+                model=llm.model,
+                schema=schema,
+                bench_hash=bench_hash,
+            )
+            used_cache_keys.append(cache_key)
 
             # Call the actual LLM with optional parameters
             # Pass bench_hash for per-run cache isolation if enabled
@@ -803,6 +887,7 @@ class BenchmarkOrchestrator:
                     "Config": [current_config] if current_config else [],
                 },
                 config_id=current_config,
+                cache_key=cache_key,  # NEW: For audit trail / cache file lookup
                 tokens_in=usage.get("prompt_tokens", 0),
                 tokens_out=usage.get("completion_tokens", 0),
                 cache_hit=cache_hit,
@@ -812,6 +897,8 @@ class BenchmarkOrchestrator:
 
             return response
 
+        # Attach cache keys list to function for retrieval after run
+        query_fn.used_cache_keys = used_cache_keys  # type: ignore[attr-defined]
         return query_fn
 
     def _log_extraction_results(self, result: dict[str, Any]) -> None:
@@ -985,6 +1072,23 @@ class BenchmarkOrchestrator:
             ],
         )
 
+    def _export_ocel_incremental(self) -> int:
+        """
+        Export new OCEL events since last export.
+
+        Writes incrementally to JSONL file after each run,
+        ensuring partial results are saved even if benchmark fails.
+
+        Returns:
+            Number of new events exported
+        """
+        session_id = self.session_id or "unknown"
+        output_dir = Path("workspace/benchmarks") / session_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        ocel_jsonl_path = output_dir / "events.jsonl"
+        return self.ocel_log.export_jsonl_incremental(ocel_jsonl_path)
+
     def _export_ocel(self) -> str:
         """Export OCEL log to files."""
         # Create benchmark output directory
@@ -1013,6 +1117,39 @@ class BenchmarkOrchestrator:
             json.dump(summary, f, indent=2)
 
         return str(ocel_json_path)
+
+    def _copy_used_cache_entries(
+        self,
+        used_cache_keys: list[str],
+        cache_dir: Path,
+    ) -> int:
+        """
+        Copy used LLM cache entries to the benchmark folder for audit trail.
+
+        Args:
+            used_cache_keys: List of cache keys (SHA256 hashes) used during the run
+            cache_dir: Source cache directory where cache files are stored
+
+        Returns:
+            Number of cache files successfully copied
+        """
+        session_id = self.session_id or "unknown"
+        target_dir = Path("workspace/benchmarks") / session_id / "cache"
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        copied = 0
+        for cache_key in set(used_cache_keys):  # Deduplicate
+            src = cache_dir / f"{cache_key}.json"
+            if src.exists():
+                dst = target_dir / f"{cache_key}.json"
+                if not dst.exists():  # Don't overwrite existing copies
+                    try:
+                        shutil.copy2(src, dst)
+                        copied += 1
+                    except OSError:
+                        pass  # Skip on copy errors, don't fail the benchmark
+
+        return copied
 
 
 # =============================================================================
@@ -1130,6 +1267,87 @@ def get_benchmark_runs(engine: Any, session_id: str) -> list[dict[str, Any]]:
 
 
 @dataclass
+class ItemStability:
+    """Per-item stability with percentage score."""
+
+    item_id: str
+    item_type: str  # "Element", "Edge", "Relationship"
+    appearances: int
+    total_runs: int
+
+    @property
+    def stability_score(self) -> float:
+        """Percentage of runs where item appeared (0-100)."""
+        return (self.appearances / self.total_runs * 100) if self.total_runs > 0 else 0.0
+
+    @property
+    def is_stable(self) -> bool:
+        """Item appeared in ALL runs."""
+        return self.appearances == self.total_runs
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "item_id": self.item_id,
+            "item_type": self.item_type,
+            "appearances": self.appearances,
+            "total_runs": self.total_runs,
+            "stability_score": round(self.stability_score, 2),
+            "is_stable": self.is_stable,
+        }
+
+
+@dataclass
+class ConnectionStability:
+    """Stability of a single connection between elements."""
+
+    element_id: str
+    connected_to: str
+    relationship_type: str
+    appearances: int
+    total_runs: int
+
+    @property
+    def stability_score(self) -> float:
+        """Percentage of runs where this connection existed (0-100)."""
+        return (self.appearances / self.total_runs * 100) if self.total_runs > 0 else 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "element_id": self.element_id,
+            "connected_to": self.connected_to,
+            "relationship_type": self.relationship_type,
+            "appearances": self.appearances,
+            "total_runs": self.total_runs,
+            "stability_score": round(self.stability_score, 2),
+        }
+
+
+@dataclass
+class ElementStructuralStability:
+    """All connections for an element with stability scores."""
+
+    element_id: str
+    connections: list[ConnectionStability] = field(default_factory=list)
+
+    @property
+    def structural_score(self) -> float:
+        """Average stability of all connections (0-100)."""
+        if not self.connections:
+            return 100.0  # No connections = fully stable
+        return sum(c.stability_score for c in self.connections) / len(self.connections)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "element_id": self.element_id,
+            "structural_score": round(self.structural_score, 2),
+            "connections": [c.to_dict() for c in self.connections],
+        }
+
+
+@dataclass
 class IntraModelMetrics:
     """Consistency metrics for a single model across runs on the same repo."""
 
@@ -1158,9 +1376,23 @@ class IntraModelMetrics:
     unstable_relationships: dict[str, int] = field(default_factory=dict)
     relationship_type_breakdown: dict[str, float] = field(default_factory=dict)  # Serving: 90%, etc.
 
+    # Per-item stability scores (enhanced metrics)
+    element_stability: list[ItemStability] = field(default_factory=list)
+    edge_stability: list[ItemStability] = field(default_factory=list)
+    relationship_stability: list[ItemStability] = field(default_factory=list)
+
+    # Structural stability (connection consistency)
+    structural_stability: list[ElementStructuralStability] = field(default_factory=list)
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
-        return asdict(self)
+        base = asdict(self)
+        # Convert ItemStability objects to dicts
+        base["element_stability"] = [s.to_dict() for s in self.element_stability]
+        base["edge_stability"] = [s.to_dict() for s in self.edge_stability]
+        base["relationship_stability"] = [s.to_dict() for s in self.relationship_stability]
+        base["structural_stability"] = [s.to_dict() for s in self.structural_stability]
+        return base
 
 
 @dataclass
@@ -1342,6 +1574,17 @@ class BenchmarkAnalyzer:
 
             consistency = len(stable) / len(all_elements) * 100 if all_elements else 100
 
+            # Build per-item stability scores for elements
+            element_stability = [
+                ItemStability(
+                    item_id=elem,
+                    item_type="Element",
+                    appearances=sum(1 for elems in elements_by_run.values() if elem in elems),
+                    total_runs=len(runs),
+                )
+                for elem in all_elements
+            ]
+
             # =====================================================================
             # Edge consistency (extraction phase)
             # =====================================================================
@@ -1381,6 +1624,17 @@ class BenchmarkAnalyzer:
 
             # Compute per-type breakdown for edges
             edge_type_breakdown = self._compute_type_breakdown(edges_by_run)
+
+            # Build per-item stability scores for edges
+            edge_stability = [
+                ItemStability(
+                    item_id=edge,
+                    item_type="Edge",
+                    appearances=sum(1 for edges in edges_by_run.values() if edge in edges),
+                    total_runs=len(runs),
+                )
+                for edge in all_edges
+            ]
 
             # =====================================================================
             # Relationship consistency (derivation phase)
@@ -1422,6 +1676,24 @@ class BenchmarkAnalyzer:
             # Compute per-type breakdown for relationships
             relationship_type_breakdown = self._compute_type_breakdown(relationships_by_run)
 
+            # Build per-item stability scores for relationships
+            relationship_stability = [
+                ItemStability(
+                    item_id=rel,
+                    item_type="Relationship",
+                    appearances=sum(1 for rels in relationships_by_run.values() if rel in rels),
+                    total_runs=len(runs),
+                )
+                for rel in all_relationships
+            ]
+
+            # Compute structural stability (connection consistency)
+            structural_stability = self._compute_structural_stability(
+                elements_by_run=elements_by_run,
+                relationships_by_run=relationships_by_run,
+                total_runs=len(runs),
+            )
+
             results.append(
                 IntraModelMetrics(
                     model=model,
@@ -1446,6 +1718,12 @@ class BenchmarkAnalyzer:
                     stable_relationships=sorted(stable_relationships),
                     unstable_relationships=unstable_relationships,
                     relationship_type_breakdown=relationship_type_breakdown,
+                    # Per-item stability scores
+                    element_stability=element_stability,
+                    edge_stability=edge_stability,
+                    relationship_stability=relationship_stability,
+                    # Structural stability
+                    structural_stability=structural_stability,
                 )
             )
 
@@ -1554,6 +1832,93 @@ class BenchmarkAnalyzer:
             breakdown[rel_type] = (stable_count / len(objects) * 100) if objects else 100.0
 
         return breakdown
+
+    def _compute_structural_stability(
+        self,
+        elements_by_run: dict[str, set[str]],
+        relationships_by_run: dict[str, set[str]],
+        total_runs: int,
+    ) -> list[ElementStructuralStability]:
+        """
+        Compute structural stability - how consistently elements maintain their connections.
+
+        Parses relationship IDs (format: {Type}_{Source}_{Target}) to extract connections,
+        then measures how stable each connection is across runs.
+
+        Args:
+            elements_by_run: Dict mapping run_id -> set of element IDs
+            relationships_by_run: Dict mapping run_id -> set of relationship IDs
+            total_runs: Total number of runs
+
+        Returns:
+            List of ElementStructuralStability for each element with connections
+        """
+        if not relationships_by_run or total_runs < 2:
+            return []
+
+        # Collect all unique elements
+        all_elements: set[str] = set()
+        for elems in elements_by_run.values():
+            all_elements.update(elems)
+
+        # Parse relationship IDs to extract connections per run
+        # Format: {Type}_{Source}_{Target}
+        connections_by_run: dict[str, set[tuple[str, str, str]]] = {}  # run -> (source, type, target)
+
+        for run_id, rel_ids in relationships_by_run.items():
+            connections_by_run[run_id] = set()
+            for rel_id in rel_ids:
+                parts = rel_id.split("_", 2)  # Split into [type, source, target]
+                if len(parts) >= 3:
+                    rel_type, source, target = parts[0], parts[1], parts[2]
+                    connections_by_run[run_id].add((source, rel_type, target))
+
+        # Compute structural stability for each element
+        result: list[ElementStructuralStability] = []
+
+        for element_id in all_elements:
+            # Collect all connections involving this element (as source or target)
+            all_connections: set[tuple[str, str, str]] = set()  # (other_element, rel_type, direction)
+
+            for connections in connections_by_run.values():
+                for source, rel_type, target in connections:
+                    if source == element_id:
+                        all_connections.add((target, rel_type, "outbound"))
+                    if target == element_id:
+                        all_connections.add((source, rel_type, "inbound"))
+
+            if not all_connections:
+                continue  # Skip elements with no connections
+
+            # Count appearances for each connection
+            connection_stabilities: list[ConnectionStability] = []
+
+            for other_element, rel_type, direction in all_connections:
+                if direction == "outbound":
+                    # Count runs where this outbound connection exists
+                    appearances = sum(1 for run_id, conns in connections_by_run.items() if (element_id, rel_type, other_element) in conns)
+                else:  # inbound
+                    # Count runs where this inbound connection exists
+                    appearances = sum(1 for run_id, conns in connections_by_run.items() if (other_element, rel_type, element_id) in conns)
+
+                connection_stabilities.append(
+                    ConnectionStability(
+                        element_id=element_id,
+                        connected_to=other_element,
+                        relationship_type=f"{rel_type}_{direction}",
+                        appearances=appearances,
+                        total_runs=total_runs,
+                    )
+                )
+
+            result.append(
+                ElementStructuralStability(
+                    element_id=element_id,
+                    connections=connection_stabilities,
+                )
+            )
+
+        return result
 
     # =========================================================================
     # INTER-MODEL CONSISTENCY

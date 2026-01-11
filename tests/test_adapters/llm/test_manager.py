@@ -134,6 +134,40 @@ class TestLoadBenchmarkModels:
 
         assert "my-custom-model" in result
 
+    def test_loads_structured_output_flag(self, monkeypatch):
+        """Should load STRUCTURED_OUTPUT flag from env vars."""
+        env_vars = {
+            "LLM_AZURE_GPT4_PROVIDER": "azure",
+            "LLM_AZURE_GPT4_MODEL": "gpt-4",
+            "LLM_AZURE_GPT4_URL": "https://example.azure.com",
+            "LLM_AZURE_GPT4_KEY": "sk-test-key",
+            "LLM_AZURE_GPT4_STRUCTURED_OUTPUT": "true",
+        }
+
+        with patch("deriva.adapters.llm.manager.load_dotenv"):
+            with patch.dict("os.environ", env_vars, clear=True):
+                result = load_benchmark_models()
+
+        assert "azure-gpt4" in result
+        assert result["azure-gpt4"].structured_output is True
+
+    def test_structured_output_defaults_to_false(self, monkeypatch):
+        """Should default structured_output to False when not set."""
+        env_vars = {
+            "LLM_AZURE_GPT4_PROVIDER": "azure",
+            "LLM_AZURE_GPT4_MODEL": "gpt-4",
+            "LLM_AZURE_GPT4_URL": "https://example.azure.com",
+            "LLM_AZURE_GPT4_KEY": "sk-test-key",
+            # No STRUCTURED_OUTPUT set
+        }
+
+        with patch("deriva.adapters.llm.manager.load_dotenv"):
+            with patch.dict("os.environ", env_vars, clear=True):
+                result = load_benchmark_models()
+
+        assert "azure-gpt4" in result
+        assert result["azure-gpt4"].structured_output is False
+
 
 # =============================================================================
 # LLMManager.__init__ Tests
@@ -302,6 +336,23 @@ class TestLLMManagerFromConfig:
             with patch.dict("os.environ", {}, clear=True):
                 with pytest.raises(ConfigurationError):
                     LLMManager.from_config(config, cache_dir=str(tmp_path / "cache"))
+
+    def test_from_config_passes_structured_output_flag(self, tmp_path, monkeypatch):
+        """Should pass structured_output flag from config to manager."""
+        config = BenchmarkModelConfig(
+            name="test-model",
+            provider="ollama",
+            model="llama3",
+            api_url="http://localhost:11434/api/chat",
+            structured_output=True,
+        )
+
+        with patch("deriva.adapters.llm.manager.load_dotenv"):
+            with patch.dict("os.environ", {}, clear=True):
+                manager = LLMManager.from_config(config, cache_dir=str(tmp_path / "cache"))
+
+        assert manager.structured_output is True
+        assert manager.config["structured_output"] is True
 
 
 # =============================================================================
@@ -864,12 +915,13 @@ class TestQuery:
 
         manager.cache.set.assert_called_once()
 
-    def test_query_returns_cached_error(self, tmp_path, monkeypatch):
-        """Should return FailedResponse when cached error exists."""
+    def test_query_skips_cached_error_and_retries(self, tmp_path, monkeypatch):
+        """Should skip cached errors and retry API call instead."""
         env_vars = {
             "LLM_PROVIDER": "ollama",
             "LLM_OLLAMA_MODEL": "llama3",
             "LLM_CACHE_DIR": str(tmp_path / "cache"),
+            "LLM_NOCACHE": "true",
         }
 
         cached_error = {
@@ -880,15 +932,24 @@ class TestQuery:
             "is_error": True,
         }
 
+        mock_result = MagicMock()
+        mock_result.content = "Fresh response"
+        mock_result.usage = {"total_tokens": 10}
+        mock_result.finish_reason = "stop"
+
         with patch("deriva.adapters.llm.manager.load_dotenv"):
             with patch.dict("os.environ", env_vars, clear=True):
                 manager = LLMManager()
+                # Cache returns an error, but we should skip it and call API
                 manager.cache.get = MagicMock(return_value=cached_error)  # type: ignore[method-assign]
+                manager.provider.complete = MagicMock(return_value=mock_result)  # type: ignore[method-assign]
 
                 response = manager.query("Hello")
 
-        assert isinstance(response, FailedResponse)
-        assert response.error == "Previous error"
+        # Should have made a fresh API call instead of returning cached error
+        assert isinstance(response, LiveResponse)
+        assert response.content == "Fresh response"
+        manager.provider.complete.assert_called_once()
 
 
 # =============================================================================

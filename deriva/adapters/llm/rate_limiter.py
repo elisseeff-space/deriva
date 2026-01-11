@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -48,10 +49,12 @@ class RateLimiter:
 
     Thread-safe implementation that tracks request timestamps and
     enforces rate limits across concurrent calls.
+
+    Uses deque for O(1) operations when expiring old timestamps.
     """
 
     config: RateLimitConfig = field(default_factory=RateLimitConfig)
-    _request_times: list[float] = field(default_factory=list)
+    _request_times: deque = field(default_factory=deque)  # O(1) popleft
     _lock: threading.Lock = field(default_factory=threading.Lock)
     _consecutive_rate_limits: int = field(default=0)
     _last_request_time: float = field(default=0.0)
@@ -78,13 +81,14 @@ class RateLimiter:
 
             # Check RPM limit
             if self.config.requests_per_minute > 0:
-                # Clean up old timestamps (older than 1 minute)
+                # Clean up old timestamps using O(1) popleft (deque is sorted by time)
                 cutoff = now - 60.0
-                self._request_times = [t for t in self._request_times if t > cutoff]
+                while self._request_times and self._request_times[0] <= cutoff:
+                    self._request_times.popleft()
 
                 # If at limit, wait until oldest request expires
                 if len(self._request_times) >= self.config.requests_per_minute:
-                    oldest = min(self._request_times)
+                    oldest = self._request_times[0]  # O(1) access to front
                     wait_until = oldest + 60.0
                     wait_time = max(wait_time, wait_until - now)
 
@@ -99,7 +103,7 @@ class RateLimiter:
                     self._lock.acquire()
                 now = time.time()
 
-            # Record this request
+            # Record this request (O(1) append)
             self._request_times.append(now)
             self._last_request_time = now
 
@@ -146,7 +150,10 @@ class RateLimiter:
         with self._lock:
             now = time.time()
             cutoff = now - 60.0
-            recent_requests = len([t for t in self._request_times if t > cutoff])
+            # Clean expired entries first (using efficient popleft)
+            while self._request_times and self._request_times[0] <= cutoff:
+                self._request_times.popleft()
+            recent_requests = len(self._request_times)
 
             return {
                 "requests_last_minute": recent_requests,

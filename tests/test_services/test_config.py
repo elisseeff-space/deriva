@@ -761,3 +761,110 @@ class TestUpdateDerivationConfigExtended:
         result = update_derivation_config(engine, "ApplicationComponent")
 
         assert result is False
+
+
+class TestListSteps:
+    """Tests for list_steps function."""
+
+    def test_returns_extraction_step_info(self):
+        """Should return extraction step info with correct fields."""
+        from unittest.mock import patch
+
+        from deriva.services.config import list_steps
+
+        engine = MagicMock()
+        mock_config = ExtractionConfig(
+            node_type="BusinessConcept",
+            sequence=1,
+            enabled=True,
+            input_sources=None,
+            instruction="Test instruction",
+            example=None,
+        )
+
+        with patch(
+            "deriva.services.config.get_extraction_configs",
+            return_value=[mock_config],
+        ):
+            result = list_steps(engine, "extraction")
+
+            assert len(result) == 1
+            assert result[0]["name"] == "BusinessConcept"
+            assert result[0]["sequence"] == 1
+            assert result[0]["enabled"] is True
+            assert result[0]["has_instruction"] is True
+
+    def test_returns_derivation_step_info(self):
+        """Should return derivation step info with correct fields."""
+        from unittest.mock import patch
+
+        from deriva.services.config import list_steps
+
+        engine = MagicMock()
+        mock_config = DerivationConfig(
+            step_name="ApplicationComponent",
+            phase="generate",
+            sequence=1,
+            enabled=True,
+            llm=True,
+            input_graph_query="MATCH (n) RETURN n",
+            input_model_query=None,
+            instruction=None,
+            example=None,
+            params=None,
+        )
+
+        with patch(
+            "deriva.services.config.get_derivation_configs",
+            return_value=[mock_config],
+        ):
+            result = list_steps(engine, "derivation")
+
+            assert len(result) == 1
+            assert result[0]["name"] == "ApplicationComponent"
+            assert result[0]["phase"] == "generate"
+            assert result[0]["sequence"] == 1
+            assert result[0]["enabled"] is True
+            assert result[0]["llm"] is True
+            assert result[0]["has_query"] is True
+
+    def test_returns_empty_for_invalid_step_type(self):
+        """Should return empty list for invalid step type."""
+        from deriva.services.config import list_steps
+
+        engine = MagicMock()
+        result = list_steps(engine, "invalid_type")
+
+        assert result == []
+
+    def test_respects_enabled_only_parameter(self):
+        """Should pass enabled_only parameter to underlying function."""
+        from unittest.mock import patch
+
+        from deriva.services.config import list_steps
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_extraction_configs",
+            return_value=[],
+        ) as mock_fn:
+            list_steps(engine, "extraction", enabled_only=True)
+            mock_fn.assert_called_once()
+            assert mock_fn.call_args[1].get("enabled_only") is True
+
+    def test_passes_phase_for_derivation(self):
+        """Should pass phase parameter for derivation steps."""
+        from unittest.mock import patch
+
+        from deriva.services.config import list_steps
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_derivation_configs",
+            return_value=[],
+        ) as mock_fn:
+            list_steps(engine, "derivation", phase="enrich")
+            mock_fn.assert_called_once()
+            assert mock_fn.call_args[1].get("phase") == "enrich"

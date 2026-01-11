@@ -187,6 +187,7 @@ def generate(
     existing_elements: list[dict[str, Any]],
     temperature: float | None = None,
     max_tokens: int | None = None,
+    defer_relationships: bool = False,
 ) -> GenerationResult:
     """
     Generate DataObject elements and their relationships.
@@ -282,7 +283,7 @@ def generate(
         # -----------------------------------------------------------------
         # STEP 2: Derive relationships for this batch
         # -----------------------------------------------------------------
-        if batch_elements and existing_elements:
+        if batch_elements and existing_elements and not defer_relationships:
             relationships = derive_batch_relationships(
                 new_elements=batch_elements,
                 existing_elements=existing_elements,
@@ -292,6 +293,7 @@ def generate(
                 llm_query_fn=llm_query_fn,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                graph_manager=graph_manager,
             )
 
             for rel_data in relationships:

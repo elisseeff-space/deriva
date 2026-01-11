@@ -17,12 +17,14 @@ from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any
 
 from deriva.adapters.archimate import ArchimateManager
+from deriva.adapters.archimate.models import Relationship
 from deriva.common.types import PipelineResult, ProgressUpdate
 
 if TYPE_CHECKING:
     from deriva.common.types import ProgressReporter, RunLoggerProtocol
 from deriva.adapters.graph import GraphManager
 from deriva.modules.derivation import enrich
+from deriva.modules.derivation.base import derive_consolidated_relationships
 from deriva.modules.derivation.refine import run_refine_step
 from deriva.services import config
 
@@ -71,6 +73,25 @@ def _load_element_module(element_type: str) -> Any:
     return module
 
 
+def _collect_relationship_rules() -> (
+    dict[str, tuple[list[Any], list[Any]]]
+):
+    """Collect relationship rules from all loaded element modules.
+
+    Returns:
+        Dict mapping element_type to (outbound_rules, inbound_rules) tuple
+    """
+    rules: dict[str, tuple[list[Any], list[Any]]] = {}
+    for element_type, module in _ELEMENT_MODULES.items():
+        if module is None:
+            continue
+        outbound = getattr(module, "OUTBOUND_RULES", [])
+        inbound = getattr(module, "INBOUND_RULES", [])
+        if outbound or inbound:
+            rules[element_type] = (outbound, inbound)
+    return rules
+
+
 def generate_element(
     graph_manager: GraphManager,
     archimate_manager: ArchimateManager,
@@ -85,9 +106,10 @@ def generate_element(
     existing_elements: list[dict[str, Any]] | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    defer_relationships: bool = True,
 ) -> dict[str, Any]:
     """
-    Generate ArchiMate elements of a specific type (and their relationships).
+    Generate ArchiMate elements of a specific type (and optionally their relationships).
 
     Routes to the appropriate module based on element_type.
     All configuration parameters are required - no defaults, no fallbacks.
@@ -109,6 +131,7 @@ def generate_element(
         existing_elements: Elements from previous derivation steps (for relationships)
         temperature: Optional LLM temperature override
         max_tokens: Optional LLM max_tokens override
+        defer_relationships: If True, skip relationship derivation (for separated phases mode)
 
     Returns:
         Dict with success, elements_created, relationships_created, created_elements, errors
@@ -137,6 +160,7 @@ def generate_element(
             existing_elements=existing_elements or [],
             temperature=temperature,
             max_tokens=max_tokens,
+            defer_relationships=defer_relationships,
         )
         return {
             "success": result.success,
@@ -306,6 +330,7 @@ def run_derivation(
     phases: list[str] | None = None,
     run_logger: RunLoggerProtocol | None = None,
     progress: ProgressReporter | None = None,
+    defer_relationships: bool = True,
 ) -> dict[str, Any]:
     """
     Run the derivation pipeline.
@@ -324,6 +349,9 @@ def run_derivation(
         phases: List of phases to run ("enrich", "generate", "refine").
         run_logger: Optional RunLogger for structured logging
         progress: Optional progress reporter for visual feedback
+        defer_relationships: If True, skip per-batch relationship derivation.
+                            Elements will be created but relationships will not
+                            be derived. Use for A/B testing or separated phases.
 
     Returns:
         Dict with success, stats, errors
@@ -475,6 +503,7 @@ def run_derivation(
                     max_candidates=cfg.max_candidates,
                     batch_size=cfg.batch_size,
                     existing_elements=all_created_elements,  # Pass accumulated elements
+                    defer_relationships=defer_relationships,
                 )
 
                 elements_created = step_result.get("elements_created", 0)
@@ -487,6 +516,14 @@ def run_derivation(
 
                 if step_created_elements:
                     all_created_elements.extend(step_created_elements)
+
+                # Track created relationships for OCEL logging
+                step_created_relationships = step_result.get("created_relationships", [])
+                if step_ctx and step_created_relationships:
+                    for rel_data in step_created_relationships:
+                        # Build deterministic relationship ID: {Type}_{Source}_{Target}
+                        rel_id = f"{rel_data['relationship_type']}_{rel_data['source']}_{rel_data['target']}"
+                        step_ctx.add_relationship(rel_id)
 
                 # Complete step logging
                 if step_ctx:
@@ -515,6 +552,49 @@ def run_derivation(
                 if progress:
                     progress.log(error_msg, level="error")
                     progress.complete_step()
+
+    # Run consolidated relationship derivation if deferred
+    if defer_relationships and all_created_elements:
+        if verbose:
+            print(f"  Deriving relationships for {len(all_created_elements)} elements...")
+
+        # Start progress tracking
+        if progress:
+            progress.start_step("ConsolidatedRelationships")
+
+        try:
+            relationship_rules = _collect_relationship_rules()
+            relationships = derive_consolidated_relationships(
+                all_elements=all_created_elements,
+                relationship_rules=relationship_rules,
+                llm_query_fn=llm_query_fn,
+                graph_manager=graph_manager,
+            )
+
+            # Persist relationships to archimate model
+            for rel_data in relationships:
+                relationship = Relationship(
+                    source=rel_data["source"],
+                    target=rel_data["target"],
+                    relationship_type=rel_data["relationship_type"],
+                    properties={"confidence": rel_data.get("confidence", 0.5)},
+                )
+                archimate_manager.add_relationship(relationship)
+
+            rel_count = len(relationships)
+            stats["relationships_created"] += rel_count
+
+            if verbose:
+                print(f"    + {rel_count} consolidated relationships")
+            if progress:
+                progress.complete_step(f"{rel_count} relationships")
+
+        except Exception as e:
+            error_msg = f"Error in consolidated relationships: {str(e)}"
+            errors.append(error_msg)
+            if progress:
+                progress.log(error_msg, level="error")
+                progress.complete_step()
 
     # Run refine phase
     if "refine" in phases:
@@ -632,6 +712,7 @@ def run_derivation_iter(
     enabled_only: bool = True,
     verbose: bool = False,
     phases: list[str] | None = None,
+    defer_relationships: bool = True,
 ) -> Iterator[ProgressUpdate]:
     """
     Run derivation pipeline as a generator, yielding progress updates.
@@ -641,6 +722,7 @@ def run_derivation_iter(
 
     Args:
         engine: DuckDB connection for config
+        defer_relationships: If True, skip per-batch relationship derivation.
         graph_manager: Connected GraphManager for querying source nodes
         archimate_manager: Connected ArchimateManager for persistence
         llm_query_fn: Function to call LLM (prompt, schema) -> response
@@ -778,6 +860,7 @@ def run_derivation_iter(
                     max_candidates=cfg.max_candidates,
                     batch_size=cfg.batch_size,
                     existing_elements=all_created_elements,
+                    defer_relationships=defer_relationships,
                 )
 
                 elements_created = step_result.get("elements_created", 0)

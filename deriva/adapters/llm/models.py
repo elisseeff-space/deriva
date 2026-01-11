@@ -58,6 +58,7 @@ class BenchmarkModelConfig:
         api_url: API endpoint URL (optional, uses provider default if not set)
         api_key: API key (optional, reads from api_key_env if not set)
         api_key_env: Environment variable name for API key
+        structured_output: Enable JSON schema enforcement at API level (default: False)
     """
 
     name: str
@@ -66,6 +67,7 @@ class BenchmarkModelConfig:
     api_url: str | None = None
     api_key: str | None = None
     api_key_env: str | None = None
+    structured_output: bool = False
 
     def __post_init__(self):
         """Validate provider."""

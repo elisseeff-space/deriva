@@ -60,6 +60,7 @@ class RepositoryMetadata:
     created_at: str
     last_updated: str
     default_branch: str
+    commit_hash: str | None = None  # Full SHA of HEAD commit for audit traceability
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
