@@ -85,9 +85,10 @@ def generate_element(
     existing_elements: list[dict[str, Any]] | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    defer_relationships: bool = False,
 ) -> dict[str, Any]:
     """
-    Generate ArchiMate elements of a specific type (and their relationships).
+    Generate ArchiMate elements of a specific type (and optionally their relationships).
 
     Routes to the appropriate module based on element_type.
     All configuration parameters are required - no defaults, no fallbacks.
@@ -109,6 +110,7 @@ def generate_element(
         existing_elements: Elements from previous derivation steps (for relationships)
         temperature: Optional LLM temperature override
         max_tokens: Optional LLM max_tokens override
+        defer_relationships: If True, skip relationship derivation (for separated phases mode)
 
     Returns:
         Dict with success, elements_created, relationships_created, created_elements, errors
@@ -137,6 +139,7 @@ def generate_element(
             existing_elements=existing_elements or [],
             temperature=temperature,
             max_tokens=max_tokens,
+            defer_relationships=defer_relationships,
         )
         return {
             "success": result.success,

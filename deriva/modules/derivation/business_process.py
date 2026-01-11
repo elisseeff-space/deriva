@@ -155,6 +155,7 @@ def generate(
     existing_elements: list[dict[str, Any]],
     temperature: float | None = None,
     max_tokens: int | None = None,
+    defer_relationships: bool = False,
 ) -> GenerationResult:
     """Generate BusinessProcess elements and their relationships."""
     result = GenerationResult(success=True)
@@ -240,7 +241,7 @@ def generate(
                     f"Failed to create element {element_data['identifier']}: {e}"
                 )
 
-        if batch_elements and existing_elements:
+        if batch_elements and existing_elements and not defer_relationships:
             relationships = derive_batch_relationships(
                 new_elements=batch_elements,
                 existing_elements=existing_elements,

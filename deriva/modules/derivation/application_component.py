@@ -113,6 +113,7 @@ def generate(
     existing_elements: list[dict[str, Any]],
     temperature: float | None = None,
     max_tokens: int | None = None,
+    defer_relationships: bool = False,
 ) -> GenerationResult:
     """
     Generate ApplicationComponent elements.
@@ -235,7 +236,7 @@ def generate(
             except Exception as e:
                 errors.append(f"Failed to create element {data.get('name')}: {e}")
         # Derive relationships for this batch
-        if batch_elements and existing_elements:
+        if batch_elements and existing_elements and not defer_relationships:
             relationships = derive_batch_relationships(
                 new_elements=batch_elements,
                 existing_elements=existing_elements,
