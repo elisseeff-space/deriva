@@ -257,7 +257,7 @@ class BenchmarkConfig:
     nocache_configs: list[str] = field(default_factory=list)  # Configs to always skip cache
     export_models: bool = True  # Export ArchiMate model file after each run
     bench_hash: bool = False  # Include repo/model/run in cache key for per-run isolation
-    defer_relationships: bool = False  # Two-phase derivation: elements first, then relationships
+    defer_relationships: bool = True  # Two-phase derivation: elements first, then relationships (recommended)
 
     def total_runs(self) -> int:
         """Calculate total number of runs in the matrix.

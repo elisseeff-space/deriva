@@ -106,7 +106,7 @@ def generate_element(
     existing_elements: list[dict[str, Any]] | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
-    defer_relationships: bool = False,
+    defer_relationships: bool = True,
 ) -> dict[str, Any]:
     """
     Generate ArchiMate elements of a specific type (and optionally their relationships).
@@ -712,7 +712,7 @@ def run_derivation_iter(
     enabled_only: bool = True,
     verbose: bool = False,
     phases: list[str] | None = None,
-    defer_relationships: bool = False,
+    defer_relationships: bool = True,
 ) -> Iterator[ProgressUpdate]:
     """
     Run derivation pipeline as a generator, yielding progress updates.

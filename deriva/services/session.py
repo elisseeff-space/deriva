@@ -983,7 +983,7 @@ class PipelineSession:
         export_models: bool = True,
         clear_between_runs: bool = True,
         bench_hash: bool = False,
-        defer_relationships: bool = False,
+        defer_relationships: bool = True,
     ) -> benchmarking.BenchmarkResult:
         """
         Run a full benchmark matrix.
