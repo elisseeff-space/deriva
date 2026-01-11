@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from deriva.common.types import ProgressReporter, RunLoggerProtocol
 from deriva.adapters.graph import GraphManager
 from deriva.modules.derivation import enrich
+from deriva.modules.derivation.base import derive_consolidated_relationships
 from deriva.modules.derivation.refine import run_refine_step
 from deriva.services import config
 
@@ -69,6 +70,25 @@ def _load_element_module(element_type: str) -> Any:
 
     _ELEMENT_MODULES[element_type] = module
     return module
+
+
+def _collect_relationship_rules() -> (
+    dict[str, tuple[list[Any], list[Any]]]
+):
+    """Collect relationship rules from all loaded element modules.
+
+    Returns:
+        Dict mapping element_type to (outbound_rules, inbound_rules) tuple
+    """
+    rules: dict[str, tuple[list[Any], list[Any]]] = {}
+    for element_type, module in _ELEMENT_MODULES.items():
+        if module is None:
+            continue
+        outbound = getattr(module, "OUTBOUND_RULES", [])
+        inbound = getattr(module, "INBOUND_RULES", [])
+        if outbound or inbound:
+            rules[element_type] = (outbound, inbound)
+    return rules
 
 
 def generate_element(
@@ -531,6 +551,47 @@ def run_derivation(
                 if progress:
                     progress.log(error_msg, level="error")
                     progress.complete_step()
+
+    # Run consolidated relationship derivation if deferred
+    if defer_relationships and all_created_elements:
+        if verbose:
+            print(f"  Deriving relationships for {len(all_created_elements)} elements...")
+
+        # Start progress tracking
+        if progress:
+            progress.start_step("ConsolidatedRelationships")
+
+        try:
+            relationship_rules = _collect_relationship_rules()
+            relationships = derive_consolidated_relationships(
+                all_elements=all_created_elements,
+                relationship_rules=relationship_rules,
+                llm_query_fn=llm_query_fn,
+                graph_manager=graph_manager,
+            )
+
+            # Persist relationships to archimate model
+            for rel_data in relationships:
+                archimate_manager.create_relationship(
+                    source_id=rel_data["source"],
+                    target_id=rel_data["target"],
+                    rel_type=rel_data["relationship_type"],
+                )
+
+            rel_count = len(relationships)
+            stats["relationships_created"] += rel_count
+
+            if verbose:
+                print(f"    + {rel_count} consolidated relationships")
+            if progress:
+                progress.complete_step(f"{rel_count} relationships")
+
+        except Exception as e:
+            error_msg = f"Error in consolidated relationships: {str(e)}"
+            errors.append(error_msg)
+            if progress:
+                progress.log(error_msg, level="error")
+                progress.complete_step()
 
     # Run refine phase
     if "refine" in phases:
