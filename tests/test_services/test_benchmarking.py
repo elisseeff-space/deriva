@@ -79,14 +79,17 @@ class TestBenchmarkConfig:
         assert config.export_models is False
 
     def test_total_runs_calculation(self):
-        """Should calculate total runs correctly."""
+        """Should calculate total runs correctly.
+
+        Repos are processed together per (model, iteration) - they don't multiply run count.
+        """
         config = BenchmarkConfig(
             repositories=["repo1", "repo2"],
             models=["gpt-4", "claude-3", "llama"],
             runs_per_combination=3,
         )
-        # 2 repos × 3 models × 3 runs = 18
-        assert config.total_runs() == 18
+        # 3 models × 3 runs = 9 (repos processed together per run)
+        assert config.total_runs() == 9
 
     def test_total_runs_single_combination(self):
         """Should calculate correctly for single combination."""
@@ -99,10 +102,10 @@ class TestBenchmarkConfig:
         assert config.total_runs() == 5
 
     def test_total_runs_empty_lists(self):
-        """Should return 0 for empty lists."""
+        """Should return 0 for empty models list."""
         config = BenchmarkConfig(
-            repositories=[],
-            models=["gpt-4"],
+            repositories=["repo1"],
+            models=[],
         )
         assert config.total_runs() == 0
 
@@ -225,12 +228,12 @@ class TestBenchmarkResult:
         result = BenchmarkResult(
             session_id="test",
             config=config,
-            runs_completed=10,
+            runs_completed=5,  # 1 model × 5 runs (repos processed together)
             runs_failed=0,
             ocel_path="/ocel.json",
             duration_seconds=200,
         )
-        assert result.config.total_runs() == 10
+        assert result.config.total_runs() == 5  # 1 model × 5 runs
         assert result.config.repositories == ["repo1", "repo2"]
 
 
@@ -241,7 +244,7 @@ class TestRunResult:
         """Should create run result with all fields."""
         result = RunResult(
             run_id="run-001",
-            repository="my-repo",
+            repositories=["my-repo"],
             model="gpt-4",
             iteration=1,
             status="completed",
@@ -250,7 +253,8 @@ class TestRunResult:
             duration_seconds=45.3,
         )
         assert result.run_id == "run-001"
-        assert result.repository == "my-repo"
+        assert result.repository == "my-repo"  # Legacy property access
+        assert result.repositories == ["my-repo"]
         assert result.model == "gpt-4"
         assert result.iteration == 1
         assert result.status == "completed"
@@ -260,7 +264,7 @@ class TestRunResult:
         """Should allow access to stats dict."""
         result = RunResult(
             run_id="run-001",
-            repository="repo",
+            repositories=["repo"],
             model="model",
             iteration=1,
             status="completed",
@@ -275,7 +279,7 @@ class TestRunResult:
         """Should store errors list."""
         result = RunResult(
             run_id="run-001",
-            repository="repo",
+            repositories=["repo"],
             model="model",
             iteration=1,
             status="failed",
@@ -290,7 +294,7 @@ class TestRunResult:
         """Should accept failed status."""
         result = RunResult(
             run_id="run-002",
-            repository="repo",
+            repositories=["repo"],
             model="model",
             iteration=2,
             status="failed",

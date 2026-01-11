@@ -821,6 +821,34 @@ All queries return one of three Pydantic response types:
 - Disable with `LLM_NOCACHE=true` or `use_cache=False`
 - Errors are also cached to prevent retry storms
 
+### Structured Output (JSON Schema Enforcement)
+
+Enable API-level JSON schema enforcement for guaranteed valid responses:
+
+```bash
+# In .env - per model configuration
+LLM_OPENAI_GPT41MINI_STRUCTURED_OUTPUT=true
+LLM_ANTHROPIC_HAIKU_STRUCTURED_OUTPUT=true
+LLM_MISTRAL_DEVSTRAL_STRUCTURED_OUTPUT=true
+LLM_OLLAMA_NEMOTRON_STRUCTURED_OUTPUT=true
+```
+
+**Supported Providers:**
+
+| Provider | Implementation |
+|----------|---------------|
+| OpenAI | `response_format: {type: "json_schema", json_schema: {...}}` |
+| Anthropic | `output_format` + beta header `structured-outputs-2025-11-13` |
+| Mistral | `response_format: {type: "json_schema", json_schema: {...}}` |
+| Ollama | `format: <schema>` (direct schema in format param) |
+| Azure | Same as OpenAI |
+| LMStudio | Same as OpenAI |
+
+**Behavior:**
+
+- `structured_output=true`: JSON schema passed to API for server-side enforcement
+- `structured_output=false` (default): Only `json_mode` enabled, schema used for client-side validation
+
 </details>
 
 <details>

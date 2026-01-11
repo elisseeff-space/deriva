@@ -141,6 +141,52 @@ LLM_LMSTUDIO_LOCAL_URL=http://localhost:1234/v1/chat/completions
 - Disable with `LLM_NOCACHE=true` in `.env`
 - Use `cached_llm_call` decorator for custom caching
 
+## Structured Output (JSON Schema Enforcement)
+
+Enable API-level JSON schema enforcement for guaranteed valid JSON responses:
+
+```bash
+# Per-model configuration in .env
+LLM_OPENAI_GPT41MINI_STRUCTURED_OUTPUT=true
+LLM_ANTHROPIC_HAIKU_STRUCTURED_OUTPUT=true
+LLM_MISTRAL_DEVSTRAL_STRUCTURED_OUTPUT=true
+LLM_OLLAMA_NEMOTRON_STRUCTURED_OUTPUT=true
+```
+
+**Supported Providers:**
+
+| Provider | Support | Implementation |
+|----------|---------|----------------|
+| OpenAI | ✅ | `response_format: {type: "json_schema"}` |
+| Azure | ✅ | Same as OpenAI |
+| Anthropic | ✅ | `output_format` + beta header |
+| Mistral | ✅ | `response_format: {type: "json_schema"}` |
+| Ollama | ✅ | `format: <schema>` |
+| LMStudio | ✅ | Same as OpenAI |
+| ClaudeCode | ❌ | CLI-based, no structured output |
+
+**Behavior:**
+
+- `structured_output=true`: JSON schema passed to provider API for server-side enforcement
+- `structured_output=false` (default): Only `json_mode` enabled, schema used for client-side validation only
+
+**Programmatic Usage:**
+
+```python
+from deriva.adapters.llm import LLMManager
+from deriva.adapters.llm.manager import load_benchmark_models
+
+# Load model with structured_output=true from .env
+models = load_benchmark_models()
+llm = LLMManager.from_config(models["openai-gpt41mini"])
+
+# The schema will be enforced at the API level
+result = llm.query(
+    "Extract business concepts...",
+    schema={"type": "object", "properties": {...}}
+)
+```
+
 ## See Also
 
 - [CONTRIBUTING.md](../../../CONTRIBUTING.md) - Architecture and LLM usage guidelines

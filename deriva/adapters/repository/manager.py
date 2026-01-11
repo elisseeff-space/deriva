@@ -412,6 +412,20 @@ def _get_default_branch(repo_path: Path) -> str:
         return "unknown"
 
 
+def _get_commit_hash(repo_path: Path) -> str | None:
+    """Get the full SHA hash of HEAD commit for audit traceability."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_path), "rev-parse", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return result.stdout.strip()
+    except (subprocess.CalledProcessError, OSError):
+        return None
+
+
 def _extract_general_metadata(repo_path: Path) -> RepositoryMetadata:
     """Extract general metadata about the repository."""
     url = _get_git_remote_url(repo_path)
@@ -422,6 +436,7 @@ def _extract_general_metadata(repo_path: Path) -> RepositoryMetadata:
     languages: dict[str, int] = {}
     created_at, last_updated = _get_repository_times(repo_path)
     default_branch = _get_default_branch(repo_path)
+    commit_hash = _get_commit_hash(repo_path)
 
     return RepositoryMetadata(
         name=repo_path.name,
@@ -434,6 +449,7 @@ def _extract_general_metadata(repo_path: Path) -> RepositoryMetadata:
         created_at=created_at,
         last_updated=last_updated,
         default_branch=default_branch,
+        commit_hash=commit_hash,
     )
 
 

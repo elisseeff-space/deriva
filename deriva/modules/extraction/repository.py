@@ -54,6 +54,7 @@ def build_repository_node(repo_metadata: dict[str, Any]) -> dict[str, Any]:
             "created_at": repo_metadata.get("created_at", ""),
             "last_updated": repo_metadata.get("last_updated", ""),
             "default_branch": repo_metadata.get("default_branch", "main"),
+            "commit_hash": repo_metadata.get("commit_hash", ""),
             "extracted_at": current_timestamp(),
         },
     }

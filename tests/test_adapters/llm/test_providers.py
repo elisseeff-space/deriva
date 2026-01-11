@@ -166,6 +166,59 @@ class TestAzureOpenAIProvider:
         body = call_args.kwargs["json"]
         assert body["response_format"] == {"type": "json_object"}
 
+    @patch("deriva.adapters.llm.providers.requests.post")
+    def test_complete_with_json_schema(self, mock_post, provider):
+        """Should use structured output with json_schema parameter."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"answer": "4"}'}, "finish_reason": "stop"}],
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        test_schema = {
+            "name": "test_response",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {"answer": {"type": "string"}},
+                "required": ["answer"],
+            },
+        }
+
+        provider.complete(
+            messages=[{"role": "user", "content": "Hi"}],
+            json_schema=test_schema,
+        )
+
+        call_args = mock_post.call_args
+        body = call_args.kwargs["json"]
+        assert body["response_format"]["type"] == "json_schema"
+        assert body["response_format"]["json_schema"] == test_schema
+
+    @patch("deriva.adapters.llm.providers.requests.post")
+    def test_json_schema_takes_precedence_over_json_mode(self, mock_post, provider):
+        """json_schema should take precedence over json_mode."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"answer": "4"}'}, "finish_reason": "stop"}],
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        test_schema = {"name": "test", "schema": {"type": "object"}}
+
+        provider.complete(
+            messages=[{"role": "user", "content": "Hi"}],
+            json_mode=True,
+            json_schema=test_schema,
+        )
+
+        call_args = mock_post.call_args
+        body = call_args.kwargs["json"]
+        # Should use json_schema, not json_object
+        assert body["response_format"]["type"] == "json_schema"
+
 
 class TestOpenAIProvider:
     """Tests for OpenAIProvider."""
@@ -214,6 +267,31 @@ class TestOpenAIProvider:
         call_args = mock_post.call_args
         headers = call_args.kwargs["headers"]
         assert headers["Authorization"] == "Bearer test-key"
+
+    @patch("deriva.adapters.llm.providers.requests.post")
+    def test_complete_with_json_schema(self, mock_post, provider):
+        """Should use structured output with json_schema parameter."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"answer": "4"}'}, "finish_reason": "stop"}],
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        test_schema = {
+            "name": "test_response",
+            "schema": {"type": "object", "properties": {"answer": {"type": "string"}}},
+        }
+
+        provider.complete(
+            messages=[{"role": "user", "content": "Hi"}],
+            json_schema=test_schema,
+        )
+
+        call_args = mock_post.call_args
+        body = call_args.kwargs["json"]
+        assert body["response_format"]["type"] == "json_schema"
+        assert body["response_format"]["json_schema"] == test_schema
 
 
 class TestAnthropicProvider:
@@ -276,6 +354,35 @@ class TestAnthropicProvider:
         assert body["system"] == "You are helpful"
         assert len(body["messages"]) == 1
         assert body["messages"][0]["role"] == "user"
+
+    @patch("deriva.adapters.llm.providers.requests.post")
+    def test_complete_with_json_schema(self, mock_post, provider):
+        """Should use structured output with json_schema parameter."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "content": [{"type": "text", "text": '{"answer": "4"}'}],
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        test_schema = {
+            "name": "test_response",
+            "schema": {"type": "object", "properties": {"answer": {"type": "string"}}},
+        }
+
+        provider.complete(
+            messages=[{"role": "user", "content": "Hi"}],
+            json_schema=test_schema,
+        )
+
+        call_args = mock_post.call_args
+        headers = call_args.kwargs["headers"]
+        body = call_args.kwargs["json"]
+        # Anthropic uses beta header for structured output
+        assert "anthropic-beta" in headers
+        assert "structured-outputs" in headers["anthropic-beta"]
+        # Anthropic uses output_format (not response_format)
+        assert body["output_format"]["type"] == "json_schema"
 
 
 class TestOllamaProvider:
@@ -353,6 +460,63 @@ class TestOllamaProvider:
         call_args = mock_post.call_args
         body = call_args.kwargs["json"]
         assert body["format"] == "json"
+
+    @patch("deriva.adapters.llm.providers.requests.post")
+    def test_complete_with_json_schema(self, mock_post, provider):
+        """Should use structured output with json_schema parameter."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {"content": '{"answer": "4"}'},
+            "done": True,
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        test_schema = {
+            "type": "object",
+            "properties": {"answer": {"type": "string"}},
+            "required": ["answer"],
+        }
+
+        provider.complete(
+            messages=[{"role": "user", "content": "Hi"}],
+            json_schema=test_schema,
+        )
+
+        call_args = mock_post.call_args
+        body = call_args.kwargs["json"]
+        # Ollama passes schema directly to format parameter
+        assert body["format"] == test_schema
+
+    @patch("deriva.adapters.llm.providers.requests.post")
+    def test_json_schema_extracts_nested_schema(self, mock_post, provider):
+        """Should extract schema from nested structure."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {"content": '{"answer": "4"}'},
+            "done": True,
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        # Schema wrapped in OpenAI-style structure
+        nested_schema = {
+            "name": "test_response",
+            "schema": {
+                "type": "object",
+                "properties": {"answer": {"type": "string"}},
+            },
+        }
+
+        provider.complete(
+            messages=[{"role": "user", "content": "Hi"}],
+            json_schema=nested_schema,
+        )
+
+        call_args = mock_post.call_args
+        body = call_args.kwargs["json"]
+        # Should extract the inner schema
+        assert body["format"] == nested_schema["schema"]
 
 
 class TestLMStudioProvider:
@@ -468,6 +632,32 @@ class TestLMStudioProvider:
         call_args = mock_post.call_args
         body = call_args.kwargs["json"]
         assert body["max_tokens"] == 100
+
+    @patch("deriva.adapters.llm.providers.requests.post")
+    def test_complete_with_json_schema(self, mock_post, provider):
+        """Should use structured output with json_schema parameter."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": '{"answer": "4"}'}, "finish_reason": "stop"}],
+        }
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        test_schema = {
+            "name": "test_response",
+            "schema": {"type": "object", "properties": {"answer": {"type": "string"}}},
+        }
+
+        provider.complete(
+            messages=[{"role": "user", "content": "Hi"}],
+            json_schema=test_schema,
+        )
+
+        call_args = mock_post.call_args
+        body = call_args.kwargs["json"]
+        assert body["response_format"]["type"] == "json_schema"
+        assert body["response_format"]["json_schema"]["name"] == "test_response"
+        assert body["response_format"]["json_schema"]["strict"] is True
 
 
 class TestClaudeCodeProvider:

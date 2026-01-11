@@ -63,12 +63,14 @@ def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
         LLM_{NAME}_URL (optional)
         LLM_{NAME}_KEY (optional, direct key)
         LLM_{NAME}_KEY_ENV (optional, env var name for key)
+        LLM_{NAME}_STRUCTURED_OUTPUT (optional, "true" to enable)
 
     Example .env:
         LLM_AZURE_GPT4_PROVIDER=azure
         LLM_AZURE_GPT4_MODEL=gpt-4
         LLM_AZURE_GPT4_URL=https://...
         LLM_AZURE_GPT4_KEY=sk-...
+        LLM_AZURE_GPT4_STRUCTURED_OUTPUT=true
 
     Returns:
         Dict mapping config name to BenchmarkModelConfig
@@ -91,6 +93,8 @@ def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
             api_url = os.getenv(f"{prefix}{name}_URL")
             api_key = os.getenv(f"{prefix}{name}_KEY")
             api_key_env = os.getenv(f"{prefix}{name}_KEY_ENV")
+            structured_output_str = os.getenv(f"{prefix}{name}_STRUCTURED_OUTPUT", "")
+            structured_output = structured_output_str.lower() in ("true", "1", "yes")
 
             if not model:
                 continue  # Skip incomplete configs
@@ -106,6 +110,7 @@ def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
                     api_url=api_url,
                     api_key=api_key,
                     api_key_env=api_key_env,
+                    structured_output=structured_output,
                 )
             except ValueError:
                 # Invalid provider, skip
@@ -182,6 +187,7 @@ class LLMManager:
         self.nocache = self.config.get("nocache", False)
         self.temperature = self.config.get("temperature", 0.7)
         self.max_tokens = self.config.get("max_tokens")  # None = provider default
+        self.structured_output = self.config.get("structured_output", False)
 
     @classmethod
     def from_config(
@@ -237,6 +243,7 @@ class LLMManager:
             "timeout": timeout,
             "temperature": effective_temperature,
             "nocache": nocache,
+            "structured_output": config.structured_output,
         }
 
         # Validate
@@ -268,6 +275,7 @@ class LLMManager:
         instance.nocache = nocache
         instance.temperature = effective_temperature
         instance.max_tokens = None  # None = use provider default
+        instance.structured_output = config.structured_output
 
         return instance
 
@@ -572,11 +580,14 @@ Return only the JSON object, no additional text."""
 
             for attempt in range(self.max_retries):
                 try:
+                    # Only pass json_schema if structured_output is enabled
+                    effective_schema = schema if self.structured_output else None
                     result = self.provider.complete(
                         messages=messages,
                         temperature=effective_temperature,
                         max_tokens=effective_max_tokens,
                         json_mode=json_mode,
+                        json_schema=effective_schema,
                     )
 
                     content = result.content
