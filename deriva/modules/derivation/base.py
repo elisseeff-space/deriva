@@ -40,6 +40,35 @@ ESSENTIAL_PROPS: set[str] = {
     "docstring",
 }
 
+# Properties to exclude from relationship prompts (invalidate cache)
+EXCLUDED_FROM_CACHE: set[str] = {"derived_at"}
+
+
+def strip_cache_breaking_props(elements: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Strip properties that would invalidate cache from elements.
+
+    The derived_at timestamp changes every run, causing cache misses
+    even when the actual content is identical.
+
+    Args:
+        elements: List of element dictionaries
+
+    Returns:
+        Copy of elements with cache-breaking properties removed
+    """
+    result = []
+    for elem in elements:
+        clean = dict(elem)
+        if "properties" in clean and isinstance(clean["properties"], dict):
+            clean["properties"] = {
+                k: v
+                for k, v in clean["properties"].items()
+                if k not in EXCLUDED_FROM_CACHE
+            }
+        result.append(clean)
+    return result
+
 
 # =============================================================================
 # Data Structures
@@ -698,8 +727,11 @@ def build_per_element_relationship_prompt(
         example: Example output from database config
         valid_relationship_types: Allowed relationship types (from config)
     """
-    source_json = json.dumps(source_elements, indent=2, default=str)
-    target_json = json.dumps(target_elements, indent=2, default=str)
+    # Strip timestamps to enable caching
+    clean_sources = strip_cache_breaking_props(source_elements)
+    clean_targets = strip_cache_breaking_props(target_elements)
+    source_json = json.dumps(clean_sources, indent=2, default=str)
+    target_json = json.dumps(clean_targets, indent=2, default=str)
 
     source_ids = [
         e.get("identifier", "") for e in source_elements if e.get("identifier")
@@ -776,7 +808,11 @@ def build_unified_relationship_prompt(
     if not new_elements:
         return ""
 
-    new_json = json.dumps(new_elements, indent=2, default=str)
+    # Strip timestamps to enable caching
+    clean_new = strip_cache_breaking_props(new_elements)
+    clean_existing = strip_cache_breaking_props(existing_elements)
+
+    new_json = json.dumps(clean_new, indent=2, default=str)
     new_ids = [e.get("identifier", "") for e in new_elements if e.get("identifier")]
 
     # Group existing elements by type for clarity
@@ -785,7 +821,7 @@ def build_unified_relationship_prompt(
         etype = elem.get("element_type", "Unknown")
         existing_by_type.setdefault(etype, []).append(elem)
 
-    existing_json = json.dumps(existing_elements, indent=2, default=str)
+    existing_json = json.dumps(clean_existing, indent=2, default=str)
     existing_ids = [
         e.get("identifier", "") for e in existing_elements if e.get("identifier")
     ]

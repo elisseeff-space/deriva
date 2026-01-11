@@ -129,6 +129,9 @@ class OCELLog:
     events: list[OCELEvent] = field(default_factory=list)
     object_types: set[str] = field(default_factory=set)
     _object_index: dict[str, list[int]] = field(default_factory=dict, repr=False)
+    _last_exported_index: int = field(
+        default=0, repr=False
+    )  # Track incremental exports
 
     def add_event(self, event: OCELEvent) -> None:
         """Add an event to the log and update indices."""
@@ -194,6 +197,35 @@ class OCELLog:
         with open(path, "w", encoding="utf-8") as f:
             for event in self.events:
                 f.write(json.dumps(event.to_jsonl_dict(), ensure_ascii=False) + "\n")
+
+    def export_jsonl_incremental(self, path: str | Path) -> int:
+        """
+        Export only NEW events since last incremental export.
+
+        Appends to existing file, tracks last exported index.
+        Use this for incremental persistence during benchmark runs.
+
+        Args:
+            path: Path to JSONL file (will append if exists)
+
+        Returns:
+            Number of new events exported
+        """
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        new_events = self.events[self._last_exported_index :]
+        if not new_events:
+            return 0
+
+        # Append mode for incremental writes
+        with open(path, "a", encoding="utf-8") as f:
+            for event in new_events:
+                f.write(json.dumps(event.to_jsonl_dict(), ensure_ascii=False) + "\n")
+
+        exported_count = len(new_events)
+        self._last_exported_index = len(self.events)
+        return exported_count
 
     def _collect_attribute_names(self) -> list[str]:
         """Collect all attribute names used across events."""

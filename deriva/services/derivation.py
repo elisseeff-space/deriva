@@ -488,6 +488,14 @@ def run_derivation(
                 if step_created_elements:
                     all_created_elements.extend(step_created_elements)
 
+                # Track created relationships for OCEL logging
+                step_created_relationships = step_result.get("created_relationships", [])
+                if step_ctx and step_created_relationships:
+                    for rel_data in step_created_relationships:
+                        # Build deterministic relationship ID: {Type}_{Source}_{Target}
+                        rel_id = f"{rel_data['relationship_type']}_{rel_data['source']}_{rel_data['target']}"
+                        step_ctx.add_relationship(rel_id)
+
                 # Complete step logging
                 if step_ctx:
                     step_ctx.items_created = elements_created

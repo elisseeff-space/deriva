@@ -527,6 +527,10 @@ class BenchmarkOrchestrator:
                         if progress:
                             progress.complete_run("failed")
 
+                    # Export events incrementally after each run (success or failure)
+                    # This ensures partial results are saved even if benchmark fails later
+                    self._export_ocel_incremental()
+
         # Calculate duration
         duration = (datetime.now() - self.session_start).total_seconds()
 
@@ -985,6 +989,23 @@ class BenchmarkOrchestrator:
             ],
         )
 
+    def _export_ocel_incremental(self) -> int:
+        """
+        Export new OCEL events since last export.
+
+        Writes incrementally to JSONL file after each run,
+        ensuring partial results are saved even if benchmark fails.
+
+        Returns:
+            Number of new events exported
+        """
+        session_id = self.session_id or "unknown"
+        output_dir = Path("workspace/benchmarks") / session_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        ocel_jsonl_path = output_dir / "events.jsonl"
+        return self.ocel_log.export_jsonl_incremental(ocel_jsonl_path)
+
     def _export_ocel(self) -> str:
         """Export OCEL log to files."""
         # Create benchmark output directory
@@ -1130,6 +1151,87 @@ def get_benchmark_runs(engine: Any, session_id: str) -> list[dict[str, Any]]:
 
 
 @dataclass
+class ItemStability:
+    """Per-item stability with percentage score."""
+
+    item_id: str
+    item_type: str  # "Element", "Edge", "Relationship"
+    appearances: int
+    total_runs: int
+
+    @property
+    def stability_score(self) -> float:
+        """Percentage of runs where item appeared (0-100)."""
+        return (self.appearances / self.total_runs * 100) if self.total_runs > 0 else 0.0
+
+    @property
+    def is_stable(self) -> bool:
+        """Item appeared in ALL runs."""
+        return self.appearances == self.total_runs
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "item_id": self.item_id,
+            "item_type": self.item_type,
+            "appearances": self.appearances,
+            "total_runs": self.total_runs,
+            "stability_score": round(self.stability_score, 2),
+            "is_stable": self.is_stable,
+        }
+
+
+@dataclass
+class ConnectionStability:
+    """Stability of a single connection between elements."""
+
+    element_id: str
+    connected_to: str
+    relationship_type: str
+    appearances: int
+    total_runs: int
+
+    @property
+    def stability_score(self) -> float:
+        """Percentage of runs where this connection existed (0-100)."""
+        return (self.appearances / self.total_runs * 100) if self.total_runs > 0 else 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "element_id": self.element_id,
+            "connected_to": self.connected_to,
+            "relationship_type": self.relationship_type,
+            "appearances": self.appearances,
+            "total_runs": self.total_runs,
+            "stability_score": round(self.stability_score, 2),
+        }
+
+
+@dataclass
+class ElementStructuralStability:
+    """All connections for an element with stability scores."""
+
+    element_id: str
+    connections: list[ConnectionStability] = field(default_factory=list)
+
+    @property
+    def structural_score(self) -> float:
+        """Average stability of all connections (0-100)."""
+        if not self.connections:
+            return 100.0  # No connections = fully stable
+        return sum(c.stability_score for c in self.connections) / len(self.connections)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "element_id": self.element_id,
+            "structural_score": round(self.structural_score, 2),
+            "connections": [c.to_dict() for c in self.connections],
+        }
+
+
+@dataclass
 class IntraModelMetrics:
     """Consistency metrics for a single model across runs on the same repo."""
 
@@ -1158,9 +1260,23 @@ class IntraModelMetrics:
     unstable_relationships: dict[str, int] = field(default_factory=dict)
     relationship_type_breakdown: dict[str, float] = field(default_factory=dict)  # Serving: 90%, etc.
 
+    # Per-item stability scores (enhanced metrics)
+    element_stability: list[ItemStability] = field(default_factory=list)
+    edge_stability: list[ItemStability] = field(default_factory=list)
+    relationship_stability: list[ItemStability] = field(default_factory=list)
+
+    # Structural stability (connection consistency)
+    structural_stability: list[ElementStructuralStability] = field(default_factory=list)
+
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
-        return asdict(self)
+        base = asdict(self)
+        # Convert ItemStability objects to dicts
+        base["element_stability"] = [s.to_dict() for s in self.element_stability]
+        base["edge_stability"] = [s.to_dict() for s in self.edge_stability]
+        base["relationship_stability"] = [s.to_dict() for s in self.relationship_stability]
+        base["structural_stability"] = [s.to_dict() for s in self.structural_stability]
+        return base
 
 
 @dataclass
@@ -1342,6 +1458,17 @@ class BenchmarkAnalyzer:
 
             consistency = len(stable) / len(all_elements) * 100 if all_elements else 100
 
+            # Build per-item stability scores for elements
+            element_stability = [
+                ItemStability(
+                    item_id=elem,
+                    item_type="Element",
+                    appearances=sum(1 for elems in elements_by_run.values() if elem in elems),
+                    total_runs=len(runs),
+                )
+                for elem in all_elements
+            ]
+
             # =====================================================================
             # Edge consistency (extraction phase)
             # =====================================================================
@@ -1381,6 +1508,17 @@ class BenchmarkAnalyzer:
 
             # Compute per-type breakdown for edges
             edge_type_breakdown = self._compute_type_breakdown(edges_by_run)
+
+            # Build per-item stability scores for edges
+            edge_stability = [
+                ItemStability(
+                    item_id=edge,
+                    item_type="Edge",
+                    appearances=sum(1 for edges in edges_by_run.values() if edge in edges),
+                    total_runs=len(runs),
+                )
+                for edge in all_edges
+            ]
 
             # =====================================================================
             # Relationship consistency (derivation phase)
@@ -1422,6 +1560,24 @@ class BenchmarkAnalyzer:
             # Compute per-type breakdown for relationships
             relationship_type_breakdown = self._compute_type_breakdown(relationships_by_run)
 
+            # Build per-item stability scores for relationships
+            relationship_stability = [
+                ItemStability(
+                    item_id=rel,
+                    item_type="Relationship",
+                    appearances=sum(1 for rels in relationships_by_run.values() if rel in rels),
+                    total_runs=len(runs),
+                )
+                for rel in all_relationships
+            ]
+
+            # Compute structural stability (connection consistency)
+            structural_stability = self._compute_structural_stability(
+                elements_by_run=elements_by_run,
+                relationships_by_run=relationships_by_run,
+                total_runs=len(runs),
+            )
+
             results.append(
                 IntraModelMetrics(
                     model=model,
@@ -1446,6 +1602,12 @@ class BenchmarkAnalyzer:
                     stable_relationships=sorted(stable_relationships),
                     unstable_relationships=unstable_relationships,
                     relationship_type_breakdown=relationship_type_breakdown,
+                    # Per-item stability scores
+                    element_stability=element_stability,
+                    edge_stability=edge_stability,
+                    relationship_stability=relationship_stability,
+                    # Structural stability
+                    structural_stability=structural_stability,
                 )
             )
 
@@ -1554,6 +1716,93 @@ class BenchmarkAnalyzer:
             breakdown[rel_type] = (stable_count / len(objects) * 100) if objects else 100.0
 
         return breakdown
+
+    def _compute_structural_stability(
+        self,
+        elements_by_run: dict[str, set[str]],
+        relationships_by_run: dict[str, set[str]],
+        total_runs: int,
+    ) -> list[ElementStructuralStability]:
+        """
+        Compute structural stability - how consistently elements maintain their connections.
+
+        Parses relationship IDs (format: {Type}_{Source}_{Target}) to extract connections,
+        then measures how stable each connection is across runs.
+
+        Args:
+            elements_by_run: Dict mapping run_id -> set of element IDs
+            relationships_by_run: Dict mapping run_id -> set of relationship IDs
+            total_runs: Total number of runs
+
+        Returns:
+            List of ElementStructuralStability for each element with connections
+        """
+        if not relationships_by_run or total_runs < 2:
+            return []
+
+        # Collect all unique elements
+        all_elements: set[str] = set()
+        for elems in elements_by_run.values():
+            all_elements.update(elems)
+
+        # Parse relationship IDs to extract connections per run
+        # Format: {Type}_{Source}_{Target}
+        connections_by_run: dict[str, set[tuple[str, str, str]]] = {}  # run -> (source, type, target)
+
+        for run_id, rel_ids in relationships_by_run.items():
+            connections_by_run[run_id] = set()
+            for rel_id in rel_ids:
+                parts = rel_id.split("_", 2)  # Split into [type, source, target]
+                if len(parts) >= 3:
+                    rel_type, source, target = parts[0], parts[1], parts[2]
+                    connections_by_run[run_id].add((source, rel_type, target))
+
+        # Compute structural stability for each element
+        result: list[ElementStructuralStability] = []
+
+        for element_id in all_elements:
+            # Collect all connections involving this element (as source or target)
+            all_connections: set[tuple[str, str, str]] = set()  # (other_element, rel_type, direction)
+
+            for connections in connections_by_run.values():
+                for source, rel_type, target in connections:
+                    if source == element_id:
+                        all_connections.add((target, rel_type, "outbound"))
+                    if target == element_id:
+                        all_connections.add((source, rel_type, "inbound"))
+
+            if not all_connections:
+                continue  # Skip elements with no connections
+
+            # Count appearances for each connection
+            connection_stabilities: list[ConnectionStability] = []
+
+            for other_element, rel_type, direction in all_connections:
+                if direction == "outbound":
+                    # Count runs where this outbound connection exists
+                    appearances = sum(1 for run_id, conns in connections_by_run.items() if (element_id, rel_type, other_element) in conns)
+                else:  # inbound
+                    # Count runs where this inbound connection exists
+                    appearances = sum(1 for run_id, conns in connections_by_run.items() if (other_element, rel_type, element_id) in conns)
+
+                connection_stabilities.append(
+                    ConnectionStability(
+                        element_id=element_id,
+                        connected_to=other_element,
+                        relationship_type=f"{rel_type}_{direction}",
+                        appearances=appearances,
+                        total_runs=total_runs,
+                    )
+                )
+
+            result.append(
+                ElementStructuralStability(
+                    element_id=element_id,
+                    connections=connection_stabilities,
+                )
+            )
+
+        return result
 
     # =========================================================================
     # INTER-MODEL CONSISTENCY

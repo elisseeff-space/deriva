@@ -542,17 +542,10 @@ Return only the JSON object, no additional text."""
             self._validate_prompt(prompt)
 
             # Check cache (only if reading is enabled)
+            # NOTE: We skip cached errors to allow retries on transient failures
             if read_cache:
                 cached = self.cache.get(cache_key)
-                if cached:
-                    if cached.get("is_error"):
-                        return FailedResponse(
-                            prompt=cached["prompt"],
-                            model=cached["model"],
-                            error=cached["error"],
-                            error_type=cached["error_type"],
-                        )
-
+                if cached and not cached.get("is_error"):
                     content = cached["content"]
 
                     # If response_model, parse and return the model
@@ -662,32 +655,22 @@ Return only the JSON object, no additional text."""
             )
 
         except (ValidationError, APIError) as e:
-            error_response = FailedResponse(
+            # NOTE: Errors are NOT cached to allow retries on transient failures
+            return FailedResponse(
                 prompt=prompt,
                 model=self.model,
                 error=str(e),
                 error_type=type(e).__name__,
             )
 
-            if write_cache:
-                self._cache_error(cache_key, prompt, str(e), type(e).__name__)
-
-            return error_response
-
         except Exception as e:
-            error_response = FailedResponse(
+            # NOTE: Errors are NOT cached to allow retries on transient failures
+            return FailedResponse(
                 prompt=prompt,
                 model=self.model,
                 error=f"Unexpected error: {e}",
                 error_type="UnexpectedError",
             )
-
-            if write_cache:
-                self._cache_error(
-                    cache_key, prompt, f"Unexpected error: {e}", "UnexpectedError"
-                )
-
-            return error_response
 
     def _cache_error(
         self, cache_key: str, prompt: str, error: str, error_type: str

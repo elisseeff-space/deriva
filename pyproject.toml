@@ -30,6 +30,7 @@ classifiers = [
 ]
 
 dependencies = [
+
     "asyncio>=4.0.0",
     "duckdb>=1.4.3",
     "lxml>=6.0.2",
@@ -43,6 +44,11 @@ dependencies = [
     "solvor>=0.5.3",
     "sqlglot>=28.5.0",
     "tree-sitter>=0.24.6",
+    # LLM Providers
+    "anthropic>=0.75.0",
+    "mistral>=21.0.0",
+    "ollama>=0.6.1",
+    "openai>=2.15.0",
 ]
 
 [project.optional-dependencies]

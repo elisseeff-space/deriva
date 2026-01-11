@@ -276,7 +276,11 @@ class OpenAIProvider(BaseProvider):
         }
 
         if max_tokens:
-            body["max_tokens"] = max_tokens
+            # GPT-5+ models require max_completion_tokens instead of max_tokens
+            if self.config.model.startswith("gpt-5"):
+                body["max_completion_tokens"] = max_tokens
+            else:
+                body["max_tokens"] = max_tokens
 
         if json_mode:
             body["response_format"] = {"type": "json_object"}

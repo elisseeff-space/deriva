@@ -66,7 +66,7 @@ These boundaries are enforced at lint time via Ruff's `TID251` rule with per-lay
 ### Component Hierarchy
 
 ```
-src/
+deriva/
 ├── app/
 │   ├── app.py               - Marimo Notebook: Visual UI + uses PipelineSession
 │   └── layouts/             - Marimo UI layout components
@@ -84,6 +84,7 @@ src/
 ├── common/ (Shared utilities)
 │   ├── types.py     - Shared TypedDicts, Protocols, ProgressReporter
 │   ├── logging.py   - Pipeline logging (JSON Lines)
+│   ├── chunking.py  - File chunking with overlap support
 │   └── utils.py     - File encoding, helpers
 │
 ├── adapters/ (Stateful I/O services)
@@ -93,12 +94,6 @@ src/
 │   ├── graph/       - Graph CRUD (namespace: Graph)
 │   ├── archimate/   - ArchiMate CRUD (namespace: Model)
 │   └── llm/         - LLM provider abstraction (Azure, OpenAI, Anthropic, Ollama)
-│
-├── common/ (Shared utilities)
-│   ├── types.py     - Shared TypedDicts and Protocols
-│   ├── logging.py   - Pipeline logging (JSON Lines)
-│   ├── chunking.py  - File chunking with overlap support
-│   └── utils.py     - File encoding, helpers
 │
 └── modules/ (Pure business logic)
     └── analysis/
@@ -1270,7 +1265,7 @@ uv run python -m deriva.cli.cli config versions
 
 **Never update configs by editing JSON and importing.** The `db_tool import` command is for **backup restoration only** - it overwrites the database including version history. This defeats the purpose of versioning and makes rollback impossible.
 
-See [benchmarks.md](benchmarks.md) for the recommended config optimization workflow.
+See [BENCHMARKS.md](BENCHMARKS.md) for running benchmarks and [optimization_guide.md](optimization_guide.md) for the recommended config optimization workflow.
 
 </details>
 
@@ -1660,7 +1655,7 @@ def _(session, mo):
 ### After Editing
 
 ```bash
-marimo check src/app/app.py --fix
+marimo check deriva/app/app.py --fix
 ```
 
 This catches and auto-resolves common formatting issues.
@@ -1681,9 +1676,9 @@ This catches and auto-resolves common formatting issues.
 
 ## Testing
 
-Tests are organized to mirror the source structure:
+Tests should mirror the source structure. When adding tests, use this organization:
 
-```
+```text
 tests/
 ├── test_adapters/   # Adapter integration tests
 │   ├── test_database.py
@@ -1714,7 +1709,7 @@ uv run pytest --cov=.
 ```python
 # tests/test_modules/extraction/test_classification.py
 def test_classify_files():
-    files = [{'path': 'src/main.py', 'content': '...'}]
+    files = [{'path': 'deriva/main.py', 'content': '...'}]
     registry = {'py': 'python'}
 
     result = classification.classify_files(files, registry)
@@ -1738,7 +1733,7 @@ def test_add_and_get_node():
     assert retrieved['id'] == 'test1'
 ```
 
-Manager tests may require external services (Neo4j, DuckDB) - use fixtures for setup/teardown.
+Adapter tests may require external services (Neo4j, DuckDB) - use fixtures for setup/teardown.
 
 ---
 
@@ -1764,10 +1759,10 @@ This project includes several specialized documentation files:
 | Document | Description |
 |----------|-------------|
 | [README.md](README.md) | Main project overview, setup, and usage guide |
-| [benchmarks.md](benchmarks.md) | Benchmarking & optimization guide for LLM consistency |
+| [BENCHMARKS.md](BENCHMARKS.md) | User guide for running benchmarks and analyzing consistency |
+| [optimization_guide.md](optimization_guide.md) | Developer guide: prompt engineering, case studies, optimization log |
 | [CHANGELOG.md](CHANGELOG.md) | Version history and release notes |
 | [.github/SECURITY.md](.github/SECURITY.md) | Security policy and vulnerability reporting |
-| [.github/SUPPORT.md](.github/SUPPORT.md) | How to get help and support |
 
 ### Component Documentation
 

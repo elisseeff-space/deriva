@@ -7,9 +7,12 @@ from deriva.services.benchmarking import (
     AnalysisSummary,
     BenchmarkConfig,
     BenchmarkResult,
+    ConnectionStability,
+    ElementStructuralStability,
     InconsistencyLocalization,
     InterModelMetrics,
     IntraModelMetrics,
+    ItemStability,
     RunResult,
 )
 
@@ -357,6 +360,56 @@ class TestIntraModelMetrics:
         json_str = json.dumps(d)
         assert "model" in json_str
 
+    def test_to_dict_with_stability_fields(self):
+        """Should serialize stability fields correctly."""
+        import json
+
+        metrics = IntraModelMetrics(
+            model="gpt-4",
+            repository="repo1",
+            runs=3,
+            element_counts=[10, 11, 10],
+            count_variance=0.33,
+            name_consistency=90.0,
+            stable_elements=["ComponentA"],
+            unstable_elements={"ComponentB": 2},
+            element_stability=[
+                ItemStability("elem1", "Element", 3, 3),
+                ItemStability("elem2", "Element", 2, 3),
+            ],
+            edge_stability=[
+                ItemStability("edge1", "Edge", 3, 3),
+            ],
+            relationship_stability=[
+                ItemStability("rel1", "Relationship", 2, 3),
+            ],
+            structural_stability=[
+                ElementStructuralStability(
+                    "elem1",
+                    [ConnectionStability("elem1", "elem2", "Serving", 3, 3)],
+                ),
+            ],
+        )
+        d = metrics.to_dict()
+
+        # Should serialize stability lists as dicts
+        assert len(d["element_stability"]) == 2
+        assert d["element_stability"][0]["item_id"] == "elem1"
+        assert d["element_stability"][0]["stability_score"] == 100.0
+        assert d["element_stability"][1]["stability_score"] == 66.67
+
+        assert len(d["edge_stability"]) == 1
+        assert len(d["relationship_stability"]) == 1
+
+        assert len(d["structural_stability"]) == 1
+        assert d["structural_stability"][0]["element_id"] == "elem1"
+        assert d["structural_stability"][0]["structural_score"] == 100.0
+
+        # Should be JSON serializable
+        json_str = json.dumps(d)
+        assert "element_stability" in json_str
+        assert "structural_stability" in json_str
+
 
 class TestInterModelMetrics:
     """Tests for InterModelMetrics dataclass."""
@@ -423,6 +476,231 @@ class TestInconsistencyLocalization:
         assert "by_element_type" in d
         assert "by_stage" in d
         assert "hotspots" in d
+
+
+class TestItemStability:
+    """Tests for ItemStability dataclass."""
+
+    def test_creates_with_all_fields(self):
+        """Should create item stability with all fields."""
+        item = ItemStability(
+            item_id="elem_1",
+            item_type="Element",
+            appearances=3,
+            total_runs=5,
+        )
+        assert item.item_id == "elem_1"
+        assert item.item_type == "Element"
+        assert item.appearances == 3
+        assert item.total_runs == 5
+
+    def test_stability_score_calculation(self):
+        """Should calculate stability score as percentage."""
+        item = ItemStability(
+            item_id="elem_1",
+            item_type="Element",
+            appearances=4,
+            total_runs=5,
+        )
+        assert item.stability_score == 80.0
+
+    def test_stability_score_zero_runs(self):
+        """Should return 0 when total_runs is 0."""
+        item = ItemStability(
+            item_id="elem_1",
+            item_type="Element",
+            appearances=0,
+            total_runs=0,
+        )
+        assert item.stability_score == 0.0
+
+    def test_is_stable_when_all_runs(self):
+        """Should return True when appearances equals total_runs."""
+        item = ItemStability(
+            item_id="elem_1",
+            item_type="Element",
+            appearances=5,
+            total_runs=5,
+        )
+        assert item.is_stable is True
+
+    def test_is_stable_when_not_all_runs(self):
+        """Should return False when appearances less than total_runs."""
+        item = ItemStability(
+            item_id="elem_1",
+            item_type="Element",
+            appearances=4,
+            total_runs=5,
+        )
+        assert item.is_stable is False
+
+    def test_to_dict(self):
+        """Should convert to dictionary."""
+        item = ItemStability(
+            item_id="edge_1",
+            item_type="Edge",
+            appearances=3,
+            total_runs=4,
+        )
+        d = item.to_dict()
+
+        assert d["item_id"] == "edge_1"
+        assert d["item_type"] == "Edge"
+        assert d["appearances"] == 3
+        assert d["total_runs"] == 4
+        assert d["stability_score"] == 75.0
+        assert d["is_stable"] is False
+
+    def test_to_dict_is_serializable(self):
+        """Should produce JSON-serializable dict."""
+        import json
+
+        item = ItemStability(
+            item_id="rel_1",
+            item_type="Relationship",
+            appearances=2,
+            total_runs=3,
+        )
+        d = item.to_dict()
+
+        # Should not raise
+        json_str = json.dumps(d)
+        assert "rel_1" in json_str
+
+
+class TestConnectionStability:
+    """Tests for ConnectionStability dataclass."""
+
+    def test_creates_with_all_fields(self):
+        """Should create connection stability with all fields."""
+        conn = ConnectionStability(
+            element_id="comp_A",
+            connected_to="comp_B",
+            relationship_type="Serving",
+            appearances=4,
+            total_runs=5,
+        )
+        assert conn.element_id == "comp_A"
+        assert conn.connected_to == "comp_B"
+        assert conn.relationship_type == "Serving"
+        assert conn.appearances == 4
+        assert conn.total_runs == 5
+
+    def test_stability_score_calculation(self):
+        """Should calculate stability score as percentage."""
+        conn = ConnectionStability(
+            element_id="comp_A",
+            connected_to="comp_B",
+            relationship_type="Serving",
+            appearances=3,
+            total_runs=4,
+        )
+        assert conn.stability_score == 75.0
+
+    def test_stability_score_zero_runs(self):
+        """Should return 0 when total_runs is 0."""
+        conn = ConnectionStability(
+            element_id="comp_A",
+            connected_to="comp_B",
+            relationship_type="Serving",
+            appearances=0,
+            total_runs=0,
+        )
+        assert conn.stability_score == 0.0
+
+    def test_to_dict(self):
+        """Should convert to dictionary."""
+        conn = ConnectionStability(
+            element_id="comp_A",
+            connected_to="comp_B",
+            relationship_type="Composition",
+            appearances=2,
+            total_runs=3,
+        )
+        d = conn.to_dict()
+
+        assert d["element_id"] == "comp_A"
+        assert d["connected_to"] == "comp_B"
+        assert d["relationship_type"] == "Composition"
+        assert d["appearances"] == 2
+        assert d["total_runs"] == 3
+        assert d["stability_score"] == 66.67
+
+    def test_to_dict_is_serializable(self):
+        """Should produce JSON-serializable dict."""
+        import json
+
+        conn = ConnectionStability(
+            element_id="A",
+            connected_to="B",
+            relationship_type="Flow",
+            appearances=1,
+            total_runs=2,
+        )
+        d = conn.to_dict()
+
+        # Should not raise
+        json_str = json.dumps(d)
+        assert "Flow" in json_str
+
+
+class TestElementStructuralStability:
+    """Tests for ElementStructuralStability dataclass."""
+
+    def test_creates_with_element_id(self):
+        """Should create with element ID and empty connections."""
+        elem = ElementStructuralStability(element_id="comp_A")
+        assert elem.element_id == "comp_A"
+        assert elem.connections == []
+
+    def test_creates_with_connections(self):
+        """Should create with connections list."""
+        conns = [
+            ConnectionStability("A", "B", "Serving", 3, 3),
+            ConnectionStability("A", "C", "Flow", 2, 3),
+        ]
+        elem = ElementStructuralStability(element_id="A", connections=conns)
+        assert len(elem.connections) == 2
+
+    def test_structural_score_empty_connections(self):
+        """Should return 100 when no connections."""
+        elem = ElementStructuralStability(element_id="A")
+        assert elem.structural_score == 100.0
+
+    def test_structural_score_calculation(self):
+        """Should calculate average of connection stability scores."""
+        conns = [
+            ConnectionStability("A", "B", "Serving", 4, 4),  # 100%
+            ConnectionStability("A", "C", "Flow", 2, 4),  # 50%
+        ]
+        elem = ElementStructuralStability(element_id="A", connections=conns)
+        # (100 + 50) / 2 = 75
+        assert elem.structural_score == 75.0
+
+    def test_to_dict(self):
+        """Should convert to dictionary with nested connections."""
+        conns = [
+            ConnectionStability("A", "B", "Serving", 3, 4),
+        ]
+        elem = ElementStructuralStability(element_id="A", connections=conns)
+        d = elem.to_dict()
+
+        assert d["element_id"] == "A"
+        assert d["structural_score"] == 75.0
+        assert len(d["connections"]) == 1
+        assert d["connections"][0]["connected_to"] == "B"
+
+    def test_to_dict_is_serializable(self):
+        """Should produce JSON-serializable dict."""
+        import json
+
+        conns = [ConnectionStability("A", "B", "Access", 2, 3)]
+        elem = ElementStructuralStability(element_id="A", connections=conns)
+        d = elem.to_dict()
+
+        # Should not raise
+        json_str = json.dumps(d)
+        assert "structural_score" in json_str
 
 
 class TestAnalysisSummary:
@@ -1052,6 +1330,78 @@ class TestBenchmarkOrchestrator:
         result = orchestrator._export_run_model("repo1", "gpt-4", 1)
         assert result is None
 
+    def test_export_ocel_incremental(self):
+        """Should export new OCEL events incrementally."""
+        import tempfile
+        from pathlib import Path
+
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        config = BenchmarkConfig(
+            repositories=["repo1"],
+            models=["gpt-4"],
+        )
+        orchestrator = BenchmarkOrchestrator(
+            engine=engine,
+            graph_manager=graph_manager,
+            archimate_manager=archimate_manager,
+            config=config,
+        )
+
+        # Add some events to the OCEL log
+        orchestrator.ocel_log.create_event("TestEvent1", objects={"File": ["f1"]})
+        orchestrator.ocel_log.create_event("TestEvent2", objects={"File": ["f2"]})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("deriva.services.benchmarking.Path") as mock_path:
+                mock_output_dir = MagicMock()
+                mock_path.return_value.__truediv__.return_value = mock_output_dir
+                mock_output_dir.__truediv__.return_value = Path(tmpdir) / "events.jsonl"
+
+                orchestrator.session_id = "test_session"
+                count = orchestrator._export_ocel_incremental()
+
+                # Should export 2 events
+                assert count == 2
+
+    def test_export_ocel_incremental_no_new_events(self):
+        """Should return 0 when no new events."""
+        import tempfile
+        from pathlib import Path
+
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        config = BenchmarkConfig(
+            repositories=["repo1"],
+            models=["gpt-4"],
+        )
+        orchestrator = BenchmarkOrchestrator(
+            engine=engine,
+            graph_manager=graph_manager,
+            archimate_manager=archimate_manager,
+            config=config,
+        )
+
+        # Add event and export once
+        orchestrator.ocel_log.create_event("TestEvent", objects={"File": ["f1"]})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch("deriva.services.benchmarking.Path") as mock_path:
+                mock_output_dir = MagicMock()
+                mock_path.return_value.__truediv__.return_value = mock_output_dir
+                mock_output_dir.__truediv__.return_value = Path(tmpdir) / "events.jsonl"
+
+                orchestrator.session_id = "test_session"
+                orchestrator._export_ocel_incremental()
+
+                # Second export with no new events
+                count = orchestrator._export_ocel_incremental()
+                assert count == 0
+
 
 # =============================================================================
 # BenchmarkAnalyzer Tests
@@ -1107,7 +1457,14 @@ class TestBenchmarkAnalyzer:
     def test_trace_element(self):
         """Should return events for an element."""
         engine = MagicMock()
-        engine.execute.return_value.fetchone.return_value = ("sess-1", "Test", "{}", "completed", "2026-01-01", "2026-01-01")
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
         ocel_log = OCELLog()
 
         with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=ocel_log):
@@ -1116,3 +1473,383 @@ class TestBenchmarkAnalyzer:
                 result = analyzer.trace_element("elem1")
 
         assert isinstance(result, list)
+
+    def test_compute_structural_stability(self):
+        """Should compute structural stability for elements with connections."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=OCELLog()):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                # Elements in each run (no underscores - format is Type_Source_Target)
+                elements_by_run = {
+                    "run1": {"elemA", "elemB", "elemC"},
+                    "run2": {"elemA", "elemB", "elemC"},
+                    "run3": {"elemA", "elemB"},  # elemC missing in run 3
+                }
+
+                # Relationships: format is {Type}_{Source}_{Target}
+                relationships_by_run = {
+                    "run1": {"Serving_elemA_elemB", "Flow_elemB_elemC"},
+                    "run2": {"Serving_elemA_elemB", "Flow_elemB_elemC"},
+                    "run3": {"Serving_elemA_elemB"},  # Flow missing
+                }
+
+                result = analyzer._compute_structural_stability(elements_by_run, relationships_by_run, 3)
+
+                # Should have entries for elements with connections
+                assert len(result) > 0
+
+                # Find elemA's stability
+                elem_a_stability = next((s for s in result if s.element_id == "elemA"), None)
+                assert elem_a_stability is not None
+                # elemA -> elemB connection appears in all 3 runs
+                assert len(elem_a_stability.connections) >= 1
+
+    def test_compute_structural_stability_empty(self):
+        """Should return empty list when no relationships."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=OCELLog()):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                result = analyzer._compute_structural_stability({}, {}, 3)
+                assert result == []
+
+    def test_compute_structural_stability_single_run(self):
+        """Should return empty list for single run."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=OCELLog()):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                elements_by_run = {"run_1": {"elem_A"}}
+                relationships_by_run = {"run_1": {"Serving_elem_A_elem_B"}}
+
+                result = analyzer._compute_structural_stability(elements_by_run, relationships_by_run, 1)
+                assert result == []
+
+    def test_compute_type_breakdown(self):
+        """Should compute consistency breakdown by edge/relationship type."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=OCELLog()):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                # Edges with format {Type}_{Source}_{Target}
+                objects_by_run = {
+                    "run1": {"CONTAINS_dirA_fileA", "CONTAINS_dirA_fileB", "IMPORTS_fileA_fileB"},
+                    "run2": {"CONTAINS_dirA_fileA", "IMPORTS_fileA_fileB"},  # Missing one CONTAINS
+                    "run3": {"CONTAINS_dirA_fileA", "CONTAINS_dirA_fileB", "IMPORTS_fileA_fileB"},
+                }
+
+                result = analyzer._compute_type_breakdown(objects_by_run)
+
+                # Should have entries for both types
+                assert "CONTAINS" in result
+                assert "IMPORTS" in result
+
+    def test_compute_type_breakdown_empty(self):
+        """Should return empty dict for empty input."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=OCELLog()):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                result = analyzer._compute_type_breakdown({})
+                assert result == {}
+
+    def test_get_elements_by_run(self):
+        """Should group elements by run from OCEL events."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        ocel_log = OCELLog()
+        ocel_log.create_event(
+            "DeriveElements",
+            objects={
+                "Model": ["gpt-4"],
+                "Repository": ["repo1"],
+                "BenchmarkRun": ["run1"],
+                "Element": ["elemA", "elemB"],
+            },
+        )
+        ocel_log.create_event(
+            "DeriveElements",
+            objects={
+                "Model": ["gpt-4"],
+                "Repository": ["repo1"],
+                "BenchmarkRun": ["run2"],
+                "Element": ["elemA", "elemC"],
+            },
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=ocel_log):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                result = analyzer._get_elements_by_run("gpt-4", "repo1")
+
+                assert "run1" in result
+                assert "run2" in result
+                assert result["run1"] == {"elemA", "elemB"}
+                assert result["run2"] == {"elemA", "elemC"}
+
+    def test_get_edges_by_run(self):
+        """Should group edges by run from OCEL events."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        ocel_log = OCELLog()
+        ocel_log.create_event(
+            "ExtractConfig",
+            objects={
+                "Model": ["gpt-4"],
+                "Repository": ["repo1"],
+                "BenchmarkRun": ["run1"],
+                "Edge": ["edge1", "edge2"],
+            },
+        )
+        ocel_log.create_event(
+            "ExtractConfig",
+            objects={
+                "Model": ["gpt-4"],
+                "Repository": ["repo1"],
+                "BenchmarkRun": ["run2"],
+                "Edge": ["edge1", "edge3"],
+            },
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=ocel_log):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                result = analyzer._get_edges_by_run("gpt-4", "repo1")
+
+                assert "run1" in result
+                assert "run2" in result
+                assert result["run1"] == {"edge1", "edge2"}
+                assert result["run2"] == {"edge1", "edge3"}
+
+    def test_get_relationships_by_run(self):
+        """Should group relationships by run from OCEL events."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        ocel_log = OCELLog()
+        ocel_log.create_event(
+            "DeriveConfig",
+            objects={
+                "Model": ["gpt-4"],
+                "Repository": ["repo1"],
+                "BenchmarkRun": ["run1"],
+                "Relationship": ["Serving_A_B", "Flow_B_C"],
+            },
+        )
+        ocel_log.create_event(
+            "DeriveConfig",
+            objects={
+                "Model": ["gpt-4"],
+                "Repository": ["repo1"],
+                "BenchmarkRun": ["run2"],
+                "Relationship": ["Serving_A_B"],
+            },
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=ocel_log):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                result = analyzer._get_relationships_by_run("gpt-4", "repo1")
+
+                assert "run1" in result
+                assert "run2" in result
+                assert result["run1"] == {"Serving_A_B", "Flow_B_C"}
+                assert result["run2"] == {"Serving_A_B"}
+
+    def test_get_elements_by_run_no_match(self):
+        """Should return empty dict when no matching model/repo."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        ocel_log = OCELLog()
+        ocel_log.create_event(
+            "DeriveElements",
+            objects={
+                "Model": ["other-model"],
+                "Repository": ["other-repo"],
+                "BenchmarkRun": ["run1"],
+                "Element": ["elemA"],
+            },
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=ocel_log):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                result = analyzer._get_elements_by_run("gpt-4", "repo1")
+                assert result == {}
+
+    def test_get_edges_by_run_no_match(self):
+        """Should return empty dict when no matching model/repo."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        ocel_log = OCELLog()
+        ocel_log.create_event(
+            "ExtractConfig",
+            objects={
+                "Model": ["other-model"],
+                "Repository": ["other-repo"],
+                "BenchmarkRun": ["run1"],
+                "Edge": ["edge1"],
+            },
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=ocel_log):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                result = analyzer._get_edges_by_run("gpt-4", "repo1")
+                assert result == {}
+
+    def test_get_relationships_by_run_no_match(self):
+        """Should return empty dict when no matching model/repo."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        ocel_log = OCELLog()
+        ocel_log.create_event(
+            "DeriveConfig",
+            objects={
+                "Model": ["other-model"],
+                "Repository": ["other-repo"],
+                "BenchmarkRun": ["run1"],
+                "Relationship": ["rel1"],
+            },
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=ocel_log):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                result = analyzer._get_relationships_by_run("gpt-4", "repo1")
+                assert result == {}
+
+    def test_get_elements_by_run_filters_wrong_activity(self):
+        """Should ignore events with wrong activity type."""
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (
+            "sess-1",
+            "Test",
+            "{}",
+            "completed",
+            "2026-01-01",
+            "2026-01-01",
+        )
+
+        ocel_log = OCELLog()
+        # This event has wrong activity - should be ignored
+        ocel_log.create_event(
+            "ExtractConfig",
+            objects={
+                "Model": ["gpt-4"],
+                "Repository": ["repo1"],
+                "BenchmarkRun": ["run1"],
+                "Element": ["elemA"],
+            },
+        )
+
+        with patch.object(BenchmarkAnalyzer, "_load_ocel", return_value=ocel_log):
+            with patch("deriva.services.benchmarking.get_benchmark_runs", return_value=[]):
+                analyzer = BenchmarkAnalyzer("sess-1", engine)
+
+                result = analyzer._get_elements_by_run("gpt-4", "repo1")
+                assert result == {}

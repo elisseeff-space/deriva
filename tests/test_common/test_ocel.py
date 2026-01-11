@@ -377,6 +377,78 @@ class TestOCELLog:
             assert "Event1" in activities
             assert "Event2" in activities
 
+    def test_export_jsonl_incremental_exports_new_events(self):
+        """Should export only new events since last incremental export."""
+        log = OCELLog()
+        log.create_event("Event1", objects={"File": ["f1"]})
+        log.create_event("Event2", objects={"File": ["f2"]})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "incremental.jsonl"
+
+            # First export - should export 2 events
+            count1 = log.export_jsonl_incremental(path)
+            assert count1 == 2
+
+            # Add more events
+            log.create_event("Event3", objects={"File": ["f3"]})
+            log.create_event("Event4", objects={"File": ["f4"]})
+
+            # Second export - should only export 2 new events
+            count2 = log.export_jsonl_incremental(path)
+            assert count2 == 2
+
+            # File should have all 4 events
+            loaded = OCELLog.from_jsonl(path)
+            assert len(loaded.events) == 4
+
+    def test_export_jsonl_incremental_returns_zero_when_no_new_events(self):
+        """Should return 0 when no new events to export."""
+        log = OCELLog()
+        log.create_event("Event1", objects={"File": ["f1"]})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "incremental.jsonl"
+
+            # First export
+            log.export_jsonl_incremental(path)
+
+            # No new events - should return 0
+            count = log.export_jsonl_incremental(path)
+            assert count == 0
+
+    def test_export_jsonl_incremental_creates_parent_dirs(self):
+        """Should create parent directories if they don't exist."""
+        log = OCELLog()
+        log.create_event("Event1", objects={"File": ["f1"]})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "nested" / "dir" / "incremental.jsonl"
+
+            count = log.export_jsonl_incremental(path)
+            assert count == 1
+            assert path.exists()
+
+    def test_export_jsonl_incremental_appends_to_existing(self):
+        """Should append to existing file content."""
+        log = OCELLog()
+        log.create_event("Event1", objects={"File": ["f1"]})
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "incremental.jsonl"
+
+            # First export
+            log.export_jsonl_incremental(path)
+
+            # Create new log instance with new events
+            log2 = OCELLog()
+            log2.create_event("Event2", objects={"File": ["f2"]})
+            log2.export_jsonl_incremental(path)
+
+            # File should have events from both logs
+            loaded = OCELLog.from_jsonl(path)
+            assert len(loaded.events) == 2
+
 
 class TestHashContent:
     """Tests for hash_content function."""

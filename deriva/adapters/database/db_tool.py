@@ -172,18 +172,19 @@ def import_table(
     conn: duckdb.DuckDBPyConnection,
     table_name: str,
     input_dir: Path | None = None,
-    clear_existing: bool = True,
 ) -> int:
-    """Import a single table from JSON.
+    """Import a single table from JSON (seed only - does not overwrite existing data).
+
+    This function is designed for seeding empty tables with initial data.
+    It will NOT overwrite existing records - use the CLI for config updates.
 
     Args:
         conn: Database connection
         table_name: Name of the table to import
         input_dir: Input directory (defaults to DATA_DIR)
-        clear_existing: If True, delete existing data before import
 
     Returns:
-        Number of records imported
+        Number of records imported (0 if skipped due to existing data)
     """
     if table_name not in TABLES:
         raise ValueError(
@@ -198,6 +199,29 @@ def import_table(
         logger.warning("JSON file not found: %s", input_file)
         return 0
 
+    # Check for existing records - import only allowed for empty tables
+    row = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+    existing_count = row[0] if row else 0
+
+    if existing_count > 0:
+        logger.warning(
+            "\n"
+            "WARNING: Table '%s' already contains %d records.\n"
+            "Import is only allowed for seeding empty tables, not overwriting.\n"
+            "Overwriting would lose the full config version history.\n"
+            "\n"
+            "To update configurations, use the CLI instead:\n"
+            '  uv run python -m deriva.cli.cli config update <type> <name> -i "..."\n'
+            "\n"
+            "The CLI creates a new config version and disables the old one,\n"
+            "preserving version history for rollback.\n"
+            "\n"
+            "For more info: uv run python -m deriva.cli.cli config --help\n",
+            table_name,
+            existing_count,
+        )
+        return 0
+
     # Load JSON
     with open(input_file, encoding="utf-8") as f:
         data = json.load(f)
@@ -205,10 +229,6 @@ def import_table(
     if not data:
         logger.info("No data in %s", input_file.name)
         return 0
-
-    # Clear existing data if requested
-    if clear_existing:
-        conn.execute(f"DELETE FROM {table_name}")
 
     # Get column names from first record
     columns = list(data[0].keys())
@@ -232,17 +252,18 @@ def import_table(
 def import_all(
     db_path: Path | None = None,
     input_dir: Path | None = None,
-    clear_existing: bool = True,
 ) -> dict[str, int]:
-    """Import all configured tables from JSON files.
+    """Import all configured tables from JSON files (seed only).
+
+    This function is designed for seeding empty tables with initial data.
+    It will NOT overwrite existing records - use the CLI for config updates.
 
     Args:
         db_path: Database file path (defaults to DB_PATH)
         input_dir: Input directory (defaults to DATA_DIR)
-        clear_existing: If True, delete existing data before import
 
     Returns:
-        Dict mapping table names to record counts
+        Dict mapping table names to record counts (0 for skipped tables)
     """
     conn = get_connection(db_path)
     input_dir = input_dir or DATA_DIR
@@ -250,7 +271,7 @@ def import_all(
 
     try:
         for table_name in TABLES:
-            count = import_table(conn, table_name, input_dir, clear_existing)
+            count = import_table(conn, table_name, input_dir)
             results[table_name] = count
     finally:
         conn.close()
@@ -258,38 +279,29 @@ def import_all(
     return results
 
 
-def seed_from_json(db_path: Path | None = None, force: bool = False) -> bool:
+def seed_from_json(db_path: Path | None = None) -> bool:
     """Seed database from JSON files if empty.
 
     This is the function called by manager.seed_database().
+    Only seeds tables that are empty - does not overwrite existing data.
 
     Args:
         db_path: Database file path (defaults to DB_PATH)
-        force: If True, re-seed even if data exists
 
     Returns:
-        True if seeding was performed, False if skipped
+        True if any seeding was performed, False if all tables already have data
     """
     conn = get_connection(db_path)
+    seeded_any = False
 
     try:
-        # Check if already seeded
-        if not force:
-            row = conn.execute("SELECT COUNT(*) FROM file_type_registry").fetchone()
-            existing_count = row[0] if row else 0
-
-            if existing_count > 0:
-                logger.info(
-                    "Database already seeded (%d file types). Use force=True to re-seed.",
-                    existing_count,
-                )
-                return False
-
-        # Import all tables
+        # Import each table (import_table checks if table is empty)
         for table_name in TABLES:
-            import_table(conn, table_name, DATA_DIR, clear_existing=True)
+            count = import_table(conn, table_name, DATA_DIR)
+            if count > 0:
+                seeded_any = True
 
-        return True
+        return seeded_any
 
     finally:
         conn.close()
@@ -325,7 +337,10 @@ def main(args: Sequence[str] | None = None) -> int:
     )
 
     # Import command
-    import_parser = subparsers.add_parser("import", help="Import tables from JSON")
+    import_parser = subparsers.add_parser(
+        "import",
+        help="Import tables from JSON (seed only - will not overwrite existing data)",
+    )
     import_parser.add_argument(
         "--table",
         "-t",
@@ -344,19 +359,11 @@ def main(args: Sequence[str] | None = None) -> int:
         type=Path,
         help=f"Database file (default: {DB_PATH})",
     )
-    import_parser.add_argument(
-        "--no-clear",
-        action="store_true",
-        help="Don't clear existing data before import",
-    )
 
     # Seed command (alias for import with defaults)
-    seed_parser = subparsers.add_parser("seed", help="Seed database from JSON files")
-    seed_parser.add_argument(
-        "--force",
-        "-f",
-        action="store_true",
-        help="Force re-seed even if data exists",
+    seed_parser = subparsers.add_parser(
+        "seed",
+        help="Seed database from JSON files (only seeds empty tables)",
     )
     seed_parser.add_argument(
         "--db",
@@ -387,18 +394,26 @@ def main(args: Sequence[str] | None = None) -> int:
         if parsed.table:
             conn = get_connection(parsed.db)
             try:
-                import_table(conn, parsed.table, parsed.input_dir, not parsed.no_clear)
+                count = import_table(conn, parsed.table, parsed.input_dir)
             finally:
                 conn.close()
+            if count > 0:
+                print(f"\n[OK] Imported {count} records!")
+            else:
+                print("\n[SKIP] No records imported (table not empty or no data)")
         else:
-            import_all(parsed.db, parsed.input_dir, not parsed.no_clear)
-        print("\n[OK] Import complete!")
+            results = import_all(parsed.db, parsed.input_dir)
+            total = sum(results.values())
+            if total > 0:
+                print(f"\n[OK] Import complete! ({total} total records)")
+            else:
+                print("\n[SKIP] No records imported (tables not empty or no data)")
 
     elif parsed.command == "seed":
-        if seed_from_json(parsed.db, parsed.force):
+        if seed_from_json(parsed.db):
             print("\n[OK] Database seeded!")
         else:
-            print("\n[SKIP] Database already seeded (use --force to re-seed)")
+            print("\n[SKIP] Database already seeded (tables contain data)")
 
     return 0
 
