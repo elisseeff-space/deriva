@@ -311,6 +311,7 @@ def generate(
                 llm_query_fn=llm_query_fn,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                graph_manager=graph_manager,
             )
 
             # Persist relationships

@@ -509,6 +509,79 @@ def stratified_sample_elements(
     return sampled
 
 
+def get_connected_source_ids(
+    graph_manager: "GraphManager",
+    source_ids: list[str],
+    max_hops: int = 2,
+) -> set[str]:
+    """
+    Get graph node IDs connected to the given source nodes.
+
+    Queries the graph for nodes within max_hops of the source nodes.
+    This enables graph-aware filtering of existing elements.
+
+    Args:
+        graph_manager: GraphManager instance for querying
+        source_ids: List of source node IDs to find connections for
+        max_hops: Maximum path length to consider (default 2)
+
+    Returns:
+        Set of connected node IDs (includes source_ids)
+    """
+    if not source_ids or not graph_manager:
+        return set(source_ids) if source_ids else set()
+
+    # Build Cypher query for neighbors within max_hops
+    # Using variable-length path pattern for efficiency
+    query = """
+        MATCH (n)
+        WHERE n.id IN $source_ids
+        MATCH (n)-[*1..%d]-(neighbor)
+        WHERE neighbor.active = true OR neighbor.active IS NULL
+        RETURN DISTINCT neighbor.id as id
+    """ % max_hops
+
+    try:
+        results = graph_manager.query(query, {"source_ids": source_ids})
+        connected = {row["id"] for row in results if row.get("id")}
+        # Include original source IDs
+        connected.update(source_ids)
+        return connected
+    except Exception as e:
+        logger.warning("Graph query for connected nodes failed: %s", e)
+        # Fall back to just the source IDs
+        return set(source_ids)
+
+
+def filter_by_graph_proximity(
+    elements: list[dict[str, Any]],
+    connected_ids: set[str],
+) -> list[dict[str, Any]]:
+    """
+    Filter elements to only those with source nodes in the connected set.
+
+    This implements graph-aware pre-filtering: only include elements
+    that are graph neighbors of the new elements being processed.
+
+    Args:
+        elements: List of element dictionaries with properties.source
+        connected_ids: Set of connected graph node IDs
+
+    Returns:
+        Filtered list of elements with graph proximity
+    """
+    if not connected_ids:
+        return elements
+
+    filtered = []
+    for elem in elements:
+        source = elem.get("properties", {}).get("source")
+        if source and source in connected_ids:
+            filtered.append(elem)
+
+    return filtered
+
+
 def check_prompt_size(
     prompt: str,
     model_name: str = "default",
@@ -1241,6 +1314,7 @@ def derive_batch_relationships(
     llm_query_fn: Any,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    graph_manager: "GraphManager | None" = None,
 ) -> list[dict[str, Any]]:
     """
     Derive relationships for a batch of newly created elements.
@@ -1256,6 +1330,9 @@ def derive_batch_relationships(
         llm_query_fn: Function to call LLM
         temperature: Optional temperature override
         max_tokens: Optional max_tokens override
+        graph_manager: Optional GraphManager for graph-aware filtering.
+                      If provided, filters existing_elements to only include
+                      those with graph proximity to new_elements.
 
     Returns:
         List of validated relationship dicts
@@ -1291,6 +1368,31 @@ def derive_batch_relationships(
     filtered_existing = [
         e for e in existing_elements if e.get("element_type") in relevant_types
     ]
+
+    # Phase 4.3: Apply graph-aware pre-filtering if graph_manager provided
+    # This keeps only elements with graph proximity to new_elements
+    if graph_manager and len(filtered_existing) > 20:
+        # Extract source IDs from new elements
+        new_source_ids = [
+            e.get("properties", {}).get("source")
+            for e in new_elements
+            if e.get("properties", {}).get("source")
+        ]
+        if new_source_ids:
+            # Get connected node IDs (within 2 hops)
+            connected_ids = get_connected_source_ids(
+                graph_manager, new_source_ids, max_hops=2
+            )
+            before_count = len(filtered_existing)
+            filtered_existing = filter_by_graph_proximity(
+                filtered_existing, connected_ids
+            )
+            logger.debug(
+                "Graph-aware filtering: %d -> %d elements (connected to %d sources)",
+                before_count,
+                len(filtered_existing),
+                len(connected_ids),
+            )
 
     # Phase 4: Apply stratified sampling to limit context size
     # This keeps representation from each type while reducing tokens
@@ -1566,6 +1668,9 @@ __all__ = [
     "limit_existing_elements",
     "stratified_sample_elements",
     "check_prompt_size",
+    # Graph-aware filtering (Phase 4.3)
+    "get_connected_source_ids",
+    "filter_by_graph_proximity",
     # Batching
     "calculate_dynamic_batch_size",
     "adjust_batch_for_tokens",
