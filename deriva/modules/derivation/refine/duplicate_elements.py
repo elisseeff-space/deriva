@@ -11,6 +11,8 @@ Merge strategy:
 - Combine documentation
 - Redirect all relationships to survivor
 - Disable the duplicate (soft delete)
+
+Refine Step Name: "duplicate_elements"
 """
 
 from __future__ import annotations

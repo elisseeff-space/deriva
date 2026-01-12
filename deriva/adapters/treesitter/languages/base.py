@@ -165,9 +165,7 @@ class LanguageExtractor(ABC):
         _walk(node)
         return results
 
-    def extract_docstring(
-        self, node: tree_sitter.Node, source: bytes
-    ) -> str | None:
+    def extract_docstring(self, node: tree_sitter.Node, source: bytes) -> str | None:
         """Extract docstring from a node if present.
 
         Override in language-specific extractors for custom docstring formats.

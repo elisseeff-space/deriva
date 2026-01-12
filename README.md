@@ -19,9 +19,9 @@ Deriva analyzes code repositories and transforms them into [ArchiMate](https://w
    - Semantic nodes: TypeDefinitions, Methods, BusinessConcepts, Technologies, etc.
    - Python files use fast AST extraction; other languages use LLM
 3. **Derive** ArchiMate elements using a hybrid approach:
-   - **Prep phase**: Graph enrichment (PageRank, Louvain communities, k-core)
+   - **Enrich phase**: Graph enrichment (PageRank, Louvain communities, k-core)
    - **Generate phase**: LLM-based element derivation with graph metrics
-   - **Relationship phase**: Per-element or single-pass relationship derivation
+   - **Refine phase**: Relationship derivation and quality assurance
 4. **Export** to `.archimate` XML file
 
 ## Quick Setup
@@ -186,7 +186,7 @@ Results display in a status callout showing nodes/elements created and any error
 
 **Via CLI:**
 ```bash
-uv run python -m deriva.cli.cli export -o workspace/output/model.archimate
+deriva export -o workspace/output/model.archimate
 ```
 
 ---
@@ -264,16 +264,16 @@ If you encounter **undefined extensions** during extraction:
 
 ```bash
 # List all registered file types
-uv run python -m deriva.cli.cli config filetype list
+deriva config filetype list
 
 # Add a new file type
-uv run python -m deriva.cli.cli config filetype add ".tsx" source typescript
+deriva config filetype add ".tsx" source typescript
 
 # Delete a file type
-uv run python -m deriva.cli.cli config filetype delete ".tsx"
+deriva config filetype delete ".tsx"
 
 # Show file type statistics by category
-uv run python -m deriva.cli.cli config filetype stats
+deriva config filetype stats
 ```
 
 > **Note:** Files with unrecognized extensions are automatically classified as `file_type="unknown"` with their extension as the subtype. This ensures all files get proper classification even without explicit registry entries.
@@ -289,15 +289,15 @@ Deriva uses a **versioning system** for configurations. When you update a config
 
 ```bash
 # Update extraction config instruction
-uv run python -m deriva.cli.cli config update extraction BusinessConcept \
+deriva config update extraction BusinessConcept \
   -i "New instruction text..."
 
 # Update derivation config from file
-uv run python -m deriva.cli.cli config update derivation ApplicationComponent \
+deriva config update derivation ApplicationComponent \
   --instruction-file prompts/app_component.txt
 
 # View all versions
-uv run python -m deriva.cli.cli config versions
+deriva config versions
 ```
 
 **Do NOT use JSON import/export for config updates.** The `db_tool import` command is only for backup restoration or migration - it overwrites version history. See [BENCHMARKS.md](BENCHMARKS.md) for the optimization workflow.
@@ -324,7 +324,7 @@ Deriva uses a multi-column marimo notebook layout:
 | **0** | **Run Deriva**: Pipeline execution buttons, status display |
 | **1** | **Configuration**: Runs, repositories, Neo4j, graph stats, ArchiMate, LLM |
 | **2** | **Extraction Settings**: File type registry, extraction step configuration |
-| **3** | **Derivation Settings**: Element type configuration (14 types across Business/Application/Technology layers), relationship derivation |
+| **3** | **Derivation Settings**: Element type configuration (13 types across Business/Application/Technology layers), relationship derivation |
 
 The UI is powered by `PipelineSession` from the services layer, providing a clean separation between presentation and business logic.
 
@@ -371,26 +371,26 @@ Deriva includes a full CLI for headless operation and automation:
 
 ```bash
 # Help
-uv run python -m deriva.cli.cli --help
+deriva --help
 
 # View configuration
-uv run python -m deriva.cli.cli config list extraction
-uv run python -m deriva.cli.cli config show extraction BusinessConcept
-uv run python -m deriva.cli.cli status
+deriva config list extraction
+deriva config show extraction BusinessConcept
+deriva status
 
 # Manage file types
-uv run python -m deriva.cli.cli config filetype list
-uv run python -m deriva.cli.cli config filetype add ".lock" dependency lock
-uv run python -m deriva.cli.cli config filetype stats
+deriva config filetype list
+deriva config filetype add ".lock" dependency lock
+deriva config filetype stats
 
 # Run pipeline stages
-uv run python -m deriva.cli.cli run extraction --repo flask_invoice_generator -v
-uv run python -m deriva.cli.cli run derivation -v
-uv run python -m deriva.cli.cli run derivation --phase generate -v  # Run specific phase (prep, generate, relationship)
-uv run python -m deriva.cli.cli run all --repo myrepo
+deriva run extraction --repo flask_invoice_generator -v
+deriva run derivation -v
+deriva run derivation --phase generate -v  # Run specific phase (enrich, generate, refine)
+deriva run all --repo myrepo
 
 # Export ArchiMate model
-uv run python -m deriva.cli.cli export -o workspace/output/model.archimate
+deriva export -o workspace/output/model.archimate
 ```
 
 **CLI Options:**
@@ -398,7 +398,7 @@ uv run python -m deriva.cli.cli export -o workspace/output/model.archimate
 | Option | Description |
 |--------|-------------|
 | `--repo NAME` | Process specific repository (default: all) |
-| `--phase PHASE` | Run specific derivation phase: prep, generate, or relationship |
+| `--phase PHASE` | Run specific derivation phase: enrich, generate, or refine |
 | `-v, --verbose` | Print detailed progress |
 | `--no-llm` | Skip LLM-based steps (structural extraction only) |
 | `-o, --output PATH` | Output file path for export |
@@ -413,10 +413,10 @@ Deriva includes a multi-model benchmarking system for comparing LLM performance 
 
 ```bash
 # List available benchmark models
-uv run python -m deriva.cli.cli benchmark models
+deriva benchmark models
 
 # Run a benchmark with specific models
-uv run python -m deriva.cli.cli benchmark run \
+deriva benchmark run \
   --repos flask_invoice_generator \
   --models openai-gptx,ollama-devstral \
   -n 3 \
@@ -424,10 +424,10 @@ uv run python -m deriva.cli.cli benchmark run \
   -v
 
 # List benchmark sessions
-uv run python -m deriva.cli.cli benchmark list
+deriva benchmark list
 
 # Analyze a benchmark session
-uv run python -m deriva.cli.cli benchmark analyze bench_20260101_150724
+deriva benchmark analyze bench_20260101_150724
 ```
 
 ### Configuring Benchmark Models

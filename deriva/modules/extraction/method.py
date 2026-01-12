@@ -234,7 +234,26 @@ def build_method_node(
 
 
 def parse_llm_response(response_content: str) -> dict[str, Any]:
-    """Parse LLM response for methods. Delegates to base parser."""
+    """
+    Parse LLM response for methods. Delegates to base parser.
+
+    Args:
+        response_content: Raw JSON string from LLM response
+
+    Returns:
+        Dictionary with:
+            - success: bool - True if parsing succeeded
+            - data: List[Dict] - Parsed method items
+            - errors: List[str] - Parsing errors if any
+
+    Example:
+        >>> response = '{"methods": [{"methodName": "get_user", "returnType": "User"}]}'
+        >>> result = parse_llm_response(response)
+        >>> result["success"]
+        True
+        >>> result["data"][0]["methodName"]
+        'get_user'
+    """
     return parse_json_response(response_content, "methods")
 
 
@@ -511,7 +530,9 @@ def extract_methods_from_source(
         file_node_id = f"file_{repo_name}_{safe_path}"
 
         for ext_method in extracted_methods:
-            node_data = _build_method_node_from_treesitter(ext_method, file_path, repo_name)
+            node_data = _build_method_node_from_treesitter(
+                ext_method, file_path, repo_name
+            )
             nodes.append(node_data)
 
             # Create edge based on whether method belongs to a class or is top-level
@@ -629,7 +650,11 @@ def extract_methods_from_source(
             "success": False,
             "data": {"nodes": [], "edges": []},
             "errors": errors,
-            "stats": {"total_nodes": 0, "total_edges": 0, "extraction_method": "treesitter"},
+            "stats": {
+                "total_nodes": 0,
+                "total_edges": 0,
+                "extraction_method": "treesitter",
+            },
         }
     except Exception as e:
         errors.append(f"Tree-sitter extraction error in {file_path}: {e}")
@@ -637,7 +662,11 @@ def extract_methods_from_source(
             "success": False,
             "data": {"nodes": [], "edges": []},
             "errors": errors,
-            "stats": {"total_nodes": 0, "total_edges": 0, "extraction_method": "treesitter"},
+            "stats": {
+                "total_nodes": 0,
+                "total_edges": 0,
+                "extraction_method": "treesitter",
+            },
         }
 
 

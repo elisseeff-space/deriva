@@ -9,7 +9,7 @@ The CLI enables automation and scripting of Deriva operations without the Marimo
 ## Running the CLI
 
 ```bash
-uv run cli --help
+deriva --help
 ```
 
 ## Commands
@@ -18,19 +18,19 @@ uv run cli --help
 
 ```bash
 # List extraction or derivation configs
-uv run cli config list extraction
-uv run cli config list derivation --enabled
+deriva config list extraction
+deriva config list derivation --enabled
 
 # Show detailed config
-uv run cli config show extraction BusinessConcept
-uv run cli config show derivation ApplicationComponent
+deriva config show extraction BusinessConcept
+deriva config show derivation ApplicationComponent
 
 # Enable/disable steps
-uv run cli config enable extraction TypeDefinition
-uv run cli config disable derivation Technology
+deriva config enable extraction TypeDefinition
+deriva config disable derivation Technology
 
 # Update config (creates new version)
-uv run cli config update extraction BusinessConcept \
+deriva config update extraction BusinessConcept \
     --instruction "Extract business concepts..." \
     --example '{"concepts": [...]}'
 ```
@@ -39,49 +39,49 @@ uv run cli config update extraction BusinessConcept \
 
 ```bash
 # Run extraction
-uv run cli run extraction --repo my-repo -v
+deriva run extraction --repo my-repo -v
 
 # Run derivation (all phases or specific phase)
-uv run cli run derivation -v
-uv run cli run derivation --phase generate -v
+deriva run derivation -v
+deriva run derivation --phase generate -v
 
 # Run full pipeline
-uv run cli run all --repo my-repo -v
+deriva run all --repo my-repo -v
 ```
 
 ### Export
 
 ```bash
 # Export ArchiMate model to XML
-uv run cli export -o workspace/output/model.archimate
+deriva export -o workspace/output/model.archimate
 ```
 
 ### Status & Clear
 
 ```bash
 # View pipeline status
-uv run cli status
+deriva status
 
 # Clear data
-uv run cli clear graph
-uv run cli clear model
+deriva clear graph
+deriva clear model
 ```
 
 ### Benchmarking
 
 ```bash
 # List available benchmark models
-uv run cli benchmark models
+deriva benchmark models
 
 # Run benchmark
-uv run cli benchmark run \
+deriva benchmark run \
     --repos flask_invoice_generator \
     --models azure-gpt4mini,ollama-llama \
     -n 3 -v
 
 # List sessions and analyze
-uv run cli benchmark list
-uv run cli benchmark analyze bench_20260101_150724
+deriva benchmark list
+deriva benchmark analyze bench_20260101_150724
 ```
 
 ## Common Options
@@ -89,7 +89,7 @@ uv run cli benchmark analyze bench_20260101_150724
 | Option | Description |
 |--------|-------------|
 | `--repo NAME` | Process specific repository (default: all) |
-| `--phase PHASE` | Derivation phase: prep, generate, or refine |
+| `--phase PHASE` | Derivation phase: enrich, generate, or refine |
 | `-v, --verbose` | Print detailed progress |
 | `--no-llm` | Skip LLM-based steps |
 | `-o, --output PATH` | Output file path |

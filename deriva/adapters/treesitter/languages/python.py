@@ -22,6 +22,7 @@ class PythonExtractor(LanguageExtractor):
     def get_language(self) -> Any:
         """Return the tree-sitter Python language."""
         import tree_sitter_python
+
         return tree_sitter_python.language()
 
     def extract_types(
@@ -102,9 +103,7 @@ class PythonExtractor(LanguageExtractor):
     # Private extraction helpers
     # =========================================================================
 
-    def _extract_class(
-        self, node: tree_sitter.Node, source: bytes
-    ) -> ExtractedType:
+    def _extract_class(self, node: tree_sitter.Node, source: bytes) -> ExtractedType:
         """Extract a class definition."""
         name = self._get_class_name(node, source)
         bases = self._get_bases(node, source)
@@ -130,7 +129,11 @@ class PythonExtractor(LanguageExtractor):
     ) -> ExtractedType:
         """Extract a top-level function as a type definition."""
         func_node = inner_func or node
-        decorators = self._get_decorators(node, source) if node.type == "decorated_definition" else []
+        decorators = (
+            self._get_decorators(node, source)
+            if node.type == "decorated_definition"
+            else []
+        )
 
         name_node = self.find_child_by_field(func_node, "name")
         name = self.get_node_text(name_node, source) if name_node else ""
@@ -185,7 +188,11 @@ class PythonExtractor(LanguageExtractor):
     ) -> ExtractedMethod:
         """Extract a method or function definition."""
         func_node = inner_func or node
-        decorators = self._get_decorators(node, source) if node.type == "decorated_definition" else []
+        decorators = (
+            self._get_decorators(node, source)
+            if node.type == "decorated_definition"
+            else []
+        )
         if not decorators and node.type == "function_definition":
             # Check if parent is decorated_definition
             decorators = []
@@ -210,7 +217,9 @@ class PythonExtractor(LanguageExtractor):
 
         # Extract return annotation
         return_type = self.find_child_by_field(func_node, "return_type")
-        return_annotation = self.get_node_text(return_type, source) if return_type else None
+        return_annotation = (
+            self.get_node_text(return_type, source) if return_type else None
+        )
         if return_annotation and return_annotation.startswith("->"):
             return_annotation = return_annotation[2:].strip()
 
@@ -370,9 +379,7 @@ class PythonExtractor(LanguageExtractor):
 
         return None
 
-    def _get_decorated_inner(
-        self, node: tree_sitter.Node
-    ) -> tree_sitter.Node | None:
+    def _get_decorated_inner(self, node: tree_sitter.Node) -> tree_sitter.Node | None:
         """Get the inner definition from a decorated_definition."""
         if node.type != "decorated_definition":
             return None
@@ -394,57 +401,73 @@ class PythonExtractor(LanguageExtractor):
         for child in params_node.children:
             if child.type == "identifier":
                 # Simple parameter without annotation
-                params.append({
-                    "name": self.get_node_text(child, source),
-                    "annotation": None,
-                    "has_default": False,
-                })
+                params.append(
+                    {
+                        "name": self.get_node_text(child, source),
+                        "annotation": None,
+                        "has_default": False,
+                    }
+                )
             elif child.type == "typed_parameter":
                 name_node = self.find_child_by_type(child, "identifier")
                 type_node = self.find_child_by_field(child, "type")
                 name = self.get_node_text(name_node, source) if name_node else ""
-                annotation = self.get_node_text(type_node, source) if type_node else None
-                params.append({
-                    "name": name,
-                    "annotation": annotation,
-                    "has_default": False,
-                })
+                annotation = (
+                    self.get_node_text(type_node, source) if type_node else None
+                )
+                params.append(
+                    {
+                        "name": name,
+                        "annotation": annotation,
+                        "has_default": False,
+                    }
+                )
             elif child.type == "default_parameter":
                 name_node = self.find_child_by_type(child, "identifier")
                 name = self.get_node_text(name_node, source) if name_node else ""
-                params.append({
-                    "name": name,
-                    "annotation": None,
-                    "has_default": True,
-                })
+                params.append(
+                    {
+                        "name": name,
+                        "annotation": None,
+                        "has_default": True,
+                    }
+                )
             elif child.type == "typed_default_parameter":
                 name_node = self.find_child_by_type(child, "identifier")
                 type_node = self.find_child_by_field(child, "type")
                 name = self.get_node_text(name_node, source) if name_node else ""
-                annotation = self.get_node_text(type_node, source) if type_node else None
-                params.append({
-                    "name": name,
-                    "annotation": annotation,
-                    "has_default": True,
-                })
+                annotation = (
+                    self.get_node_text(type_node, source) if type_node else None
+                )
+                params.append(
+                    {
+                        "name": name,
+                        "annotation": annotation,
+                        "has_default": True,
+                    }
+                )
             elif child.type == "list_splat_pattern":
                 # *args
                 name_node = self.find_child_by_type(child, "identifier")
                 name = self.get_node_text(name_node, source) if name_node else ""
-                params.append({
-                    "name": f"*{name}",
-                    "annotation": None,
-                    "has_default": False,
-                })
+                params.append(
+                    {
+                        "name": f"*{name}",
+                        "annotation": None,
+                        "has_default": False,
+                    }
+                )
             elif child.type == "dictionary_splat_pattern":
                 # **kwargs
                 name_node = self.find_child_by_type(child, "identifier")
                 name = self.get_node_text(name_node, source) if name_node else ""
-                params.append({
-                    "name": f"**{name}",
-                    "annotation": None,
-                    "has_default": False,
-                })
+                params.append(
+                    {
+                        "name": f"**{name}",
+                        "annotation": None,
+                        "has_default": False,
+                    }
+                )
 
         return params
 

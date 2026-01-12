@@ -8,6 +8,8 @@ Elements without any connections may indicate:
 - Legitimate standalone elements
 
 Uses source graph patterns to propose potential relationships.
+
+Refine Step Name: "orphan_elements"
 """
 
 from __future__ import annotations

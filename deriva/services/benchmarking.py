@@ -492,14 +492,15 @@ class BenchmarkOrchestrator:
             print(f"Total runs: {self.config.total_runs()}")
             print(f"{'=' * 60}\n")
 
-        # Execute the matrix: model → iteration → [all repos together]
+        # Execute the matrix: iteration → model → [all repos together]
+        # Alternates between models to help prevent rate limits
         # Each (model, iteration) is ONE run - repos are combined
         run_number = 0
         total_runs = self.config.total_runs()
         combined_repo_name = self.config.get_combined_repo_name()
 
-        for model_name in self.config.models:
-            for iteration in range(1, self.config.runs_per_combination + 1):
+        for iteration in range(1, self.config.runs_per_combination + 1):
+            for model_name in self.config.models:
                 run_number += 1
 
                 if verbose:

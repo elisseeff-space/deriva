@@ -16,74 +16,141 @@ Filtering strategy:
 3. Filter to community roots or high-pagerank nodes
 4. Limit to top N by PageRank
 5. Send to LLM for final decision and naming
+
+ArchiMate Layer: Application Layer
+ArchiMate Type: ApplicationComponent
+
+Typical Sources:
+    - Directory nodes with src/, app/, lib/ paths
+    - Louvain community root nodes (cohesive module boundaries)
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any
 
-from deriva.adapters.archimate.models import Element, Relationship
-
-from .base import (
-    DERIVATION_SCHEMA,
+from deriva.modules.derivation.base import (
     Candidate,
-    GenerationResult,
     RelationshipRule,
-    batch_candidates,
-    build_derivation_prompt,
-    build_element,
-    derive_batch_relationships,
-    extract_response_content,
     filter_by_pagerank,
     get_community_roots,
-    get_enrichments_from_neo4j,
-    parse_derivation_response,
-    query_candidates,
 )
-
-if TYPE_CHECKING:
-    from deriva.adapters.archimate import ArchimateManager
-    from deriva.adapters.graph import GraphManager
+from deriva.modules.derivation.element_base import ElementDerivationBase
 
 logger = logging.getLogger(__name__)
 
-ELEMENT_TYPE = "ApplicationComponent"
+
+class ApplicationComponentDerivation(ElementDerivationBase):
+    """
+    ApplicationComponent element derivation.
+
+    Uses graph-based filtering (community roots + PageRank) rather than
+    pattern-based filtering. This identifies natural component boundaries
+    from the graph structure itself.
+    """
+
+    ELEMENT_TYPE = "ApplicationComponent"
+
+    OUTBOUND_RULES: list[RelationshipRule] = [
+        RelationshipRule(
+            target_type="ApplicationService",
+            rel_type="Composition",
+            description="Application components contain application services",
+        ),
+        RelationshipRule(
+            target_type="DataObject",
+            rel_type="Access",
+            description="Application components access data objects",
+        ),
+        RelationshipRule(
+            target_type="ApplicationInterface",
+            rel_type="Composition",
+            description="Application components expose interfaces",
+        ),
+    ]
+
+    INBOUND_RULES: list[RelationshipRule] = [
+        RelationshipRule(
+            target_type="TechnologyService",
+            rel_type="Realization",
+            description="Technology services realize application components",
+        ),
+        RelationshipRule(
+            target_type="Node",
+            rel_type="Serving",
+            description="Nodes serve application components",
+        ),
+    ]
+
+    # No get_filter_kwargs override needed - uses default empty dict
+    # ApplicationComponent uses graph structure, not config patterns
+
+    def filter_candidates(
+        self,
+        candidates: list[Candidate],
+        enrichments: dict[str, dict[str, Any]],
+        max_candidates: int,
+        **kwargs: Any,
+    ) -> list[Candidate]:
+        """
+        Apply graph-based filtering to reduce candidates for LLM.
+
+        Strategy:
+        1. Prioritize community roots (natural component boundaries)
+        2. Include high-pagerank non-roots (important directories)
+        3. Sort by pagerank and limit
+
+        Args:
+            candidates: List of candidates to filter
+            enrichments: Graph enrichment data (pagerank, community, etc.)
+            max_candidates: Maximum number of candidates to return
+            **kwargs: Unused additional arguments
+
+        Returns:
+            Filtered list of candidates
+        """
+        if not candidates:
+            return []
+
+        # Get community roots - these are natural component boundaries
+        roots = get_community_roots(candidates)
+
+        # Also include high-pagerank nodes that aren't roots
+        # (they might be important subdirectories)
+        non_roots = [c for c in candidates if c not in roots]
+        high_pagerank = filter_by_pagerank(non_roots, top_n=10)
+
+        # Combine and deduplicate
+        combined = list(roots)
+        for c in high_pagerank:
+            if c not in combined:
+                combined.append(c)
+
+        # Sort by pagerank (most important first) and limit
+        combined = filter_by_pagerank(combined, top_n=max_candidates)
+
+        self.logger.debug(
+            "ApplicationComponent filter: %d total -> %d roots -> %d combined",
+            len(candidates),
+            len(roots),
+            len(combined),
+        )
+
+        return combined
 
 
 # =============================================================================
-# RELATIONSHIP RULES
+# Backward Compatibility - Module-level exports
 # =============================================================================
 
-OUTBOUND_RULES: list[RelationshipRule] = [
-    RelationshipRule(
-        target_type="ApplicationService",
-        rel_type="Composition",
-        description="Application components contain application services",
-    ),
-    RelationshipRule(
-        target_type="DataObject",
-        rel_type="Access",
-        description="Application components access data objects",
-    ),
-    RelationshipRule(
-        target_type="ApplicationInterface",
-        rel_type="Composition",
-        description="Application components expose interfaces",
-    ),
-]
-INBOUND_RULES: list[RelationshipRule] = [
-    RelationshipRule(
-        target_type="TechnologyService",
-        rel_type="Realization",
-        description="Technology services realize application components",
-    ),
-    RelationshipRule(
-        target_type="Node",
-        rel_type="Serving",
-        description="Nodes serve application components",
-    ),
-]
+# Create singleton instance for module-level function calls
+_instance = ApplicationComponentDerivation()
+
+# Export module-level constants (for services/derivation.py compatibility)
+ELEMENT_TYPE = _instance.ELEMENT_TYPE
+OUTBOUND_RULES = _instance.OUTBOUND_RULES
+INBOUND_RULES = _instance.INBOUND_RULES
 
 
 def filter_candidates(
@@ -92,223 +159,57 @@ def filter_candidates(
     max_candidates: int,
 ) -> list[Candidate]:
     """
-    Apply graph-based filtering to reduce candidates for LLM.
+    Backward-compatible filter_candidates function.
 
-    Strategy:
-    1. Prioritize community roots (natural component boundaries)
-    2. Include high-pagerank non-roots (important directories)
-    3. Sort by pagerank and limit
-
-    Args:
-        candidates: List of candidates to filter
-        enrichments: Graph enrichment data (pagerank, community, etc.)
-        max_candidates: Maximum number of candidates to return
+    Delegates to ApplicationComponentDerivation.filter_candidates().
     """
-    if not candidates:
-        return []
-
-    # Get community roots - these are natural component boundaries
-    roots = get_community_roots(candidates)
-
-    # Also include high-pagerank nodes that aren't roots
-    # (they might be important subdirectories)
-    non_roots = [c for c in candidates if c not in roots]
-    high_pagerank = filter_by_pagerank(non_roots, top_n=10)
-
-    # Combine and deduplicate
-    combined = list(roots)
-    for c in high_pagerank:
-        if c not in combined:
-            combined.append(c)
-
-    # Sort by pagerank (most important first) and limit
-    combined = filter_by_pagerank(combined, top_n=max_candidates)
-
-    return combined
+    return _instance.filter_candidates(candidates, enrichments, max_candidates)
 
 
 def generate(
-    graph_manager: "GraphManager",
-    archimate_manager: "ArchimateManager",
-    engine: Any,
-    llm_query_fn: Callable[..., Any],
-    query: str,
-    instruction: str,
-    example: str,
-    max_candidates: int,
-    batch_size: int,
-    existing_elements: list[dict[str, Any]],
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    defer_relationships: bool = False,
-) -> GenerationResult:
+    graph_manager,
+    archimate_manager,
+    engine,
+    llm_query_fn,
+    query,
+    instruction,
+    example,
+    max_candidates,
+    batch_size,
+    existing_elements,
+    temperature=None,
+    max_tokens=None,
+    defer_relationships=False,
+):
     """
-    Generate ApplicationComponent elements.
+    Backward-compatible generate function.
 
-    All configuration parameters are required - no defaults, no fallbacks.
-
-    Args:
-        graph_manager: Neo4j connection
-        archimate_manager: ArchiMate persistence
-        engine: DuckDB connection for enrichments
-        llm_query_fn: LLM query function (prompt, schema, **kwargs) -> response
-        query: Cypher query to get candidate nodes
-        instruction: LLM instruction prompt
-        example: Example output for LLM
-        max_candidates: Maximum candidates to send to LLM
-        batch_size: Batch size for LLM processing
-        temperature: Optional LLM temperature override
-        max_tokens: Optional LLM max_tokens override
-
-    Returns:
-        GenerationResult with created elements
+    Delegates to ApplicationComponentDerivation.generate().
     """
-    errors: list[str] = []
-    created_elements: list[dict[str, Any]] = []
-
-    # 1. Get enrichment data
-    enrichments = get_enrichments_from_neo4j(graph_manager)
-
-    # 2. Query candidates from graph
-    try:
-        candidates = query_candidates(graph_manager, query, enrichments)
-    except Exception as e:
-        return GenerationResult(
-            success=False,
-            errors=[f"Query failed: {e}"],
-        )
-
-    if not candidates:
-        return GenerationResult(success=True, elements_created=0)
-
-    logger.info(f"Found {len(candidates)} directory candidates")
-
-    # 3. Apply filtering
-    filtered = filter_candidates(candidates, enrichments, max_candidates)
-
-    if not filtered:
-        return GenerationResult(success=True, elements_created=0)
-
-    logger.info(f"Filtered to {len(filtered)} candidates for LLM")
-
-    # 4. Batch candidates and process each batch
-    batches = batch_candidates(filtered, batch_size)
-
-    kwargs = {}
-    if temperature is not None:
-        kwargs["temperature"] = temperature
-    if max_tokens is not None:
-        kwargs["max_tokens"] = max_tokens
-
-    for batch_num, batch in enumerate(batches, 1):
-        logger.debug(
-            f"Processing batch {batch_num}/{len(batches)} with {len(batch)} candidates"
-        )
-
-        # Build prompt for this batch
-        prompt = build_derivation_prompt(
-            candidates=batch,
-            instruction=instruction,
-            example=example,
-            element_type=ELEMENT_TYPE,
-        )
-
-        # Call LLM
-        try:
-            response = llm_query_fn(prompt, DERIVATION_SCHEMA, **kwargs)
-            response_content, error = extract_response_content(response)
-            if error:
-                errors.append(f"LLM error in batch {batch_num}: {error}")
-                continue
-        except Exception as e:
-            errors.append(f"LLM error in batch {batch_num}: {e}")
-            continue
-
-        # Parse response
-        parse_result = parse_derivation_response(response_content)
-        if not parse_result["success"]:
-            errors.extend(parse_result.get("errors", []))
-            continue
-
-        # Create elements from this batch
-        # Build enrichment lookup for this batch's candidates
-        batch_enrichments = {
-            c.node_id: {
-                "pagerank": c.pagerank,
-                "louvain_community": c.louvain_community,
-            }
-            for c in batch
-        }
-        batch_elements: list[dict[str, Any]] = []
-        for derived in parse_result.get("data", []):
-            element_result = build_element(derived, ELEMENT_TYPE, batch_enrichments)
-
-            if not element_result["success"]:
-                errors.extend(element_result.get("errors", []))
-                continue
-
-            data = element_result["data"]
-
-            try:
-                element = Element(
-                    identifier=data["identifier"],
-                    name=data["name"],
-                    element_type=data["element_type"],
-                    documentation=data.get("documentation", ""),
-                    properties=data.get("properties", {}),
-                )
-                archimate_manager.add_element(element)
-                batch_elements.append(data)
-                created_elements.append(
-                    {
-                        "identifier": data["identifier"],
-                        "name": data["name"],
-                        "element_type": ELEMENT_TYPE,
-                        "documentation": data.get("documentation", ""),
-                        "source": data.get("properties", {}).get("source"),
-                    }
-                )
-            except Exception as e:
-                errors.append(f"Failed to create element {data.get('name')}: {e}")
-        # Derive relationships for this batch
-        if batch_elements and existing_elements and not defer_relationships:
-            relationships = derive_batch_relationships(
-                new_elements=batch_elements,
-                existing_elements=existing_elements,
-                element_type=ELEMENT_TYPE,
-                outbound_rules=OUTBOUND_RULES,
-                inbound_rules=INBOUND_RULES,
-                llm_query_fn=llm_query_fn,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                graph_manager=graph_manager,
-            )
-            for rel_data in relationships:
-                try:
-                    relationship = Relationship(
-                        source=rel_data["source"],
-                        target=rel_data["target"],
-                        relationship_type=rel_data["relationship_type"],
-                        properties={"confidence": rel_data.get("confidence", 0.5)},
-                    )
-                    archimate_manager.add_relationship(relationship)
-                except Exception as e:
-                    errors.append(f"Failed to create relationship: {e}")
-
-    logger.info(f"Created {len(created_elements)} {ELEMENT_TYPE} elements")
-
-    return GenerationResult(
-        success=len(errors) == 0,
-        elements_created=len(created_elements),
-        created_elements=created_elements,
-        errors=errors,
+    return _instance.generate(
+        graph_manager=graph_manager,
+        archimate_manager=archimate_manager,
+        engine=engine,
+        llm_query_fn=llm_query_fn,
+        query=query,
+        instruction=instruction,
+        example=example,
+        max_candidates=max_candidates,
+        batch_size=batch_size,
+        existing_elements=existing_elements,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        defer_relationships=defer_relationships,
     )
 
 
 __all__ = [
+    # Backward-compatible exports
     "ELEMENT_TYPE",
     "OUTBOUND_RULES",
     "INBOUND_RULES",
     "filter_candidates",
     "generate",
+    # New class export
+    "ApplicationComponentDerivation",
 ]

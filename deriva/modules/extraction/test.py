@@ -207,7 +207,24 @@ def build_test_node(
 
 
 def parse_llm_response(response_content: str) -> dict[str, Any]:
-    """Parse LLM response for tests. Delegates to base parser."""
+    """
+    Parse LLM response for tests. Delegates to base parser.
+
+    Args:
+        response_content: Raw JSON string from LLM response
+
+    Returns:
+        Dictionary with:
+            - success: bool - True if parsing succeeded
+            - data: List[Dict] - Parsed test items
+            - errors: List[str] - Parsing errors if any
+
+    Example:
+        >>> response = '{"tests": [{"testName": "test_login", "testType": "unit"}]}'
+        >>> result = parse_llm_response(response)
+        >>> result["data"][0]["testName"]
+        'test_login'
+    """
     return parse_json_response(response_content, "tests")
 
 

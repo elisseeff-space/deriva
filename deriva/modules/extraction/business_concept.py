@@ -203,7 +203,24 @@ def build_business_concept_node(
 
 
 def parse_llm_response(response_content: str) -> dict[str, Any]:
-    """Parse LLM response for business concepts. Delegates to base parser."""
+    """
+    Parse LLM response for business concepts. Delegates to base parser.
+
+    Args:
+        response_content: Raw JSON string from LLM response
+
+    Returns:
+        Dictionary with:
+            - success: bool - True if parsing succeeded
+            - data: List[Dict] - Parsed concept items
+            - errors: List[str] - Parsing errors if any
+
+    Example:
+        >>> response = '{"concepts": [{"conceptName": "Invoice", "conceptType": "entity"}]}'
+        >>> result = parse_llm_response(response)
+        >>> result["data"][0]["conceptName"]
+        'Invoice'
+    """
     return parse_json_response(response_content, "concepts")
 
 

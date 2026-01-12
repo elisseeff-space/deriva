@@ -9,7 +9,7 @@ The App provides a visual interface for managing repositories, configuring extra
 ## Running the App
 
 ```bash
-uv run app
+uv run marimo edit deriva/app/app.py
 ```
 
 Opens in browser at: <http://127.0.0.1:2718>
@@ -21,7 +21,7 @@ Opens in browser at: <http://127.0.0.1:2718>
 | **0** | **Run Deriva** - Pipeline buttons, status display |
 | **1** | **Configuration** - Runs, repositories, Neo4j, graph stats, ArchiMate model |
 | **2** | **Extraction Settings** - File type registry, extraction step config |
-| **3** | **Derivation Settings** - Derivation step config (prep/generate/refine phases) |
+| **3** | **Derivation Settings** - Derivation step config (enrich/generate/refine phases) |
 
 ## Key Features
 
@@ -46,7 +46,7 @@ Opens in browser at: <http://127.0.0.1:2718>
 
 **Column 3: Derivation Settings**
 
-- Configure derivation steps by phase (prep, generate, refine)
+- Configure derivation steps by phase (enrich, generate, refine)
 - Edit LLM prompts and examples
 
 ## Architecture

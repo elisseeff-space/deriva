@@ -209,7 +209,7 @@ Marimo: displays results in UI  |  CLI: prints summary to stdout
 | Column 0 | Run Deriva (pipeline buttons, status callouts) |
 | Column 1 | Configuration (runs, repos, Neo4j, graph stats, ArchiMate, LLM) |
 | Column 2 | Extraction Settings (file types, extraction step config) |
-| Column 3 | Derivation Settings (14 element types across Business/Application/Technology layers) |
+| Column 3 | Derivation Settings (13 element types across Business/Application/Technology layers) |
 
 The app/app.py uses PipelineSession for all operations.
 
@@ -1284,11 +1284,11 @@ Pipeline configs (extraction steps, derivation prompts) are stored in DuckDB wit
 
 ```bash
 # Via CLI (creates new version)
-uv run python -m deriva.cli.cli config update extraction BusinessConcept \
+deriva config update extraction BusinessConcept \
   -i "New instruction..."
 
 # View version history
-uv run python -m deriva.cli.cli config versions
+deriva config versions
 ```
 
 **Never update configs by editing JSON and importing.** The `db_tool import` command is for **backup restoration only** - it overwrites the database including version history. This defeats the purpose of versioning and makes rollback impossible.

@@ -2,6 +2,25 @@
 
 This module provides the ArchimateManager class which handles all ArchiMate model
 operations using the shared neo4j_manager service with namespace isolation.
+
+Usage:
+    from deriva.adapters.archimate import ArchimateManager
+    from deriva.adapters.archimate.models import Element, Relationship
+
+    with ArchimateManager() as am:
+        # Create elements
+        element = Element(id="bo_1", name="Customer", type="BusinessObject")
+        am.add_element(element)
+
+        # Create relationships
+        rel = Relationship(source_id="bo_1", target_id="bo_2", type="Association")
+        am.add_relationship(rel)
+
+        # Query elements
+        elements = am.get_elements_by_type("BusinessObject")
+
+        # Export to ArchiMate XML
+        am.export_to_archimate("output.archimate")
 """
 
 from __future__ import annotations

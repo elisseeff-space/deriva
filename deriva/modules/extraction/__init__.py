@@ -14,6 +14,37 @@ All functions follow the module pattern:
 - Pure functions only (no I/O, no state)
 - Return data structures with error information
 - Never raise exceptions (return errors as data)
+
+Usage:
+    # Structural extraction (no LLM required)
+    from deriva.modules.extraction import extract_repository, extract_files
+
+    repo_result = extract_repository({"name": "myrepo", "url": "https://..."})
+    files_result = extract_files("/path/to/repo", "myrepo")
+
+    # Semantic extraction (requires LLM)
+    from deriva.modules.extraction import extract_type_definitions_batch
+
+    result = extract_type_definitions_batch(
+        files=[{"path": "app.py", "content": "class Foo: ..."}],
+        repo_name="myrepo",
+        llm_query_fn=my_llm_query,
+        config={"instruction": "...", "example": "..."},
+    )
+
+Return Format:
+    All extraction functions return a dict with consistent structure::
+
+        {
+            "success": bool,           # Whether extraction succeeded
+            "data": {
+                "nodes": [...],        # List of node dicts
+                "edges": [...],        # List of edge dicts
+            },
+            "errors": [...],           # List of error messages
+            "stats": {...},            # Statistics about the extraction
+            "llm_details": {...},      # Optional LLM call details (for LLM extractors)
+        }
 """
 
 from __future__ import annotations

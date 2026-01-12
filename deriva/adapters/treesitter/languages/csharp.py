@@ -22,6 +22,7 @@ class CSharpExtractor(LanguageExtractor):
     def get_language(self) -> Any:
         """Return the tree-sitter C# language."""
         import tree_sitter_c_sharp
+
         return tree_sitter_c_sharp.language()
 
     def extract_types(
@@ -71,9 +72,13 @@ class CSharpExtractor(LanguageExtractor):
                     if child.type == "method_declaration":
                         methods.append(self._extract_method(child, source, class_name))
                     elif child.type == "constructor_declaration":
-                        methods.append(self._extract_constructor(child, source, class_name))
+                        methods.append(
+                            self._extract_constructor(child, source, class_name)
+                        )
                     elif child.type == "property_declaration":
-                        methods.append(self._extract_property(child, source, class_name))
+                        methods.append(
+                            self._extract_property(child, source, class_name)
+                        )
 
         return methods
 
@@ -93,9 +98,7 @@ class CSharpExtractor(LanguageExtractor):
     # Private extraction helpers
     # =========================================================================
 
-    def _extract_type(
-        self, node: tree_sitter.Node, source: bytes
-    ) -> ExtractedType:
+    def _extract_type(self, node: tree_sitter.Node, source: bytes) -> ExtractedType:
         """Extract a type definition."""
         name = self._get_type_name(node, source)
         kind = self._get_type_kind(node)
@@ -128,7 +131,9 @@ class CSharpExtractor(LanguageExtractor):
 
         # Get return type
         return_type_node = self.find_child_by_field(node, "type")
-        return_annotation = self.get_node_text(return_type_node, source) if return_type_node else None
+        return_annotation = (
+            self.get_node_text(return_type_node, source) if return_type_node else None
+        )
 
         # Check modifiers
         is_static = self._has_modifier(node, source, "static")
@@ -209,9 +214,7 @@ class CSharpExtractor(LanguageExtractor):
             visibility=visibility,
         )
 
-    def _extract_using(
-        self, node: tree_sitter.Node, source: bytes
-    ) -> ExtractedImport:
+    def _extract_using(self, node: tree_sitter.Node, source: bytes) -> ExtractedImport:
         """Extract a using directive."""
         # Check for alias
         alias_node = self.find_child_by_field(node, "alias")
@@ -229,8 +232,7 @@ class CSharpExtractor(LanguageExtractor):
 
         # Check for static using
         is_static = any(
-            self.get_node_text(child, source) == "static"
-            for child in node.children
+            self.get_node_text(child, source) == "static" for child in node.children
         )
 
         return ExtractedImport(
@@ -344,23 +346,27 @@ class CSharpExtractor(LanguageExtractor):
 
                 # Check for params keyword (varargs)
                 is_params = any(
-                    self.get_node_text(c, source) == "params"
-                    for c in child.children
+                    self.get_node_text(c, source) == "params" for c in child.children
                 )
                 if is_params:
                     name = f"params {name}"
 
                 # Check for ref/out/in
                 for modifier in ("ref", "out", "in"):
-                    if any(self.get_node_text(c, source) == modifier for c in child.children):
+                    if any(
+                        self.get_node_text(c, source) == modifier
+                        for c in child.children
+                    ):
                         name = f"{modifier} {name}"
                         break
 
-                params.append({
-                    "name": name,
-                    "annotation": type_str,
-                    "has_default": has_default,
-                })
+                params.append(
+                    {
+                        "name": name,
+                        "annotation": type_str,
+                        "has_default": has_default,
+                    }
+                )
 
         return params
 

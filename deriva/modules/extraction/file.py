@@ -88,6 +88,13 @@ def _infer_tested_file(test_path: str, all_paths: set[str]) -> str | None:
 
     Returns:
         Path of the inferred source file, or None if not found
+
+    Examples:
+        >>> all_files = {"src/app.py", "tests/test_app.py", "utils.py"}
+        >>> _infer_tested_file("tests/test_app.py", all_files)
+        'src/app.py'
+        >>> _infer_tested_file("tests/test_unknown.py", all_files)
+        None
     """
     path = Path(test_path)
     name = path.stem  # filename without extension

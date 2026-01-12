@@ -60,18 +60,31 @@ def generate_node_id(prefix: str, repo_name: str, identifier: str) -> str:
     """
     Generate a consistent node ID.
 
+    Format: {prefix}::{repo_name}::{normalized_identifier}
+
+    Uses '::' as separator to avoid collision with underscores in names.
+    This is important because repo names and identifiers may contain underscores,
+    and using '_' as separator makes parsing ambiguous.
+
     Args:
         prefix: Node type prefix (e.g., 'concept', 'type', 'method')
-        repo_name: Repository name
+        repo_name: Repository name (may contain underscores)
         identifier: Unique identifier within the type
 
     Returns:
         Formatted node ID string
+
+    Examples:
+        >>> generate_node_id("type", "my_repo", "User Class")
+        'type::my_repo::user_class'
+        >>> generate_node_id("method", "api-service", "get_user")
+        'method::api-service::get_user'
     """
     # Normalize identifier for consistent IDs
     normalized = identifier.lower().replace(" ", "_").replace("-", "_")
     normalized = "".join(c for c in normalized if c.isalnum() or c == "_")
-    return f"{prefix}_{repo_name}_{normalized}"
+    # Use :: as separator - unambiguous, not commonly found in names
+    return f"{prefix}::{repo_name}::{normalized}"
 
 
 def generate_edge_id(from_node_id: str, to_node_id: str, relationship_type: str) -> str:
@@ -318,7 +331,11 @@ def has_node_sources(input_sources: dict[str, Any]) -> bool:
 # Name Normalization - Canonical Mappings
 # =============================================================================
 
-# Map lowercase variations to official package names
+# Map lowercase variations to official package names.
+# Used by normalize_package_name() to ensure consistent capitalization
+# of well-known packages across all extractions.
+#
+# Example: "flask" -> "Flask", "pytorch" -> "PyTorch", "cv2" -> "OpenCV"
 PACKAGE_CANONICAL_NAMES: dict[str, str] = {
     # Python packages (PyPI)
     "flask": "Flask",
@@ -392,7 +409,9 @@ PACKAGE_CANONICAL_NAMES: dict[str, str] = {
     "heroku": "Heroku",
 }
 
-# Suffixes to remove from normalized names
+# Suffixes to remove from normalized names.
+# Strips redundant qualifiers like "_orm", "_database" that don't add meaning.
+# Example: "sqlalchemy_orm" -> "SQLAlchemy"
 REDUNDANT_SUFFIXES = [
     "_orm",
     "_database",
@@ -413,7 +432,8 @@ REDUNDANT_SUFFIXES = [
 # Singularization Rules
 # =============================================================================
 
-# Words that shouldn't be singularized
+# Words that shouldn't be singularized (mass nouns, collective nouns).
+# Used by singularize() to avoid incorrect transformations like "data" -> "datum".
 UNCOUNTABLE_WORDS = {
     "data",
     "information",
@@ -427,7 +447,9 @@ UNCOUNTABLE_WORDS = {
     "status",
 }
 
-# Irregular plurals
+# Irregular plurals mapping (plural -> singular).
+# Used by singularize() to handle words that don't follow standard rules.
+# Example: "indices" -> "index", "criteria" -> "criterion"
 IRREGULAR_PLURALS: dict[str, str] = {
     "indices": "index",
     "matrices": "matrix",

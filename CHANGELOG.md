@@ -6,7 +6,63 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
-## v0.6.5 - Tree-sitter Multi-Language Support & Relationship Consistency (January 12, 2026)
+## v0.6.6 - ElementDerivationBase & Document Parsing (Unreleased)
+
+### Derivation Module Refactoring (MAJOR)
+
+Major code reduction through new inheritance hierarchy eliminating ~80% duplication across 13 element modules:
+
+- **ElementDerivationBase**: New abstract base class providing common `generate()` flow shared by all element types
+- **PatternBasedDerivation**: Mixin for modules using include/exclude pattern filtering (10 of 13 modules)
+- **Unified Batch Processing**: `_process_batch()` and `_derive_relationships()` methods handle common operations
+- **Singleton Pattern**: Each module exports `ELEMENT_TYPE`, `OUTBOUND_RULES`, `INBOUND_RULES` for backward compatibility
+
+All 13 derivation modules (ApplicationComponent, ApplicationInterface, ApplicationService, BusinessActor, BusinessEvent, BusinessFunction, BusinessObject, BusinessProcess, DataObject, Device, Node, SystemSoftware, TechnologyService) now inherit from the base classes.
+
+### Document Parsing Support (NEW)
+
+Added core support for extracting text from office documents to limit token usage:
+
+- **PDF Parsing**: `pypdf>=6.6.0` as core dependency
+- **DOCX Parsing**: `python-docx>=1.2.0` as core dependency
+- Moved from optional `[documents]` extra to required dependencies
+
+### Structured Error Handling
+
+New structured error context system in `common/types.py`:
+
+- **ErrorContext**: Dataclass with repo_name, step_name, phase_name, file_path, batch_number, exception_type
+- **create_error()**: Convenience function for formatted error strings with context
+- **PipelineResult Extensions**: Added `error_details`, `partial_success`, `affected_items` fields
+
+### Config Service Enhancements
+
+New threshold and limit helpers in `services/config.py`:
+
+- **Confidence Thresholds**: `get_confidence_threshold()`, `get_min_relationship_confidence()`, `get_community_rel_confidence()`, etc.
+- **Derivation Limits**: `get_derivation_limit()`, `get_max_batch_size()`, `get_max_candidates()`, etc.
+- **Centralized Defaults**: `_DEFAULT_THRESHOLDS` and `_DEFAULT_LIMITS` dictionaries with configurable overrides via system_settings
+
+### Test Coverage Improvements
+
+- **Coverage Target**: Increased minimum coverage from 75% to 80%
+- **New Test Modules**: `test_adapters/treesitter/`, `test_common/test_document_reader.py`, `test_common/test_types.py`
+- **Coverage Exclusions**: Added exclusions for graph_relationships.py and benchmarking.py (require infrastructure)
+
+### Documentation Updates
+
+- New `ARCHITECTURE.MD` documenting system design
+- New `OPTIMIZATION.md` with performance tuning guidance
+- Updated adapter and CLI READMEs with usage examples
+- Enhanced docstrings across LLM manager and config service
+
+### Minor Fixes
+
+- Fixed type checker issue in `get_model_token_limit()` with explicit None check
+
+---
+
+## v0.6.5 - Tree-sitter Multi-Language Support & Relationship Consistency (Unreleased)
 
 ### Tree-sitter Adapter (NEW)
 

@@ -2,11 +2,34 @@
 Derivation service for Deriva.
 
 Orchestrates the derivation pipeline with phases:
-1. enrich: Pre-derivation graph analysis (pagerank, etc.)
+1. enrich: Pre-derivation graph analysis (pagerank, louvain, k-core)
 2. generate: LLM-based element and relationship derivation
 3. refine: Post-generation model refinement (dedup, orphans, etc.)
 
 Used by both Marimo (visual) and CLI (headless).
+
+Usage:
+    from deriva.services import derivation
+    from deriva.adapters.graph import GraphManager
+    from deriva.adapters.archimate import ArchimateManager
+    from deriva.adapters.database import get_connection
+
+    engine = get_connection()
+
+    with GraphManager() as gm, ArchimateManager() as am:
+        # Run full derivation (all phases)
+        result = derivation.run_derivation(
+            engine=engine,
+            graph_manager=gm,
+            archimate_manager=am,
+            llm_query_fn=my_llm_query,
+            verbose=True,
+        )
+
+        # Or run individual phases
+        enrich_result = derivation.run_enrich_phase(gm, engine)
+        generate_result = derivation.run_generate_phase(gm, am, engine, llm_query_fn)
+        refine_result = derivation.run_refine_phase(am, gm, engine)
 """
 
 from __future__ import annotations
@@ -173,7 +196,7 @@ def generate_element(
             "success": False,
             "elements_created": 0,
             "relationships_created": 0,
-            "errors": [f"Generation failed for {element_type}: {e}"],
+            "errors": [f"Generation failed for {element_type} | exception={type(e).__name__}: {e}"],
         }
 
 

@@ -10,6 +10,8 @@ ArchiMate Layers:
 - Business: BusinessObject, BusinessProcess, BusinessActor, BusinessEvent, BusinessFunction
 - Application: ApplicationComponent, ApplicationService, ApplicationInterface, DataObject
 - Technology: TechnologyService, Node, Device, SystemSoftware
+
+Refine Step Name: "cross_layer"
 """
 
 from __future__ import annotations

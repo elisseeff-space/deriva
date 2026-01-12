@@ -251,7 +251,26 @@ def build_type_definition_node(
 
 
 def parse_llm_response(response_content: str) -> dict[str, Any]:
-    """Parse LLM response for type definitions. Delegates to base parser."""
+    """
+    Parse LLM response for type definitions. Delegates to base parser.
+
+    Args:
+        response_content: Raw JSON string from LLM response
+
+    Returns:
+        Dictionary with:
+            - success: bool - True if parsing succeeded
+            - data: List[Dict] - Parsed type definition items
+            - errors: List[str] - Parsing errors if any
+
+    Example:
+        >>> response = '{"types": [{"typeName": "User", "category": "class"}]}'
+        >>> result = parse_llm_response(response)
+        >>> result["success"]
+        True
+        >>> result["data"][0]["typeName"]
+        'User'
+    """
     return parse_json_response(response_content, "types")
 
 
@@ -574,7 +593,11 @@ def extract_types_from_source(
             "success": False,
             "data": {"nodes": [], "edges": []},
             "errors": errors,
-            "stats": {"total_nodes": 0, "total_edges": 0, "extraction_method": "treesitter"},
+            "stats": {
+                "total_nodes": 0,
+                "total_edges": 0,
+                "extraction_method": "treesitter",
+            },
         }
     except Exception as e:
         errors.append(f"Tree-sitter extraction error in {file_path}: {e}")
@@ -582,7 +605,11 @@ def extract_types_from_source(
             "success": False,
             "data": {"nodes": [], "edges": []},
             "errors": errors,
-            "stats": {"total_nodes": 0, "total_edges": 0, "extraction_method": "treesitter"},
+            "stats": {
+                "total_nodes": 0,
+                "total_edges": 0,
+                "extraction_method": "treesitter",
+            },
         }
 
 

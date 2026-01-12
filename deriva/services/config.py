@@ -9,6 +9,21 @@ Tables managed:
     - derivation_config: ArchiMate derivation configurations (enrich/generate/refine phases)
     - file_type_registry: File extension to type mappings
     - system_settings: Key-value system settings
+
+Usage:
+    from deriva.services import config
+    from deriva.adapters.database import get_connection
+
+    engine = get_connection()
+
+    # Get extraction configs
+    configs = config.get_extraction_configs(engine, enabled_only=True)
+
+    # Update a config
+    config.update_extraction_config(engine, node_type="TypeDefinition", enabled=False)
+
+    # Get derivation configs by phase
+    generate_configs = config.get_derivation_configs(engine, phase="generate")
 """
 
 from __future__ import annotations
@@ -1074,3 +1089,133 @@ def update_derivation_patterns(
         [next_id, step_name, pattern_type, pattern_category, patterns_json],
     )
     return True
+
+
+# =============================================================================
+# Threshold and Limit Helpers
+# =============================================================================
+
+# Default values for thresholds - used when not configured in system_settings
+_DEFAULT_THRESHOLDS: dict[str, float] = {
+    "min_relationship": 0.6,  # Minimum confidence for relationships
+    "community_rel": 0.95,  # Confidence for community-based relationships
+    "name_match": 0.95,  # Confidence for name-based matches
+    "file_match": 0.85,  # Confidence for file-based matches
+    "fuzzy_match": 0.85,  # Threshold for fuzzy string matching
+    "semantic": 0.95,  # Confidence for semantic similarity matches
+    "pagerank_min": 0.001,  # Minimum PageRank to consider
+}
+
+_DEFAULT_LIMITS: dict[str, int] = {
+    "max_relationships_per_derivation": 500,
+    "default_batch_size": 10,
+    "default_max_candidates": 30,
+    "high_pagerank_non_roots": 10,  # For ApplicationComponent filtering
+}
+
+
+def get_confidence_threshold(engine: Any, key: str, default: float | None = None) -> float:
+    """
+    Get a confidence threshold from system_settings.
+
+    Args:
+        engine: DuckDB connection
+        key: Threshold key (e.g., 'min_relationship', 'community_rel')
+        default: Override default value (or None to use built-in default)
+
+    Returns:
+        Threshold value as float
+    """
+    setting_key = f"confidence_{key}"
+    value = get_setting(engine, setting_key)
+
+    if value is not None:
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            pass
+
+    # Use provided default or fall back to built-in defaults
+    if default is not None:
+        return default
+
+    return _DEFAULT_THRESHOLDS.get(key, 0.5)
+
+
+def get_derivation_limit(engine: Any, key: str, default: int | None = None) -> int:
+    """
+    Get a derivation limit from system_settings.
+
+    Args:
+        engine: DuckDB connection
+        key: Limit key (e.g., 'default_batch_size', 'max_relationships_per_derivation')
+        default: Override default value (or None to use built-in default)
+
+    Returns:
+        Limit value as int
+    """
+    value = get_setting(engine, key)
+
+    if value is not None:
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            pass
+
+    # Use provided default or fall back to built-in defaults
+    if default is not None:
+        return default
+
+    return _DEFAULT_LIMITS.get(key, 10)
+
+
+# Specific threshold helpers for common use cases
+def get_min_relationship_confidence(engine: Any) -> float:
+    """Get minimum confidence threshold for relationships."""
+    return get_confidence_threshold(engine, "min_relationship")
+
+
+def get_community_rel_confidence(engine: Any) -> float:
+    """Get confidence for community-based relationship derivation."""
+    return get_confidence_threshold(engine, "community_rel")
+
+
+def get_name_match_confidence(engine: Any) -> float:
+    """Get confidence for name-based matching."""
+    return get_confidence_threshold(engine, "name_match")
+
+
+def get_file_match_confidence(engine: Any) -> float:
+    """Get confidence for file proximity matching."""
+    return get_confidence_threshold(engine, "file_match")
+
+
+def get_fuzzy_match_threshold(engine: Any) -> float:
+    """Get threshold for fuzzy string matching."""
+    return get_confidence_threshold(engine, "fuzzy_match")
+
+
+def get_semantic_confidence(engine: Any) -> float:
+    """Get confidence for semantic similarity matches."""
+    return get_confidence_threshold(engine, "semantic")
+
+
+def get_pagerank_min(engine: Any) -> float:
+    """Get minimum PageRank threshold for filtering."""
+    return get_confidence_threshold(engine, "pagerank_min")
+
+
+# Specific limit helpers
+def get_max_batch_size(engine: Any) -> int:
+    """Get default batch size for LLM processing."""
+    return get_derivation_limit(engine, "default_batch_size")
+
+
+def get_max_candidates(engine: Any) -> int:
+    """Get default maximum candidates for LLM derivation."""
+    return get_derivation_limit(engine, "default_max_candidates")
+
+
+def get_max_relationships_per_derivation(engine: Any) -> int:
+    """Get maximum relationships created per derivation step."""
+    return get_derivation_limit(engine, "max_relationships_per_derivation")

@@ -19,12 +19,20 @@ Path patterns use 'path:' prefix and support glob syntax:
 from __future__ import annotations
 
 import fnmatch
+import re
 from pathlib import Path
 from typing import Any
 
 
 def _match_path_pattern(file_path: str, pattern: str) -> bool:
-    """Match a file path against a glob pattern.
+    """
+    Match a file path against a glob pattern.
+
+    Supports ** patterns for recursive directory matching and normalizes
+    path separators for cross-platform compatibility.
+
+    IMPORTANT: Directory components are matched as whole path segments,
+    not substrings. E.g., '**/tests/**' will NOT match '/contests/foo.py'.
 
     Args:
         file_path: File path to match (can use any separator)
@@ -32,18 +40,32 @@ def _match_path_pattern(file_path: str, pattern: str) -> bool:
 
     Returns:
         True if path matches pattern
+
+    Examples:
+        >>> _match_path_pattern("src/tests/test_app.py", "**/tests/**")
+        True
+        >>> _match_path_pattern("src/app.py", "**/tests/**")
+        False
+        >>> _match_path_pattern("src/contests/app.py", "**/tests/**")
+        False  # 'contests' is not 'tests'
+        >>> _match_path_pattern("docs/readme.md", "docs/*")
+        True
     """
     # Normalize path to forward slashes for consistent matching
     normalized_path = file_path.replace("\\", "/").lower()
     pattern = pattern.lower()
 
-    # Handle ** patterns by checking if any part matches
+    # Handle ** patterns by checking if directory components match
     if "**" in pattern:
-        # For patterns like **/tests/**, check if 'tests' is in the path
-        parts = pattern.split("**")
+        # Extract the directory names between ** markers
+        # Pattern: **/tests/** -> extract 'tests' as directory to match
+        parts = [p.strip("/") for p in pattern.split("**") if p.strip("/")]
+
         for part in parts:
-            part = part.strip("/")
-            if part and part not in normalized_path:
+            # Match as a directory component, not a substring
+            # Use regex to match: start of path or /, then part, then / or end
+            dir_pattern = rf"(^|/){re.escape(part)}(/|$)"
+            if not re.search(dir_pattern, normalized_path):
                 return False
         return True
     else:

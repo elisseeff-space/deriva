@@ -154,7 +154,7 @@ wheels = [
 
 [[package]]
 name = "deriva"
-version = "0.6.5"
+version = "0.6.6"
 source = { editable = "." }
 dependencies = [
     { name = "asyncio" },
@@ -163,6 +163,8 @@ dependencies = [
     { name = "marimo" },
     { name = "neo4j" },
     { name = "pydantic" },
+    { name = "pypdf" },
+    { name = "python-docx" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -185,10 +187,6 @@ dev = [
     { name = "ty" },
     { name = "types-lxml" },
 ]
-documents = [
-    { name = "pypdf" },
-    { name = "python-docx" },
-]
 
 [package.metadata]
 requires-dist = [
@@ -199,10 +197,10 @@ requires-dist = [
     { name = "neo4j", specifier = ">=6.1.0" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.1" },
     { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pypdf", marker = "extra == 'documents'", specifier = ">=5.0.0" },
+    { name = "pypdf", specifier = ">=6.6.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.2" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=7.0.0" },
-    { name = "python-docx", marker = "extra == 'documents'", specifier = ">=1.1.0" },
+    { name = "python-docx", specifier = ">=1.2.0" },
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "requests", specifier = ">=2.32.5" },

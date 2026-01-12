@@ -134,6 +134,10 @@ def get_model_token_limit(model: str | None = None) -> int:
                     if limit is None:
                         limit = MODEL_TOKEN_LIMITS["default"]
 
+    # Ensure limit is set (type checker can't track all branches above)
+    if limit is None:
+        limit = MODEL_TOKEN_LIMITS["default"]
+
     return int(limit * TOKEN_SAFETY_MARGIN)
 
 

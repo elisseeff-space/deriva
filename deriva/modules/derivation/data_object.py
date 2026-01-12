@@ -25,97 +25,157 @@ Relationships:
 - INBOUND: TechnologyService -> DataObject (Access) - tech accesses data
 - INBOUND: ApplicationService -> DataObject (Flow) - app services flow data
 - INBOUND: BusinessProcess -> DataObject (Access) - processes access data
+
+ArchiMate Layer: Application Layer
+ArchiMate Type: DataObject
+
+Typical Sources:
+    - File nodes with .json, .yaml, .xml, .csv extensions
+    - Schema definition files and configuration files
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any
 
-from deriva.adapters.archimate.models import Element, Relationship
 from deriva.modules.derivation.base import (
-    DERIVATION_SCHEMA,
     Candidate,
-    GenerationResult,
     RelationshipRule,
-    batch_candidates,
-    build_derivation_prompt,
-    build_element,
-    derive_batch_relationships,
     enrich_candidate,
     filter_by_pagerank,
-    get_enrichments_from_neo4j,
-    parse_derivation_response,
-    query_candidates,
 )
-from deriva.services import config
-
-if TYPE_CHECKING:
-    from deriva.adapters.archimate import ArchimateManager
-    from deriva.adapters.graph import GraphManager
+from deriva.modules.derivation.element_base import PatternBasedDerivation
 
 logger = logging.getLogger(__name__)
 
-ELEMENT_TYPE = "DataObject"
 
-# =============================================================================
-# RELATIONSHIP RULES
-# =============================================================================
+class DataObjectDerivation(PatternBasedDerivation):
+    """
+    DataObject element derivation.
 
-# Relationships FROM DataObject TO other element types
-OUTBOUND_RULES = [
-    RelationshipRule(
-        target_type="TechnologyService",
-        rel_type="Realization",
-        description="Data objects (config/requirements) realize technology services",
-    ),
-]
+    Uses pattern-based filtering to identify data files and
+    structured data artifacts from File nodes.
+    """
 
-# Relationships FROM other element types TO DataObject
-INBOUND_RULES = [
-    RelationshipRule(
-        target_type="TechnologyService",
-        rel_type="Access",
-        description="Technology services access data objects",
-    ),
-    RelationshipRule(
-        target_type="ApplicationService",
-        rel_type="Flow",
-        description="Application services transfer data to/from data objects",
-    ),
-    RelationshipRule(
-        target_type="BusinessProcess",
-        rel_type="Access",
-        description="Business processes access data objects",
-    ),
-]
+    ELEMENT_TYPE = "DataObject"
 
+    OUTBOUND_RULES = [
+        RelationshipRule(
+            target_type="TechnologyService",
+            rel_type="Realization",
+            description="Data objects (config/requirements) realize technology services",
+        ),
+    ]
 
-# =============================================================================
-# FILTERING
-# =============================================================================
+    INBOUND_RULES = [
+        RelationshipRule(
+            target_type="TechnologyService",
+            rel_type="Access",
+            description="Technology services access data objects",
+        ),
+        RelationshipRule(
+            target_type="ApplicationService",
+            rel_type="Flow",
+            description="Application services transfer data to/from data objects",
+        ),
+        RelationshipRule(
+            target_type="BusinessProcess",
+            rel_type="Access",
+            description="Business processes access data objects",
+        ),
+    ]
 
+    def filter_candidates(
+        self,
+        candidates: list[Candidate],
+        enrichments: dict[str, dict[str, Any]],
+        max_candidates: int,
+        include_patterns: set[str] | None = None,
+        exclude_patterns: set[str] | None = None,
+        **kwargs: Any,
+    ) -> list[Candidate]:
+        """
+        Filter candidates for DataObject derivation.
 
-def _is_likely_data_object(
-    name: str, include_patterns: set[str], exclude_patterns: set[str]
-) -> bool:
-    """Check if a file name suggests a data object."""
-    if not name:
-        return False
+        Strategy:
+        1. Enrich with graph metrics
+        2. Filter by data file patterns
+        3. Exclude source code and templates
+        4. Use PageRank to find most important data files
+        """
+        include_patterns = include_patterns or set()
+        exclude_patterns = exclude_patterns or set()
 
-    name_lower = name.lower()
+        for c in candidates:
+            enrich_candidate(c, enrichments)
 
-    # Check exclusion patterns first
-    for pattern in exclude_patterns:
-        if pattern in name_lower:
+        filtered = [c for c in candidates if c.name]
+
+        likely_data = [
+            c
+            for c in filtered
+            if self._is_likely_data_object(c.name, include_patterns, exclude_patterns)
+        ]
+        others = [
+            c
+            for c in filtered
+            if not self._is_likely_data_object(
+                c.name, include_patterns, exclude_patterns
+            )
+        ]
+
+        likely_data = filter_by_pagerank(
+            likely_data, top_n=max_candidates // 2, min_pagerank=0.001
+        )
+
+        remaining_slots = max_candidates - len(likely_data)
+        if remaining_slots > 0 and others:
+            others = filter_by_pagerank(
+                others, top_n=remaining_slots, min_pagerank=0.001
+            )
+            likely_data.extend(others)
+
+        self.logger.debug(
+            "DataObject filter: %d total -> %d after null -> %d final candidates",
+            len(candidates),
+            len(filtered),
+            len(likely_data),
+        )
+
+        return likely_data[:max_candidates]
+
+    def _is_likely_data_object(
+        self, name: str, include_patterns: set[str], exclude_patterns: set[str]
+    ) -> bool:
+        """Check if a file name suggests a data object."""
+        if not name:
             return False
 
-    # Check for data file patterns
-    for pattern in include_patterns:
-        if pattern in name_lower:
-            return True
+        name_lower = name.lower()
 
-    return False
+        # Check exclusion patterns first
+        for pattern in exclude_patterns:
+            if pattern in name_lower:
+                return False
+
+        # Check for data file patterns
+        for pattern in include_patterns:
+            if pattern in name_lower:
+                return True
+
+        return False
+
+
+# =============================================================================
+# Backward Compatibility - Module-level exports
+# =============================================================================
+
+_instance = DataObjectDerivation()
+
+ELEMENT_TYPE = _instance.ELEMENT_TYPE
+OUTBOUND_RULES = _instance.OUTBOUND_RULES
+INBOUND_RULES = _instance.INBOUND_RULES
 
 
 def filter_candidates(
@@ -125,206 +185,47 @@ def filter_candidates(
     exclude_patterns: set[str],
     max_candidates: int,
 ) -> list[Candidate]:
-    """
-    Filter candidates for DataObject derivation.
-
-    Strategy:
-    1. Enrich with graph metrics
-    2. Filter by data file patterns
-    3. Exclude source code and templates
-    4. Use PageRank to find most important data files
-    """
-    for c in candidates:
-        enrich_candidate(c, enrichments)
-
-    filtered = [c for c in candidates if c.name]
-
-    likely_data = [
-        c
-        for c in filtered
-        if _is_likely_data_object(c.name, include_patterns, exclude_patterns)
-    ]
-    others = [
-        c
-        for c in filtered
-        if not _is_likely_data_object(c.name, include_patterns, exclude_patterns)
-    ]
-
-    likely_data = filter_by_pagerank(
-        likely_data, top_n=max_candidates // 2, min_pagerank=0.001
+    """Backward-compatible filter_candidates function."""
+    return _instance.filter_candidates(
+        candidates,
+        enrichments,
+        max_candidates,
+        include_patterns=include_patterns,
+        exclude_patterns=exclude_patterns,
     )
-
-    remaining_slots = max_candidates - len(likely_data)
-    if remaining_slots > 0 and others:
-        others = filter_by_pagerank(others, top_n=remaining_slots, min_pagerank=0.001)
-        likely_data.extend(others)
-
-    logger.debug(
-        "DataObject filter: %d total -> %d after null -> %d final candidates",
-        len(candidates),
-        len(filtered),
-        len(likely_data),
-    )
-
-    return likely_data[:max_candidates]
-
-
-# =============================================================================
-# GENERATION
-# =============================================================================
 
 
 def generate(
-    graph_manager: "GraphManager",
-    archimate_manager: "ArchimateManager",
-    engine: Any,
-    llm_query_fn: Callable[..., Any],
-    query: str,
-    instruction: str,
-    example: str,
-    max_candidates: int,
-    batch_size: int,
-    existing_elements: list[dict[str, Any]],
-    temperature: float | None = None,
-    max_tokens: int | None = None,
-    defer_relationships: bool = False,
-) -> GenerationResult:
-    """
-    Generate DataObject elements and their relationships.
-
-    All configuration parameters are required - no defaults, no fallbacks.
-    """
-    result = GenerationResult(success=True)
-
-    patterns = config.get_derivation_patterns(engine, ELEMENT_TYPE)
-    include_patterns = patterns.get("include", set())
-    exclude_patterns = patterns.get("exclude", set())
-
-    enrichments = get_enrichments_from_neo4j(graph_manager)
-    candidates = query_candidates(graph_manager, query, enrichments)
-
-    if not candidates:
-        logger.info("No File candidates found")
-        return result
-
-    logger.info("Found %d file candidates", len(candidates))
-
-    filtered = filter_candidates(
-        candidates, enrichments, include_patterns, exclude_patterns, max_candidates
+    graph_manager,
+    archimate_manager,
+    engine,
+    llm_query_fn,
+    query,
+    instruction,
+    example,
+    max_candidates,
+    batch_size,
+    existing_elements,
+    temperature=None,
+    max_tokens=None,
+    defer_relationships=False,
+):
+    """Backward-compatible generate function."""
+    return _instance.generate(
+        graph_manager=graph_manager,
+        archimate_manager=archimate_manager,
+        engine=engine,
+        llm_query_fn=llm_query_fn,
+        query=query,
+        instruction=instruction,
+        example=example,
+        max_candidates=max_candidates,
+        batch_size=batch_size,
+        existing_elements=existing_elements,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        defer_relationships=defer_relationships,
     )
-
-    if not filtered:
-        logger.info("No candidates passed filtering")
-        return result
-
-    logger.info("Filtered to %d candidates for LLM", len(filtered))
-
-    batches = batch_candidates(filtered, batch_size)
-
-    llm_kwargs = {}
-    if temperature is not None:
-        llm_kwargs["temperature"] = temperature
-    if max_tokens is not None:
-        llm_kwargs["max_tokens"] = max_tokens
-
-    for batch_num, batch in enumerate(batches, 1):
-        # -----------------------------------------------------------------
-        # STEP 1: Generate elements
-        # -----------------------------------------------------------------
-        prompt = build_derivation_prompt(
-            candidates=batch,
-            instruction=instruction,
-            example=example,
-            element_type=ELEMENT_TYPE,
-        )
-
-        try:
-            response = llm_query_fn(prompt, DERIVATION_SCHEMA, **llm_kwargs)
-            response_content = (
-                response.content if hasattr(response, "content") else str(response)
-            )
-        except Exception as e:
-            result.errors.append(f"LLM error in batch {batch_num}: {e}")
-            continue
-
-        parse_result = parse_derivation_response(response_content)
-
-        if not parse_result["success"]:
-            result.errors.extend(parse_result.get("errors", []))
-            continue
-
-        # Build enrichment lookup for this batch's candidates
-        batch_enrichments = {
-            c.node_id: {
-                "pagerank": c.pagerank,
-                "louvain_community": c.louvain_community,
-            }
-            for c in batch
-        }
-        batch_elements: list[dict[str, Any]] = []
-        for derived in parse_result.get("data", []):
-            element_result = build_element(derived, ELEMENT_TYPE, batch_enrichments)
-
-            if not element_result["success"]:
-                result.errors.extend(element_result.get("errors", []))
-                continue
-
-            element_data = element_result["data"]
-
-            try:
-                element = Element(
-                    name=element_data["name"],
-                    element_type=element_data["element_type"],
-                    identifier=element_data["identifier"],
-                    documentation=element_data.get("documentation"),
-                    properties=element_data.get("properties", {}),
-                )
-                archimate_manager.add_element(element)
-                result.elements_created += 1
-                result.created_elements.append(element_data)
-                batch_elements.append(element_data)
-            except Exception as e:
-                result.errors.append(
-                    f"Failed to create element {element_data['identifier']}: {e}"
-                )
-
-        # -----------------------------------------------------------------
-        # STEP 2: Derive relationships for this batch
-        # -----------------------------------------------------------------
-        if batch_elements and existing_elements and not defer_relationships:
-            relationships = derive_batch_relationships(
-                new_elements=batch_elements,
-                existing_elements=existing_elements,
-                element_type=ELEMENT_TYPE,
-                outbound_rules=OUTBOUND_RULES,
-                inbound_rules=INBOUND_RULES,
-                llm_query_fn=llm_query_fn,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                graph_manager=graph_manager,
-            )
-
-            for rel_data in relationships:
-                try:
-                    relationship = Relationship(
-                        source=rel_data["source"],
-                        target=rel_data["target"],
-                        relationship_type=rel_data["relationship_type"],
-                        properties={"confidence": rel_data.get("confidence", 0.5)},
-                    )
-                    archimate_manager.add_relationship(relationship)
-                    result.relationships_created += 1
-                    result.created_relationships.append(rel_data)
-                except Exception as e:
-                    result.errors.append(f"Failed to create relationship: {e}")
-
-    logger.info(
-        "Created %d %s elements and %d relationships",
-        result.elements_created,
-        ELEMENT_TYPE,
-        result.relationships_created,
-    )
-    return result
 
 
 __all__ = [
@@ -333,4 +234,5 @@ __all__ = [
     "INBOUND_RULES",
     "filter_candidates",
     "generate",
+    "DataObjectDerivation",
 ]

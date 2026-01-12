@@ -188,7 +188,15 @@ def analyze_from_object_types(
 
 
 def extract_node_type(node_id: str) -> str:
-    """Extract node type from node ID (format: Type_repo_identifier)."""
+    """Extract node type from node ID.
+
+    Supports two formats:
+    - New format: Type::repo::identifier
+    - Legacy format: Type_repo_identifier
+    """
+    if "::" in node_id:
+        parts = node_id.split("::")
+        return parts[0] if parts else "Unknown"
     parts = node_id.split("_")
     return parts[0] if parts else "Unknown"
 
@@ -196,14 +204,30 @@ def extract_node_type(node_id: str) -> str:
 def extract_element_type(element_id: str) -> str:
     """Extract element type from element ID."""
     lower_id = element_id.lower()
-    if "component" in lower_id or lower_id.startswith("ac_"):
+    if (
+        "component" in lower_id
+        or lower_id.startswith("ac_")
+        or lower_id.startswith("ac::")
+    ):
         return "ApplicationComponent"
-    if "service" in lower_id or lower_id.startswith("as_"):
+    if (
+        "service" in lower_id
+        or lower_id.startswith("as_")
+        or lower_id.startswith("as::")
+    ):
         return "ApplicationService"
-    if "data" in lower_id or lower_id.startswith("do_"):
+    if "data" in lower_id or lower_id.startswith("do_") or lower_id.startswith("do::"):
         return "DataObject"
-    if "artifact" in lower_id or lower_id.startswith("art_"):
+    if (
+        "artifact" in lower_id
+        or lower_id.startswith("art_")
+        or lower_id.startswith("art::")
+    ):
         return "Artifact"
+    # Handle both formats
+    if "::" in element_id:
+        parts = element_id.split("::")
+        return parts[0] if parts else "Unknown"
     parts = element_id.split("_")
     return parts[0] if parts else "Unknown"
 

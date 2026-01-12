@@ -1,5 +1,36 @@
 """
-Main LLM Manager service with multi-provider support, caching, and structured output.
+LLM Manager - Unified interface for LLM API calls with caching and structured output.
+
+This module provides the LLMManager class which handles all LLM operations
+with multi-provider support, intelligent caching, and type-safe structured output.
+
+Supported Providers:
+    - Azure OpenAI
+    - OpenAI
+    - Anthropic
+    - Ollama (local)
+
+Usage:
+    from deriva.adapters.llm import LLMManager
+
+    # Basic query
+    llm = LLMManager()
+    response = llm.query("Explain Python decorators")
+    print(response.content)
+
+    # Structured output with Pydantic
+    from pydantic import BaseModel
+
+    class Concept(BaseModel):
+        name: str
+        description: str
+
+    result = llm.query("Extract concept...", response_model=Concept)
+    print(result.name)  # Type-safe access
+
+    # Check response type
+    if response.response_type == "cached":
+        print("Response was cached")
 """
 
 from __future__ import annotations

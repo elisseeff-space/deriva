@@ -54,8 +54,12 @@ def extract_response_content(response: Any) -> tuple[str, str | None]:
 
 logger = logging.getLogger(__name__)
 
-# Essential properties to include in LLM prompts (reduces token usage)
-# These are the most useful properties for element derivation
+# Essential properties to include in LLM prompts (reduces token usage).
+# These properties provide critical identity/context signals for LLM-based
+# derivation decisions. Including only these reduces prompt size by ~60%
+# while retaining the most semantically useful information.
+#
+# Used by Candidate.to_dict(include_props=ESSENTIAL_PROPS)
 ESSENTIAL_PROPS: set[str] = {
     "name",
     "description",
@@ -380,7 +384,12 @@ def get_articulation_points(candidates: list[Candidate]) -> list[Candidate]:
 # Token Estimation & Context Limiting (Phase 4)
 # =============================================================================
 
-# Default model context limits (tokens) - conservative estimates
+# Default model context limits (tokens) - conservative estimates.
+# Used by get_model_context_limit() to determine maximum prompt size
+# and by check_prompt_size() to warn when approaching limits.
+#
+# Values are intentionally conservative to leave room for response tokens.
+# Actual model limits may be higher, but staying within these ensures reliability.
 MODEL_CONTEXT_LIMITS: dict[str, int] = {
     "gpt-4": 8192,
     "gpt-4-turbo": 128000,
@@ -725,9 +734,7 @@ def derive_community_relationships(
         # Process OUTBOUND rules (FROM new TO existing in same community)
         for rule in outbound_rules:
             targets = [
-                e
-                for e in same_community
-                if e.get("element_type") == rule.target_type
+                e for e in same_community if e.get("element_type") == rule.target_type
             ]
 
             for target in targets:
@@ -751,9 +758,7 @@ def derive_community_relationships(
         # Process INBOUND rules (FROM existing in same community TO new)
         for rule in inbound_rules:
             sources = [
-                e
-                for e in same_community
-                if e.get("element_type") == rule.target_type
+                e for e in same_community if e.get("element_type") == rule.target_type
             ]
 
             for source in sources:
@@ -774,9 +779,7 @@ def derive_community_relationships(
                         }
                     )
 
-    logger.debug(
-        "Community-based derivation: %d relationships", len(relationships)
-    )
+    logger.debug("Community-based derivation: %d relationships", len(relationships))
     return relationships
 
 
@@ -878,9 +881,7 @@ def derive_neighbor_relationships(
             logger.warning("Error querying graph neighbors for %s: %s", source_id, e)
             continue
 
-    logger.debug(
-        "Graph neighbor derivation: %d relationships", len(relationships)
-    )
+    logger.debug("Graph neighbor derivation: %d relationships", len(relationships))
     return relationships
 
 
@@ -2127,11 +2128,12 @@ def derive_batch_relationships(
     # Add LLM relationships to the combined deterministic results
     all_relationships.extend(llm_relationships)
     logger.info(
-        "Derived %d total relationships for %s batch "
-        "(deterministic: %d, LLM: %d)",
+        "Derived %d total relationships for %s batch (deterministic: %d, LLM: %d)",
         len(all_relationships),
         element_type,
-        len(community_rels) + (len(neighbor_rels) if graph_manager else 0) + len(deterministic_rels),
+        len(community_rels)
+        + (len(neighbor_rels) if graph_manager else 0)
+        + len(deterministic_rels),
         len(llm_relationships),
     )
     return all_relationships

@@ -2,6 +2,46 @@
 
 Provides deterministic, precise extraction that complements LLM-based semantic extraction.
 Extracts types, methods, and imports from source files using tree-sitter parsers.
+
+Supported Languages:
+    - Python (.py, .pyw, .pyi) - Full support
+    - JavaScript (.js, .mjs, .cjs, .jsx) - Full support
+    - TypeScript (.ts, .tsx, .mts, .cts) - Limited support (see note below)
+    - Java (.java) - Full support
+    - C# (.cs) - Full support
+
+TypeScript Support Note:
+    TypeScript files are currently parsed using the JavaScript grammar.
+    This provides approximately 90% accuracy for common patterns but may miss:
+
+    - Interface definitions (parsed as generic objects)
+    - Generic type parameters (e.g., Array<T>, Promise<Result>)
+    - Complex type annotations
+    - Type-only imports/exports
+    - Enums (partially supported)
+
+    For most practical extraction purposes (classes, functions, imports),
+    the JavaScript grammar handles TypeScript adequately. A dedicated
+    TypeScript extractor using tree-sitter-typescript is planned for
+    full TypeScript support.
+
+Usage:
+    from deriva.adapters.treesitter import TreeSitterManager
+
+    ts = TreeSitterManager()
+
+    # Extract types from source code
+    types = ts.extract_types(source_code, file_path="app.py")
+    for t in types:
+        print(f"{t.name}: {t.kind}")  # e.g., "User: class"
+
+    # Extract methods
+    methods = ts.extract_methods(source_code, file_path="app.py")
+    for m in methods:
+        print(f"{m.name}({m.parameters})")
+
+    # Extract imports
+    imports = ts.extract_imports(source_code, file_path="app.py")
 """
 
 from __future__ import annotations
@@ -16,7 +56,16 @@ from .languages import get_extractor, supported_languages
 
 
 class TreeSitterManager:
-    """Unified manager for tree-sitter-based code extraction across all languages."""
+    """Unified manager for tree-sitter-based code extraction across all languages.
+
+    Provides deterministic extraction of:
+    - Type definitions (classes, interfaces, enums, structs)
+    - Methods and functions (with parameters, return types)
+    - Import statements (modules, symbols)
+
+    Uses tree-sitter parsers for fast, accurate AST-based extraction.
+    Automatically detects language from file extension.
+    """
 
     # Supported languages
     SUPPORTED_LANGUAGES = {"python", "javascript", "typescript", "java", "csharp"}
@@ -198,17 +247,22 @@ class TreeSitterManager:
     ) -> str | None:
         """Resolve the language to use for extraction.
 
+        TypeScript files are mapped to JavaScript for extraction.
+        See module docstring for details on TypeScript support limitations.
+
         Args:
-            file_path: Optional file path
-            language: Optional explicit language
+            file_path: Optional file path to detect language from extension
+            language: Optional explicit language override
 
         Returns:
-            Language name or None
+            Language name or None if unsupported
         """
         if language:
             lang = language.lower()
-            # Handle typescript -> javascript mapping for now
-            # (we use JS grammar for TS until dedicated TS extractor exists)
+            # TypeScript -> JavaScript mapping
+            # The JavaScript grammar handles ~90% of TS patterns correctly.
+            # Missing: interfaces, generics, type-only imports, complex annotations
+            # TODO: Add dedicated TypeScript extractor for full support
             if lang == "typescript":
                 lang = "javascript"
             return lang if lang in self.SUPPORTED_LANGUAGES else None

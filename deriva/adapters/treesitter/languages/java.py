@@ -22,6 +22,7 @@ class JavaExtractor(LanguageExtractor):
     def get_language(self) -> Any:
         """Return the tree-sitter Java language."""
         import tree_sitter_java
+
         return tree_sitter_java.language()
 
     def extract_types(
@@ -66,7 +67,9 @@ class JavaExtractor(LanguageExtractor):
                     if child.type == "method_declaration":
                         methods.append(self._extract_method(child, source, class_name))
                     elif child.type == "constructor_declaration":
-                        methods.append(self._extract_constructor(child, source, class_name))
+                        methods.append(
+                            self._extract_constructor(child, source, class_name)
+                        )
 
         return methods
 
@@ -87,9 +90,7 @@ class JavaExtractor(LanguageExtractor):
     # Private extraction helpers
     # =========================================================================
 
-    def _extract_type(
-        self, node: tree_sitter.Node, source: bytes
-    ) -> ExtractedType:
+    def _extract_type(self, node: tree_sitter.Node, source: bytes) -> ExtractedType:
         """Extract a type definition (class, interface, enum, record)."""
         name = self._get_type_name(node, source)
         kind = self._get_type_kind(node)
@@ -123,7 +124,9 @@ class JavaExtractor(LanguageExtractor):
 
         # Get return type
         return_type_node = self.find_child_by_field(node, "type")
-        return_annotation = self.get_node_text(return_type_node, source) if return_type_node else None
+        return_annotation = (
+            self.get_node_text(return_type_node, source) if return_type_node else None
+        )
 
         # Check modifiers
         is_static = self._has_modifier(node, source, "static")
@@ -175,14 +178,11 @@ class JavaExtractor(LanguageExtractor):
             visibility=visibility,
         )
 
-    def _extract_import(
-        self, node: tree_sitter.Node, source: bytes
-    ) -> ExtractedImport:
+    def _extract_import(self, node: tree_sitter.Node, source: bytes) -> ExtractedImport:
         """Extract an import declaration."""
         # Check for static import
         is_static = any(
-            self.get_node_text(child, source) == "static"
-            for child in node.children
+            self.get_node_text(child, source) == "static" for child in node.children
         )
 
         # Get the full import path
@@ -338,11 +338,13 @@ class JavaExtractor(LanguageExtractor):
                 if dimensions:
                     type_str = f"{type_str}[]" if type_str else "[]"
 
-                params.append({
-                    "name": name,
-                    "annotation": type_str,
-                    "has_default": False,
-                })
+                params.append(
+                    {
+                        "name": name,
+                        "annotation": type_str,
+                        "has_default": False,
+                    }
+                )
             elif child.type == "spread_parameter":
                 # Varargs: Type... name
                 type_node = self.find_child_by_field(child, "type")
@@ -351,11 +353,13 @@ class JavaExtractor(LanguageExtractor):
                 type_str = self.get_node_text(type_node, source) if type_node else None
                 name = self.get_node_text(name_node, source) if name_node else ""
 
-                params.append({
-                    "name": f"...{name}",
-                    "annotation": type_str,
-                    "has_default": False,
-                })
+                params.append(
+                    {
+                        "name": f"...{name}",
+                        "annotation": type_str,
+                        "has_default": False,
+                    }
+                )
 
         return params
 

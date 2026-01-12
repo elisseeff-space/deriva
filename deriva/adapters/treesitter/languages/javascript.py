@@ -22,6 +22,7 @@ class JavaScriptExtractor(LanguageExtractor):
     def get_language(self) -> Any:
         """Return the tree-sitter JavaScript language."""
         import tree_sitter_javascript
+
         return tree_sitter_javascript.language()
 
     def extract_types(
@@ -50,14 +51,18 @@ class JavaScriptExtractor(LanguageExtractor):
         # Extract top-level arrow functions assigned to const/let/var
         for node in root.children:
             if node.type in ("lexical_declaration", "variable_declaration"):
-                for declarator in self.find_children_by_type(node, "variable_declarator"):
+                for declarator in self.find_children_by_type(
+                    node, "variable_declarator"
+                ):
                     value = self.find_child_by_field(declarator, "value")
                     if value and value.type == "arrow_function":
                         name_node = self.find_child_by_field(declarator, "name")
                         if name_node:
-                            types.append(self._extract_arrow_function_as_type(
-                                node, name_node, value, source
-                            ))
+                            types.append(
+                                self._extract_arrow_function_as_type(
+                                    node, name_node, value, source
+                                )
+                            )
 
         return types
 
@@ -82,9 +87,11 @@ class JavaScriptExtractor(LanguageExtractor):
                         if value and value.type == "arrow_function":
                             name_node = self.find_child_by_field(item, "property")
                             if name_node:
-                                methods.append(self._extract_arrow_method(
-                                    item, name_node, value, source, class_name
-                                ))
+                                methods.append(
+                                    self._extract_arrow_method(
+                                        item, name_node, value, source, class_name
+                                    )
+                                )
 
         # Extract top-level functions
         for node in root.children:
@@ -98,14 +105,18 @@ class JavaScriptExtractor(LanguageExtractor):
         # Extract top-level arrow functions
         for node in root.children:
             if node.type in ("lexical_declaration", "variable_declaration"):
-                for declarator in self.find_children_by_type(node, "variable_declarator"):
+                for declarator in self.find_children_by_type(
+                    node, "variable_declarator"
+                ):
                     value = self.find_child_by_field(declarator, "value")
                     if value and value.type == "arrow_function":
                         name_node = self.find_child_by_field(declarator, "name")
                         if name_node:
-                            methods.append(self._extract_arrow_function(
-                                node, name_node, value, source
-                            ))
+                            methods.append(
+                                self._extract_arrow_function(
+                                    node, name_node, value, source
+                                )
+                            )
 
         return methods
 
@@ -121,7 +132,9 @@ class JavaScriptExtractor(LanguageExtractor):
                 imports.append(self._extract_es6_import(node, source))
             elif node.type in ("lexical_declaration", "variable_declaration"):
                 # Handle require() calls
-                for declarator in self.find_children_by_type(node, "variable_declarator"):
+                for declarator in self.find_children_by_type(
+                    node, "variable_declarator"
+                ):
                     value = self.find_child_by_field(declarator, "value")
                     if value and value.type == "call_expression":
                         func = self.find_child_by_field(value, "function")
@@ -136,9 +149,7 @@ class JavaScriptExtractor(LanguageExtractor):
     # Private extraction helpers
     # =========================================================================
 
-    def _extract_class(
-        self, node: tree_sitter.Node, source: bytes
-    ) -> ExtractedType:
+    def _extract_class(self, node: tree_sitter.Node, source: bytes) -> ExtractedType:
         """Extract a class definition."""
         name = self._get_class_name(node, source)
         bases = self._get_bases(node, source)
@@ -216,8 +227,7 @@ class JavaScriptExtractor(LanguageExtractor):
         )
 
         is_static = any(
-            self.get_node_text(child, source) == "static"
-            for child in node.children
+            self.get_node_text(child, source) == "static" for child in node.children
         )
 
         # Check for getter/setter
@@ -467,43 +477,53 @@ class JavaScriptExtractor(LanguageExtractor):
 
         for child in params_node.children:
             if child.type == "identifier":
-                params.append({
-                    "name": self.get_node_text(child, source),
-                    "annotation": None,
-                    "has_default": False,
-                })
+                params.append(
+                    {
+                        "name": self.get_node_text(child, source),
+                        "annotation": None,
+                        "has_default": False,
+                    }
+                )
             elif child.type == "assignment_pattern":
                 # Parameter with default value
                 left = self.find_child_by_field(child, "left")
                 name = self.get_node_text(left, source) if left else ""
-                params.append({
-                    "name": name,
-                    "annotation": None,
-                    "has_default": True,
-                })
+                params.append(
+                    {
+                        "name": name,
+                        "annotation": None,
+                        "has_default": True,
+                    }
+                )
             elif child.type == "rest_pattern":
                 # ...args
                 name_node = self.find_child_by_type(child, "identifier")
                 name = self.get_node_text(name_node, source) if name_node else ""
-                params.append({
-                    "name": f"...{name}",
-                    "annotation": None,
-                    "has_default": False,
-                })
+                params.append(
+                    {
+                        "name": f"...{name}",
+                        "annotation": None,
+                        "has_default": False,
+                    }
+                )
             elif child.type == "object_pattern":
                 # Destructuring parameter
-                params.append({
-                    "name": self.get_node_text(child, source),
-                    "annotation": None,
-                    "has_default": False,
-                })
+                params.append(
+                    {
+                        "name": self.get_node_text(child, source),
+                        "annotation": None,
+                        "has_default": False,
+                    }
+                )
             elif child.type == "array_pattern":
                 # Array destructuring parameter
-                params.append({
-                    "name": self.get_node_text(child, source),
-                    "annotation": None,
-                    "has_default": False,
-                })
+                params.append(
+                    {
+                        "name": self.get_node_text(child, source),
+                        "annotation": None,
+                        "has_default": False,
+                    }
+                )
 
         return params
 
@@ -517,11 +537,13 @@ class JavaScriptExtractor(LanguageExtractor):
         param_node = self.find_child_by_field(arrow_node, "parameter")
         if param_node:
             # Single parameter without parens
-            params.append({
-                "name": self.get_node_text(param_node, source),
-                "annotation": None,
-                "has_default": False,
-            })
+            params.append(
+                {
+                    "name": self.get_node_text(param_node, source),
+                    "annotation": None,
+                    "has_default": False,
+                }
+            )
         else:
             params_node = self.find_child_by_field(arrow_node, "parameters")
             if params_node:
@@ -537,27 +559,33 @@ class JavaScriptExtractor(LanguageExtractor):
 
         for child in params_node.children:
             if child.type == "identifier":
-                params.append({
-                    "name": self.get_node_text(child, source),
-                    "annotation": None,
-                    "has_default": False,
-                })
+                params.append(
+                    {
+                        "name": self.get_node_text(child, source),
+                        "annotation": None,
+                        "has_default": False,
+                    }
+                )
             elif child.type == "assignment_pattern":
                 left = self.find_child_by_field(child, "left")
                 name = self.get_node_text(left, source) if left else ""
-                params.append({
-                    "name": name,
-                    "annotation": None,
-                    "has_default": True,
-                })
+                params.append(
+                    {
+                        "name": name,
+                        "annotation": None,
+                        "has_default": True,
+                    }
+                )
             elif child.type == "rest_pattern":
                 name_node = self.find_child_by_type(child, "identifier")
                 name = self.get_node_text(name_node, source) if name_node else ""
-                params.append({
-                    "name": f"...{name}",
-                    "annotation": None,
-                    "has_default": False,
-                })
+                params.append(
+                    {
+                        "name": f"...{name}",
+                        "annotation": None,
+                        "has_default": False,
+                    }
+                )
 
         return params
 

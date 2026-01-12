@@ -6,6 +6,8 @@ Finds and removes duplicate relationships in the ArchiMate model:
 - Redundant relationships: Same source and target with semantically equivalent types
 
 Only hard-deletes relationships (unlike elements which are soft-deleted).
+
+Refine Step Name: "duplicate_relationships"
 """
 
 from __future__ import annotations

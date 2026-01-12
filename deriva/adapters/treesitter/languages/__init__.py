@@ -79,7 +79,6 @@ def _ensure_extractors_loaded() -> None:
         pass
 
 
-
 __all__ = [
     "LanguageExtractor",
     "get_extractor",

@@ -8,6 +8,24 @@ Orchestrates the extraction pipeline by:
 4. Persisting results to Neo4j GraphManager
 
 Used by both Marimo (visual) and CLI (headless).
+
+Usage:
+    from deriva.services import extraction
+    from deriva.adapters.graph import GraphManager
+    from deriva.adapters.database import get_connection
+
+    engine = get_connection()
+
+    with GraphManager() as gm:
+        result = extraction.run_extraction(
+            engine=engine,
+            graph_manager=gm,
+            llm_query_fn=my_llm_query,
+            repo_name="my-repo",
+            verbose=True,
+        )
+        print(f"Nodes created: {result['stats']['total_nodes']}")
+        print(f"Edges created: {result['stats']['total_edges']}")
 """
 
 from __future__ import annotations
@@ -437,7 +455,13 @@ def _extract_llm_based(
         matching_files = [f for f in classified_files if extraction.is_python_file(f.get("subtype"))]
 
     if not matching_files:
-        return {"nodes_created": 0, "edges_created": 0, "errors": []}
+        # Not an error - valid case when no files match input sources
+        return {
+            "nodes_created": 0,
+            "edges_created": 0,
+            "errors": [],
+            "warnings": [f"No matching files for {node_type} in {repo.name}"],
+        }
 
     # Get extraction function and schema based on node type
     extract_fn, schema, node_class = _get_extraction_config(node_type)
@@ -476,10 +500,10 @@ def _extract_llm_based(
             else:
                 content = read_file_with_encoding(file_path)
             if content is None:
-                errors.append(f"Could not read {file_path}")
+                errors.append(f"Could not read {file_path} | repo={repo.name} | step={node_type}")
                 continue
         except Exception as e:
-            errors.append(f"Could not read {file_path}: {e}")
+            errors.append(f"Could not read {file_path} | repo={repo.name} | step={node_type} | exception={type(e).__name__}: {e}")
             continue
 
         # Check if this file's language is supported by tree-sitter

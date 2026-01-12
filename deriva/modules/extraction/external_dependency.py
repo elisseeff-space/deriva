@@ -96,6 +96,13 @@ EXTERNAL_DEPENDENCY_SCHEMA = {
 # Standard library modules (for filtering AST imports)
 # =============================================================================
 
+# Complete set of Python standard library module names (Python 3.9+).
+# Used by AST-based extraction to filter out stdlib imports and only
+# extract external (third-party) dependencies.
+#
+# This set is used in _extract_from_python_ast() to skip imports like:
+#   import os        # stdlib - skip
+#   import flask     # external - extract
 PYTHON_STDLIB_MODULES = {
     "abc",
     "aifc",

@@ -54,13 +54,13 @@ Derivation configs define how to create ArchiMate elements from graph nodes.
 
 ```bash
 # List all extraction configs
-uv run python -m deriva.cli.cli config list extraction
+deriva config list extraction
 
 # List enabled derivation configs
-uv run python -m deriva.cli.cli config list derivation --enabled
+deriva config list derivation --enabled
 
 # Show detailed config
-uv run python -m deriva.cli.cli config show derivation ApplicationComponent
+deriva config show derivation ApplicationComponent
 ```
 
 </details>
@@ -108,10 +108,10 @@ Establish a baseline with multiple runs to measure consistency:
 
 ```bash
 # Clone test repository
-uv run python -m deriva.cli.cli repo clone https://github.com/marcelemonds/flask_invoice_generator
+deriva repo clone https://github.com/marcelemonds/flask_invoice_generator
 
 # Run benchmark with --no-cache to get real variance data
-uv run python -m deriva.cli.cli benchmark run \
+deriva benchmark run \
   --repos flask_invoice_generator \
   --models openai-gptx \
   --runs 5 \
@@ -124,7 +124,7 @@ uv run python -m deriva.cli.cli benchmark run \
 ### 2. Analyze Results
 
 ```bash
-uv run python -m deriva.cli.cli benchmark analyze bench_20260103_094609
+deriva benchmark analyze bench_20260103_094609
 ```
 
 The analysis produces `workspace/benchmarks/<session>/analysis/summary.json` with:
@@ -141,11 +141,11 @@ When you modify a config, Deriva creates a new version for rollback:
 
 ```bash
 # Update instruction inline
-uv run python -m deriva.cli.cli config update derivation ApplicationComponent \
+deriva config update derivation ApplicationComponent \
   -i "Identify software components that encapsulate business logic..."
 
 # Or from file for longer instructions
-uv run python -m deriva.cli.cli config update derivation ApplicationComponent \
+deriva config update derivation ApplicationComponent \
   --instruction-file prompts/app_component.txt
 ```
 
@@ -156,7 +156,7 @@ uv run python -m deriva.cli.cli config update derivation ApplicationComponent \
 Use `--nocache-configs` to test your change while keeping other configs cached:
 
 ```bash
-uv run python -m deriva.cli.cli benchmark run \
+deriva benchmark run \
   --repos flask_invoice_generator \
   --models openai-gptx \
   --runs 5 \
@@ -168,7 +168,7 @@ This is cost-efficient: cached configs cost $0, only the tested config incurs LL
 ### 5. Compare Results
 
 ```bash
-uv run python -m deriva.cli.cli benchmark analyze bench_20260103_130000
+deriva benchmark analyze bench_20260103_130000
 ```
 
 If consistency improved (e.g., 28% → 78%), the change helped.

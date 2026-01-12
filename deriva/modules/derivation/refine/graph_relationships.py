@@ -15,6 +15,8 @@ Graph Edge → ArchiMate Relationship Mapping:
 - CALLS → Flow (method invocation)
 - IMPORTS → Serving (module import)
 - DEPENDS_ON → Serving (module dependency)
+
+Refine Step Name: "graph_relationships"
 """
 
 from __future__ import annotations

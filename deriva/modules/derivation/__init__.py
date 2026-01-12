@@ -1,6 +1,11 @@
 """
 Derivation module - Transform Graph nodes into ArchiMate elements.
 
+This module implements a hybrid derivation approach combining:
+1. **Graph signals** - PageRank, Louvain communities, k-core for importance ranking
+2. **Deterministic rules** - Name matching, file proximity, community membership
+3. **LLM refinement** - Semantic understanding for complex relationships
+
 Modules:
 - base: Shared utilities (prompts, parsing, result creation)
 - enrich: Graph enrichment algorithms (PageRank, Louvain, k-core, etc.)
@@ -17,6 +22,29 @@ Application Layer:
 
 Technology Layer:
 - technology_service: TechnologyService derivation (infrastructure)
+
+Usage:
+    from deriva.modules.derivation import (
+        Candidate,
+        batch_candidates,
+        build_derivation_prompt,
+        derive_batch_relationships,
+    )
+
+    # Query and enrich candidates
+    candidates = query_candidates(graph_manager, cypher_query, enrichments)
+    batches = batch_candidates(candidates, batch_size=15, group_by_community=True)
+
+    # Derive elements with LLM
+    prompt = build_derivation_prompt(batch, instruction, example, "BusinessObject")
+    response = llm_query_fn(prompt, DERIVATION_SCHEMA)
+
+Three-Tier Relationship Derivation:
+    Relationships are derived using a priority-based approach:
+    - **Tier 1a**: Community-based (same Louvain community = related)
+    - **Tier 1b**: Graph neighbor (direct graph connections)
+    - **Tier 1c**: Name/file matching (semantic word overlap + same source file)
+    - **Tier 2**: LLM refinement (adds relationships missed by deterministic rules)
 """
 
 from __future__ import annotations
