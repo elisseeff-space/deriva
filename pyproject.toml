@@ -58,6 +58,10 @@ dev = [
     "ty>=0.0.11",
     "types-lxml>=2025.3.30",
 ]
+documents = [
+    "python-docx>=1.1.0",
+    "pypdf>=5.0.0",
+]
 
 [project.urls]
 Website = "https://deriva.dev"

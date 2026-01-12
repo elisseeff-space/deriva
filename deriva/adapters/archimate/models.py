@@ -233,6 +233,12 @@ RELATIONSHIP_TYPES: dict[str, RelationshipType] = {
         allowed_sources=BEHAVIOR_ELEMENTS,  # Only behavior elements can flow
         allowed_targets=BEHAVIOR_ELEMENTS,  # Only to behavior elements
     ),
+    "Triggering": RelationshipType(
+        name="Triggering",
+        description="Behavior element triggers another behavior element (temporal/causal)",
+        allowed_sources=BEHAVIOR_ELEMENTS,  # Only behavior elements can trigger
+        allowed_targets=BEHAVIOR_ELEMENTS,  # Only behavior elements can be triggered
+    ),
 }
 
 

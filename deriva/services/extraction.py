@@ -38,6 +38,7 @@ from deriva.adapters.graph.models import (
     TypeDefinitionNode,
 )
 from deriva.adapters.repository import RepoManager
+from deriva.common.document_reader import read_document
 from deriva.common.file_utils import read_file_with_encoding
 from deriva.common.ocel import create_edge_id
 from deriva.modules import extraction
@@ -469,7 +470,11 @@ def _extract_llm_based(
         file_path = repo_path / file_info["path"]
 
         try:
-            content = read_file_with_encoding(file_path)
+            # Route document files to specialized reader
+            if file_path.suffix.lower() in (".docx", ".pdf"):
+                content = read_document(file_path)
+            else:
+                content = read_file_with_encoding(file_path)
             if content is None:
                 errors.append(f"Could not read {file_path}")
                 continue
