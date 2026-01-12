@@ -740,6 +740,7 @@ class BenchmarkOrchestrator:
                     run_logger=cast("RunLoggerProtocol", ocel_run_logger),
                     progress=progress,
                     defer_relationships=self.config.defer_relationships,
+                    phases=["enrich", "generate", "refine"],  # Include refine for graph_relationships
                 )
                 stats["derivation"] = result.get("stats", {})
                 self._log_derivation_results(result)
