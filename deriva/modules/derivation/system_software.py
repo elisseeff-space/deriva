@@ -59,8 +59,30 @@ ELEMENT_TYPE = "SystemSoftware"
 # RELATIONSHIP RULES
 # =============================================================================
 
-OUTBOUND_RULES: list[RelationshipRule] = []
-INBOUND_RULES: list[RelationshipRule] = []
+OUTBOUND_RULES: list[RelationshipRule] = [
+    RelationshipRule(
+        target_type="TechnologyService",
+        rel_type="Realization",
+        description="System software realizes technology services",
+    ),
+    RelationshipRule(
+        target_type="DataObject",
+        rel_type="Access",
+        description="System software accesses data objects",
+    ),
+]
+INBOUND_RULES: list[RelationshipRule] = [
+    RelationshipRule(
+        target_type="Node",
+        rel_type="Composition",
+        description="Nodes contain system software",
+    ),
+    RelationshipRule(
+        target_type="Device",
+        rel_type="Composition",
+        description="Devices contain system software",
+    ),
+]
 
 
 def _is_likely_system_software(
@@ -208,9 +230,17 @@ def generate(
             result.errors.extend(parse_result.get("errors", []))
             continue
 
+        # Build enrichment lookup for this batch's candidates
+        batch_enrichments = {
+            c.node_id: {
+                "pagerank": c.pagerank,
+                "louvain_community": c.louvain_community,
+            }
+            for c in batch
+        }
         batch_elements: list[dict[str, Any]] = []
         for derived in parse_result.get("data", []):
-            element_result = build_element(derived, ELEMENT_TYPE)
+            element_result = build_element(derived, ELEMENT_TYPE, batch_enrichments)
 
             if not element_result["success"]:
                 result.errors.extend(element_result.get("errors", []))

@@ -320,7 +320,7 @@ def get_extraction_method(file_path: str, subtype: str | None) -> str:
 
     Returns:
         One of: "requirements_txt", "pyproject_toml", "package_json",
-                "python_ast", "llm"
+                "treesitter", "llm"
     """
     filename = file_path.lower().split("/")[-1].split("\\")[-1]
 
@@ -332,9 +332,10 @@ def get_extraction_method(file_path: str, subtype: str | None) -> str:
     if filename == "package.json":
         return "package_json"
 
-    # AST extraction for Python source files
-    if subtype and subtype.lower() == "python":
-        return "python_ast"
+    # Tree-sitter extraction for supported languages
+    treesitter_languages = {"python", "javascript", "typescript", "java", "csharp"}
+    if subtype and subtype.lower() in treesitter_languages:
+        return "treesitter"
 
     # LLM fallback for other files
     return "llm"
@@ -536,8 +537,8 @@ def _extract_from_python_ast(
     file_content: str,
     repo_name: str,
 ) -> dict[str, Any]:
-    """Extract external dependencies from Python imports using AST."""
-    from deriva.adapters.ast import ASTManager
+    """Extract external dependencies from Python imports using tree-sitter."""
+    from deriva.adapters.treesitter import TreeSitterManager
 
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
@@ -550,8 +551,8 @@ def _extract_from_python_ast(
     seen: set[str] = set()
 
     try:
-        ast_manager = ASTManager()
-        imports = ast_manager.extract_imports(file_content, file_path)
+        ts_manager = TreeSitterManager()
+        imports = ts_manager.extract_imports(file_content, file_path)
 
         for imp in imports:
             module = imp.module.split(".")[0] if imp.module else ""
@@ -586,9 +587,9 @@ def _extract_from_python_ast(
     except SyntaxError as e:
         errors.append(f"Python syntax error: {e}")
     except Exception as e:
-        errors.append(f"AST extraction error: {e}")
+        errors.append(f"Tree-sitter extraction error: {e}")
 
-    return _build_result(nodes, edges, errors, "ast")
+    return _build_result(nodes, edges, errors, "treesitter")
 
 
 # =============================================================================
@@ -955,7 +956,7 @@ def extract_external_dependencies(
         return _extract_from_pyproject_toml(file_path, file_content, repo_name)
     elif method == "package_json":
         return _extract_from_package_json(file_path, file_content, repo_name)
-    elif method == "python_ast":
+    elif method == "treesitter":
         return _extract_from_python_ast(file_path, file_content, repo_name)
     elif method == "llm" and llm_query_fn is not None:
         return _extract_from_llm(

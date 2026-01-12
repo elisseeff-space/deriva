@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from deriva.adapters.ast import ASTManager, ExtractedType
+from deriva.adapters.treesitter import TreeSitterManager, ExtractedType
 
 from .base import (
     create_empty_llm_details,
@@ -478,24 +478,24 @@ def extract_type_definitions_batch(
 
 
 # =============================================================================
-# AST-based extraction for Python files
+# Tree-sitter based extraction for supported languages
 # =============================================================================
 
 
-def extract_types_from_python(
+def extract_types_from_source(
     file_path: str,
     file_content: str,
     repo_name: str,
 ) -> dict[str, Any]:
     """
-    Extract TypeDefinition nodes from Python source using AST.
+    Extract TypeDefinition nodes from source code using tree-sitter.
 
     This is deterministic and produces accurate line numbers.
-    Use this for Python files instead of LLM extraction.
+    Supports Python, JavaScript, Java, C#, and Perl.
 
     Args:
         file_path: Path to the file being analyzed (relative to repo)
-        file_content: Python source code
+        file_content: Source code
         repo_name: Repository name
 
     Returns:
@@ -506,8 +506,8 @@ def extract_types_from_python(
     edges: list[dict[str, Any]] = []
 
     try:
-        ast_manager = ASTManager()
-        extracted_types = ast_manager.extract_types(file_content, file_path)
+        ts_manager = TreeSitterManager()
+        extracted_types = ts_manager.extract_types(file_content, file_path)
 
         # Build file node ID for CONTAINS edges
         original_path = strip_chunk_suffix(file_path)
@@ -515,7 +515,7 @@ def extract_types_from_python(
         file_node_id = f"file_{repo_name}_{safe_path}"
 
         for ext_type in extracted_types:
-            node_data = _build_type_node_from_ast(
+            node_data = _build_type_node_from_treesitter(
                 ext_type, file_path, file_content, repo_name
             )
             nodes.append(node_data)
@@ -532,6 +532,30 @@ def extract_types_from_python(
             }
             edges.append(edge)
 
+            # Create INHERITS edges for base classes
+            for base_name in ext_type.bases:
+                # Skip built-in types and generic bases
+                if base_name in ("object", "Exception", "BaseException", "type"):
+                    continue
+                # Create target node ID for the base class (same file assumption)
+                base_slug = (
+                    base_name.replace(" ", "_").replace("-", "_").replace(".", "_")
+                )
+                base_node_id = f"typedef_{repo_name}_{safe_path}_{base_slug}"
+                inherits_edge = {
+                    "edge_id": generate_edge_id(
+                        node_data["node_id"], base_node_id, "INHERITS"
+                    ),
+                    "from_node_id": node_data["node_id"],
+                    "to_node_id": base_node_id,
+                    "relationship_type": "INHERITS",
+                    "properties": {
+                        "created_at": current_timestamp(),
+                        "base_name": base_name,
+                    },
+                }
+                edges.append(inherits_edge)
+
         return {
             "success": True,
             "data": {"nodes": nodes, "edges": edges},
@@ -540,7 +564,7 @@ def extract_types_from_python(
                 "total_nodes": len(nodes),
                 "total_edges": len(edges),
                 "node_types": {"TypeDefinition": len(nodes)},
-                "extraction_method": "ast",
+                "extraction_method": "treesitter",
             },
         }
 
@@ -550,19 +574,19 @@ def extract_types_from_python(
             "success": False,
             "data": {"nodes": [], "edges": []},
             "errors": errors,
-            "stats": {"total_nodes": 0, "total_edges": 0, "extraction_method": "ast"},
+            "stats": {"total_nodes": 0, "total_edges": 0, "extraction_method": "treesitter"},
         }
     except Exception as e:
-        errors.append(f"AST extraction error in {file_path}: {e}")
+        errors.append(f"Tree-sitter extraction error in {file_path}: {e}")
         return {
             "success": False,
             "data": {"nodes": [], "edges": []},
             "errors": errors,
-            "stats": {"total_nodes": 0, "total_edges": 0, "extraction_method": "ast"},
+            "stats": {"total_nodes": 0, "total_edges": 0, "extraction_method": "treesitter"},
         }
 
 
-def _build_type_node_from_ast(
+def _build_type_node_from_treesitter(
     ext_type: ExtractedType,
     file_path: str,
     file_content: str,
@@ -600,13 +624,17 @@ def _build_type_node_from_ast(
             "codeSnippet": code_snippet,
             "confidence": 1.0,  # AST is deterministic
             "extracted_at": current_timestamp(),
-            "extraction_method": "ast",
+            "extraction_method": "treesitter",
             # AST-specific properties
             "bases": ext_type.bases,
             "decorators": ext_type.decorators,
             "is_async": ext_type.is_async,
         },
     }
+
+
+# Alias for backwards compatibility
+extract_types_from_python = extract_types_from_source
 
 
 __all__ = [
@@ -618,6 +646,7 @@ __all__ = [
     "parse_llm_response",
     "extract_type_definitions",
     "extract_type_definitions_batch",
-    # AST extraction
-    "extract_types_from_python",
+    # Tree-sitter extraction
+    "extract_types_from_source",
+    "extract_types_from_python",  # Alias for backwards compatibility
 ]

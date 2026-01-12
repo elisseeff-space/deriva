@@ -58,7 +58,23 @@ ELEMENT_TYPE = "BusinessActor"
 # RELATIONSHIP RULES
 # =============================================================================
 
-OUTBOUND_RULES: list[RelationshipRule] = []
+OUTBOUND_RULES: list[RelationshipRule] = [
+    RelationshipRule(
+        target_type="BusinessProcess",
+        rel_type="Assignment",
+        description="Business actors perform business processes",
+    ),
+    RelationshipRule(
+        target_type="BusinessFunction",
+        rel_type="Assignment",
+        description="Business actors perform business functions",
+    ),
+    RelationshipRule(
+        target_type="ApplicationInterface",
+        rel_type="Serving",
+        description="Business actors use application interfaces",
+    ),
+]
 INBOUND_RULES: list[RelationshipRule] = []
 
 
@@ -209,9 +225,17 @@ def generate(
             result.errors.extend(parse_result.get("errors", []))
             continue
 
+        # Build enrichment lookup for this batch's candidates
+        batch_enrichments = {
+            c.node_id: {
+                "pagerank": c.pagerank,
+                "louvain_community": c.louvain_community,
+            }
+            for c in batch
+        }
         batch_elements: list[dict[str, Any]] = []
         for derived in parse_result.get("data", []):
-            element_result = build_element(derived, ELEMENT_TYPE)
+            element_result = build_element(derived, ELEMENT_TYPE, batch_enrichments)
 
             if not element_result["success"]:
                 result.errors.extend(element_result.get("errors", []))

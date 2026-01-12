@@ -497,3 +497,5 @@ PROVIDES = "PROVIDES"  # For typedefinition->service relationships
 EXPOSES = "EXPOSES"  # For method->service relationships
 USES = "USES"  # For file->externaldependency, service->externaldependency relationships
 TESTS = "TESTS"  # For test->file, test->method, test->service relationships
+INHERITS = "INHERITS"  # For class inheritance (typedefinition->typedefinition)
+CALLS = "CALLS"  # For method parameter type dependencies (method->typedefinition)

@@ -60,8 +60,25 @@ ELEMENT_TYPE = "BusinessFunction"
 # RELATIONSHIP RULES
 # =============================================================================
 
-OUTBOUND_RULES: list[RelationshipRule] = []
-INBOUND_RULES: list[RelationshipRule] = []
+OUTBOUND_RULES: list[RelationshipRule] = [
+    RelationshipRule(
+        target_type="BusinessObject",
+        rel_type="Access",
+        description="Business functions access business objects",
+    ),
+    RelationshipRule(
+        target_type="BusinessProcess",
+        rel_type="Composition",
+        description="Business functions contain business processes",
+    ),
+]
+INBOUND_RULES: list[RelationshipRule] = [
+    RelationshipRule(
+        target_type="BusinessActor",
+        rel_type="Assignment",
+        description="Business actors perform business functions",
+    ),
+]
 
 
 def _is_likely_function(
@@ -209,9 +226,17 @@ def generate(
             result.errors.extend(parse_result.get("errors", []))
             continue
 
+        # Build enrichment lookup for this batch's candidates
+        batch_enrichments = {
+            c.node_id: {
+                "pagerank": c.pagerank,
+                "louvain_community": c.louvain_community,
+            }
+            for c in batch
+        }
         batch_elements: list[dict[str, Any]] = []
         for derived in parse_result.get("data", []):
-            element_result = build_element(derived, ELEMENT_TYPE)
+            element_result = build_element(derived, ELEMENT_TYPE, batch_enrichments)
 
             if not element_result["success"]:
                 result.errors.extend(element_result.get("errors", []))

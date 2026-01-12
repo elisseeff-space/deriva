@@ -43,6 +43,7 @@ EDGE_TO_RELATIONSHIP: dict[str, str] = {
     "CALLS": "Flow",  # Call between behaviors
     "IMPORTS": "Serving",  # Import dependency
     "DEPENDS_ON": "Serving",  # Module dependency
+    "INHERITS": "Realization",  # Class inheritance (subclass realizes base)
 }
 
 # Valid source/target element type combinations per ArchiMate relationship type
@@ -70,6 +71,7 @@ VALID_ELEMENT_COMBOS: dict[str, dict[str, set[str] | None]] = {
     },
     "Realization": {
         # Realization: internal behavior realizes external behavior
+        # Also used for class inheritance (INHERITS edges)
         "sources": {
             "ApplicationComponent",
             "ApplicationService",
@@ -78,6 +80,7 @@ VALID_ELEMENT_COMBOS: dict[str, dict[str, set[str] | None]] = {
             "Device",
         },
         "targets": {
+            "ApplicationComponent",  # For class inheritance
             "ApplicationService",
             "ApplicationInterface",
             "TechnologyService",

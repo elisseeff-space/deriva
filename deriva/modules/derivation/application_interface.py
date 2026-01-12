@@ -58,8 +58,25 @@ ELEMENT_TYPE = "ApplicationInterface"
 # RELATIONSHIP RULES
 # =============================================================================
 
-OUTBOUND_RULES: list[RelationshipRule] = []
-INBOUND_RULES: list[RelationshipRule] = []
+OUTBOUND_RULES: list[RelationshipRule] = [
+    RelationshipRule(
+        target_type="ApplicationService",
+        rel_type="Serving",
+        description="Application interfaces expose application services",
+    ),
+]
+INBOUND_RULES: list[RelationshipRule] = [
+    RelationshipRule(
+        target_type="ApplicationComponent",
+        rel_type="Composition",
+        description="Application components contain interfaces",
+    ),
+    RelationshipRule(
+        target_type="BusinessActor",
+        rel_type="Serving",
+        description="Application interfaces serve business actors",
+    ),
+]
 
 
 def _is_likely_interface(
@@ -207,9 +224,17 @@ def generate(
             result.errors.extend(parse_result.get("errors", []))
             continue
 
+        # Build enrichment lookup for this batch's candidates
+        batch_enrichments = {
+            c.node_id: {
+                "pagerank": c.pagerank,
+                "louvain_community": c.louvain_community,
+            }
+            for c in batch
+        }
         batch_elements: list[dict[str, Any]] = []
         for derived in parse_result.get("data", []):
-            element_result = build_element(derived, ELEMENT_TYPE)
+            element_result = build_element(derived, ELEMENT_TYPE, batch_enrichments)
 
             if not element_result["success"]:
                 result.errors.extend(element_result.get("errors", []))

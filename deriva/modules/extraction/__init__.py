@@ -82,8 +82,9 @@ from .type_definition import (
     extract_type_definitions,
     extract_type_definitions_batch,
     parse_llm_response as parse_type_definition_response,
-    # AST extraction
+    # AST extraction (both names for compatibility)
     extract_types_from_python,
+    extract_types_from_source,
 )
 from .method import (
     METHOD_SCHEMA,
@@ -92,8 +93,9 @@ from .method import (
     extract_methods,
     extract_methods_batch,
     parse_llm_response as parse_method_response,
-    # AST extraction
+    # AST extraction (both names for compatibility)
     extract_methods_from_python,
+    extract_methods_from_source,
 )
 from .technology import (
     TECHNOLOGY_SCHEMA,
@@ -175,6 +177,7 @@ __all__ = [
     "parse_type_definition_response",
     "TYPE_DEFINITION_SCHEMA",
     "extract_types_from_python",
+    "extract_types_from_source",
     # Method (LLM + AST)
     "build_method_node",
     "extract_methods",
@@ -183,6 +186,7 @@ __all__ = [
     "parse_method_response",
     "METHOD_SCHEMA",
     "extract_methods_from_python",
+    "extract_methods_from_source",
     # Technology
     "build_technology_node",
     "extract_technologies",

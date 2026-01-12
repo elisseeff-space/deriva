@@ -55,8 +55,35 @@ ELEMENT_TYPE = "ApplicationComponent"
 # RELATIONSHIP RULES
 # =============================================================================
 
-OUTBOUND_RULES: list[RelationshipRule] = []
-INBOUND_RULES: list[RelationshipRule] = []
+OUTBOUND_RULES: list[RelationshipRule] = [
+    RelationshipRule(
+        target_type="ApplicationService",
+        rel_type="Composition",
+        description="Application components contain application services",
+    ),
+    RelationshipRule(
+        target_type="DataObject",
+        rel_type="Access",
+        description="Application components access data objects",
+    ),
+    RelationshipRule(
+        target_type="ApplicationInterface",
+        rel_type="Composition",
+        description="Application components expose interfaces",
+    ),
+]
+INBOUND_RULES: list[RelationshipRule] = [
+    RelationshipRule(
+        target_type="TechnologyService",
+        rel_type="Realization",
+        description="Technology services realize application components",
+    ),
+    RelationshipRule(
+        target_type="Node",
+        rel_type="Serving",
+        description="Nodes serve application components",
+    ),
+]
 
 
 def filter_candidates(
@@ -204,9 +231,17 @@ def generate(
             continue
 
         # Create elements from this batch
+        # Build enrichment lookup for this batch's candidates
+        batch_enrichments = {
+            c.node_id: {
+                "pagerank": c.pagerank,
+                "louvain_community": c.louvain_community,
+            }
+            for c in batch
+        }
         batch_elements: list[dict[str, Any]] = []
         for derived in parse_result.get("data", []):
-            element_result = build_element(derived, ELEMENT_TYPE)
+            element_result = build_element(derived, ELEMENT_TYPE, batch_enrichments)
 
             if not element_result["success"]:
                 errors.extend(element_result.get("errors", []))

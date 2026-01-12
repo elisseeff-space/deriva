@@ -497,17 +497,522 @@ def stratified_sample_elements(
                 by_type[etype] = []
             by_type[etype].append(elem)
 
-    # Take top max_per_type from each type (sorted by confidence)
+    # Take top max_per_type from each type (sorted by confidence, then identifier for determinism)
     sampled = []
     for etype, type_elements in by_type.items():
         sorted_type = sorted(
             type_elements,
-            key=lambda e: e.get("properties", {}).get("confidence", 0.5),
-            reverse=True,
+            key=lambda e: (
+                -e.get("properties", {}).get("confidence", 0.5),
+                e.get(
+                    "identifier", ""
+                ),  # Secondary key ensures deterministic order on ties
+            ),
         )
         sampled.extend(sorted_type[:max_per_type])
 
     return sampled
+
+
+def normalize_name_for_matching(name: str) -> set[str]:
+    """
+    Normalize an element name into a set of meaningful words for matching.
+
+    Handles various naming conventions:
+    - CamelCase: "InvoiceManagement" -> {"invoice", "management"}
+    - snake_case: "invoice_management" -> {"invoice", "management"}
+    - Spaces: "Invoice Management" -> {"invoice", "management"}
+
+    Returns:
+        Set of lowercase words (excluding common stop words)
+    """
+    import re
+
+    # Common stop words to exclude
+    stop_words = {
+        "a",
+        "an",
+        "the",
+        "and",
+        "or",
+        "of",
+        "for",
+        "to",
+        "in",
+        "on",
+        "by",
+        "with",
+        "is",
+        "be",
+        "data",
+        "object",
+        "service",
+        "process",
+        "function",
+        "actor",
+        "component",
+        "interface",
+    }
+
+    if not name:
+        return set()
+
+    # Split CamelCase
+    words = re.sub(r"([a-z])([A-Z])", r"\1 \2", name)
+    # Replace underscores and hyphens with spaces
+    words = re.sub(r"[_\-]", " ", words)
+    # Split on spaces and lowercase
+    word_list = [w.lower().strip() for w in words.split() if w.strip()]
+    # Filter short words and stop words
+    return {w for w in word_list if len(w) > 2 and w not in stop_words}
+
+
+def names_match_for_relationship(
+    source_name: str, target_name: str, threshold: float = 0.3
+) -> bool:
+    """
+    Determine if two element names are semantically related.
+
+    Uses word overlap to determine if elements should be related.
+    This is a deterministic function - same inputs always produce same output.
+
+    Args:
+        source_name: Name of source element
+        target_name: Name of target element
+        threshold: Minimum overlap ratio (default 0.3 = 30% word overlap)
+
+    Returns:
+        True if names are related enough to warrant a relationship
+    """
+    source_words = normalize_name_for_matching(source_name)
+    target_words = normalize_name_for_matching(target_name)
+
+    if not source_words or not target_words:
+        return False
+
+    # Calculate overlap
+    overlap = source_words & target_words
+    if not overlap:
+        return False
+
+    # Use Jaccard-like similarity (overlap / smaller set)
+    min_size = min(len(source_words), len(target_words))
+    similarity = len(overlap) / min_size
+
+    return similarity >= threshold
+
+
+def extract_file_path_from_source(source_id: str | None) -> str | None:
+    """
+    Extract the file path from a source node ID.
+
+    Source IDs have formats like:
+    - method_flask_invoice_generator_models.py_Positions_delete
+    - file_flask_invoice_generator_.flaskenv
+    - typedef_flask_invoice_generator_forms.py_InvoiceForm
+
+    Returns:
+        The file name (e.g., "models.py", ".flaskenv") or None
+    """
+    if not source_id:
+        return None
+
+    # Common patterns: look for file extensions
+    import re
+
+    # Match .py, .js, .ts, .json, .yaml, .yml, .md, .txt, .env, etc.
+    match = re.search(r"_([^_]+\.[a-zA-Z0-9]+)(?:_|$)", source_id)
+    if match:
+        return match.group(1)
+
+    # Handle dotfiles like .flaskenv, .gitignore
+    match = re.search(r"_(\.[a-zA-Z0-9]+)(?:_|$)", source_id)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def elements_share_source_file(elem1: dict[str, Any], elem2: dict[str, Any]) -> bool:
+    """
+    Check if two elements are derived from the same source file.
+
+    This provides a strong signal for relationship derivation since
+    elements from the same file are likely related.
+
+    Args:
+        elem1: First element dict
+        elem2: Second element dict
+
+    Returns:
+        True if both elements have the same source file
+    """
+    source1 = elem1.get("properties", {}).get("source")
+    source2 = elem2.get("properties", {}).get("source")
+
+    if not source1 or not source2:
+        return False
+
+    file1 = extract_file_path_from_source(source1)
+    file2 = extract_file_path_from_source(source2)
+
+    if not file1 or not file2:
+        return False
+
+    return file1 == file2
+
+
+def get_community_from_element(element: dict[str, Any]) -> str | None:
+    """
+    Extract the Louvain community ID from an element's properties.
+
+    The community is stored during element creation from the source node's
+    louvain_community property.
+
+    Args:
+        element: Element dictionary with properties
+
+    Returns:
+        Community ID string or None if not available
+    """
+    props = element.get("properties", {})
+    return props.get("source_community")
+
+
+def derive_community_relationships(
+    new_elements: list[dict[str, Any]],
+    existing_elements: list[dict[str, Any]],
+    outbound_rules: list["RelationshipRule"],
+    inbound_rules: list["RelationshipRule"],
+) -> list[dict[str, Any]]:
+    """
+    Create relationships between elements in the same Louvain community.
+
+    Elements from the same community are structurally related in the source
+    code - they should be architecturally related in ArchiMate.
+
+    This is Tier 1a of the graph-first relationship derivation approach.
+
+    Args:
+        new_elements: Elements just created in this batch
+        existing_elements: Elements from previous derivation steps
+        outbound_rules: Rules for relationships FROM this type
+        inbound_rules: Rules for relationships TO this type
+
+    Returns:
+        List of community-based relationship dicts with confidence 0.95
+    """
+    relationships = []
+    created_pairs: set[tuple[str, str, str]] = set()
+
+    for new_elem in new_elements:
+        new_id = new_elem.get("identifier", "")
+        new_community = get_community_from_element(new_elem)
+
+        if not new_id or not new_community:
+            continue
+
+        # Find existing elements in SAME community
+        same_community = [
+            e
+            for e in existing_elements
+            if get_community_from_element(e) == new_community
+        ]
+
+        if not same_community:
+            continue
+
+        # Process OUTBOUND rules (FROM new TO existing in same community)
+        for rule in outbound_rules:
+            targets = [
+                e
+                for e in same_community
+                if e.get("element_type") == rule.target_type
+            ]
+
+            for target in targets:
+                target_id = target.get("identifier", "")
+                if not target_id:
+                    continue
+
+                pair_key = (new_id, target_id, rule.rel_type)
+                if pair_key not in created_pairs:
+                    created_pairs.add(pair_key)
+                    relationships.append(
+                        {
+                            "source": new_id,
+                            "target": target_id,
+                            "relationship_type": rule.rel_type,
+                            "confidence": 0.95,
+                            "derived_from": "community",
+                        }
+                    )
+
+        # Process INBOUND rules (FROM existing in same community TO new)
+        for rule in inbound_rules:
+            sources = [
+                e
+                for e in same_community
+                if e.get("element_type") == rule.target_type
+            ]
+
+            for source in sources:
+                source_id = source.get("identifier", "")
+                if not source_id:
+                    continue
+
+                pair_key = (source_id, new_id, rule.rel_type)
+                if pair_key not in created_pairs:
+                    created_pairs.add(pair_key)
+                    relationships.append(
+                        {
+                            "source": source_id,
+                            "target": new_id,
+                            "relationship_type": rule.rel_type,
+                            "confidence": 0.95,
+                            "derived_from": "community",
+                        }
+                    )
+
+    logger.debug(
+        "Community-based derivation: %d relationships", len(relationships)
+    )
+    return relationships
+
+
+def derive_neighbor_relationships(
+    new_elements: list[dict[str, Any]],
+    existing_elements: list[dict[str, Any]],
+    graph_manager: "GraphManager",
+    outbound_rules: list["RelationshipRule"],
+    inbound_rules: list["RelationshipRule"],
+) -> list[dict[str, Any]]:
+    """
+    Create relationships between elements whose source nodes are direct
+    neighbors in the graph (1-hop).
+
+    This is Tier 1b of the graph-first relationship derivation approach.
+
+    Args:
+        new_elements: Elements just created in this batch
+        existing_elements: Elements from previous derivation steps
+        graph_manager: GraphManager for querying graph structure
+        outbound_rules: Rules for relationships FROM this type
+        inbound_rules: Rules for relationships TO this type
+
+    Returns:
+        List of neighbor-based relationship dicts with confidence 0.90
+    """
+    relationships = []
+    created_pairs: set[tuple[str, str, str]] = set()
+
+    # Build lookup: source_id -> element for existing elements
+    existing_by_source: dict[str, dict[str, Any]] = {}
+    for elem in existing_elements:
+        source_id = elem.get("properties", {}).get("source")
+        if source_id:
+            existing_by_source[source_id] = elem
+
+    for new_elem in new_elements:
+        new_id = new_elem.get("identifier", "")
+        source_id = new_elem.get("properties", {}).get("source")
+
+        if not new_id or not source_id:
+            continue
+
+        try:
+            # Query graph for direct neighbors (both directions)
+            neighbors = graph_manager.query(
+                """
+                MATCH (src)-[]-(neighbor)
+                WHERE src.id = $source_id
+                RETURN DISTINCT neighbor.id as neighbor_id
+                """,
+                {"source_id": source_id},
+            )
+
+            neighbor_ids = {n["neighbor_id"] for n in neighbors if n.get("neighbor_id")}
+
+            # Find existing elements with source in neighbor set
+            for neighbor_source_id in neighbor_ids:
+                existing = existing_by_source.get(neighbor_source_id)
+                if not existing:
+                    continue
+
+                existing_id = existing.get("identifier", "")
+                existing_type = existing.get("element_type", "")
+
+                # Check OUTBOUND rules
+                for rule in outbound_rules:
+                    if existing_type == rule.target_type:
+                        pair_key = (new_id, existing_id, rule.rel_type)
+                        if pair_key not in created_pairs:
+                            created_pairs.add(pair_key)
+                            relationships.append(
+                                {
+                                    "source": new_id,
+                                    "target": existing_id,
+                                    "relationship_type": rule.rel_type,
+                                    "confidence": 0.90,
+                                    "derived_from": "graph_neighbor",
+                                }
+                            )
+
+                # Check INBOUND rules
+                for rule in inbound_rules:
+                    if existing_type == rule.target_type:
+                        pair_key = (existing_id, new_id, rule.rel_type)
+                        if pair_key not in created_pairs:
+                            created_pairs.add(pair_key)
+                            relationships.append(
+                                {
+                                    "source": existing_id,
+                                    "target": new_id,
+                                    "relationship_type": rule.rel_type,
+                                    "confidence": 0.90,
+                                    "derived_from": "graph_neighbor",
+                                }
+                            )
+
+        except Exception as e:
+            logger.warning("Error querying graph neighbors for %s: %s", source_id, e)
+            continue
+
+    logger.debug(
+        "Graph neighbor derivation: %d relationships", len(relationships)
+    )
+    return relationships
+
+
+def derive_deterministic_relationships(
+    new_elements: list[dict[str, Any]],
+    existing_elements: list[dict[str, Any]],
+    element_type: str,
+    outbound_rules: list["RelationshipRule"],
+    inbound_rules: list["RelationshipRule"],
+) -> list[dict[str, Any]]:
+    """
+    Derive relationships deterministically from rules without LLM.
+
+    Uses two matching strategies:
+    1. Name matching - elements with overlapping semantic words
+    2. File proximity - elements derived from the same source file
+
+    This runs BEFORE LLM derivation to ensure core relationships are stable.
+
+    Args:
+        new_elements: Elements just created in this batch
+        existing_elements: Elements from previous derivation steps
+        element_type: The ArchiMate element type just created
+        outbound_rules: Rules for relationships FROM this type
+        inbound_rules: Rules for relationships TO this type
+
+    Returns:
+        List of deterministically derived relationship dicts
+    """
+    relationships = []
+    created_pairs: set[tuple[str, str, str]] = set()  # (source, target, type)
+
+    # Relationship types that benefit from lower threshold (more connections)
+    # Flow relationships are about data/control flow, not ownership
+    loose_match_types = {"Flow", "Triggering", "Access"}
+
+    for new_elem in new_elements:
+        new_id = new_elem.get("identifier", "")
+        new_name = new_elem.get("name", "")
+
+        if not new_id or not new_name:
+            continue
+
+        # Process OUTBOUND rules (FROM new TO existing)
+        for rule in outbound_rules:
+            targets = [
+                e
+                for e in existing_elements
+                if e.get("element_type") == rule.target_type
+            ]
+
+            # Use lower threshold for Flow-like relationships
+            threshold = 0.15 if rule.rel_type in loose_match_types else 0.3
+
+            for target in targets:
+                target_id = target.get("identifier", "")
+                target_name = target.get("name", "")
+
+                if not target_id or not target_name:
+                    continue
+
+                # Strategy 1: Name matching (with relationship-specific threshold)
+                name_match = names_match_for_relationship(
+                    new_name, target_name, threshold=threshold
+                )
+
+                # Strategy 2: File proximity (elements from same source file)
+                file_match = elements_share_source_file(new_elem, target)
+
+                if name_match or file_match:
+                    pair_key = (new_id, target_id, rule.rel_type)
+                    if pair_key not in created_pairs:
+                        created_pairs.add(pair_key)
+                        # Higher confidence for name match, slightly lower for file match only
+                        confidence = 0.95 if name_match else 0.85
+                        relationships.append(
+                            {
+                                "source": new_id,
+                                "target": target_id,
+                                "relationship_type": rule.rel_type,
+                                "confidence": confidence,
+                                "derived_from": "rule",
+                            }
+                        )
+
+        # Process INBOUND rules (FROM existing TO new)
+        for rule in inbound_rules:
+            sources = [
+                e
+                for e in existing_elements
+                if e.get("element_type") == rule.target_type
+            ]
+
+            # Use lower threshold for Flow-like relationships
+            threshold = 0.15 if rule.rel_type in loose_match_types else 0.3
+
+            for source in sources:
+                source_id = source.get("identifier", "")
+                source_name = source.get("name", "")
+
+                if not source_id or not source_name:
+                    continue
+
+                # Strategy 1: Name matching
+                name_match = names_match_for_relationship(
+                    source_name, new_name, threshold=threshold
+                )
+
+                # Strategy 2: File proximity
+                file_match = elements_share_source_file(source, new_elem)
+
+                if name_match or file_match:
+                    pair_key = (source_id, new_id, rule.rel_type)
+                    if pair_key not in created_pairs:
+                        created_pairs.add(pair_key)
+                        confidence = 0.95 if name_match else 0.85
+                        relationships.append(
+                            {
+                                "source": source_id,
+                                "target": new_id,
+                                "relationship_type": rule.rel_type,
+                                "confidence": confidence,
+                                "derived_from": "rule",
+                            }
+                        )
+
+    logger.debug(
+        "Deterministic derivation: %d relationships for %s",
+        len(relationships),
+        element_type,
+    )
+    return relationships
 
 
 def get_connected_source_ids(
@@ -1101,8 +1606,22 @@ def clamp_confidence(value: Any, default: float = 0.5) -> float:
         return default
 
 
-def build_element(derived: dict[str, Any], element_type: str) -> dict[str, Any]:
-    """Build ArchiMate element dict from LLM output."""
+def build_element(
+    derived: dict[str, Any],
+    element_type: str,
+    candidate_enrichments: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Build ArchiMate element dict from LLM output.
+
+    Args:
+        derived: LLM-derived element data with source, name, etc.
+        element_type: The ArchiMate element type
+        candidate_enrichments: Optional mapping of node_id -> enrichment data
+            (pagerank, louvain_community, etc.) to add to properties
+
+    Returns:
+        Dict with success flag and element data
+    """
     identifier = derived.get("identifier")
     name = derived.get("name")
 
@@ -1113,6 +1632,21 @@ def build_element(derived: dict[str, Any], element_type: str) -> dict[str, Any]:
     # Clamp confidence to [0.0, 1.0] range (LLM may return out-of-range values)
     confidence = clamp_confidence(derived.get("confidence"))
 
+    properties: dict[str, Any] = {
+        "source": derived.get("source"),
+        "confidence": confidence,
+        "derived_at": current_timestamp(),
+    }
+
+    # Add enrichment data if available (for graph-aware relationship derivation)
+    source_id = derived.get("source")
+    if candidate_enrichments and source_id:
+        enrichment = candidate_enrichments.get(source_id, {})
+        if "pagerank" in enrichment:
+            properties["source_pagerank"] = enrichment["pagerank"]
+        if "louvain_community" in enrichment:
+            properties["source_community"] = enrichment["louvain_community"]
+
     return {
         "success": True,
         "data": {
@@ -1120,11 +1654,7 @@ def build_element(derived: dict[str, Any], element_type: str) -> dict[str, Any]:
             "name": name,
             "element_type": element_type,
             "documentation": derived.get("documentation", ""),
-            "properties": {
-                "source": derived.get("source"),
-                "confidence": confidence,
-                "derived_at": current_timestamp(),
-            },
+            "properties": properties,
         },
     }
 
@@ -1417,8 +1947,78 @@ def derive_batch_relationships(
         relevant_types,
     )
 
-    prompt = build_unified_relationship_prompt(
+    # =========================================================================
+    # THREE-TIER GRAPH-FIRST RELATIONSHIP DERIVATION
+    # =========================================================================
+    all_relationships: list[dict[str, Any]] = []
+    created_pairs: set[tuple[str, str, str]] = set()
+
+    # -------------------------------------------------------------------------
+    # TIER 1a: Community-based relationships (same Louvain community = related)
+    # -------------------------------------------------------------------------
+    community_rels = derive_community_relationships(
         new_elements=new_elements,
+        existing_elements=filtered_existing,
+        outbound_rules=outbound_rules,
+        inbound_rules=inbound_rules,
+    )
+    for rel in community_rels:
+        key = (rel["source"], rel["target"], rel["relationship_type"])
+        if key not in created_pairs:
+            all_relationships.append(rel)
+            created_pairs.add(key)
+
+    # -------------------------------------------------------------------------
+    # TIER 1b: Graph neighbor relationships (direct graph connections)
+    # -------------------------------------------------------------------------
+    if graph_manager:
+        neighbor_rels = derive_neighbor_relationships(
+            new_elements=new_elements,
+            existing_elements=filtered_existing,
+            graph_manager=graph_manager,
+            outbound_rules=outbound_rules,
+            inbound_rules=inbound_rules,
+        )
+        for rel in neighbor_rels:
+            key = (rel["source"], rel["target"], rel["relationship_type"])
+            if key not in created_pairs:
+                all_relationships.append(rel)
+                created_pairs.add(key)
+
+    # -------------------------------------------------------------------------
+    # TIER 1c: Name/file matching (semantic word overlap + same source file)
+    # -------------------------------------------------------------------------
+    deterministic_rels = derive_deterministic_relationships(
+        new_elements=new_elements,
+        existing_elements=filtered_existing,
+        element_type=element_type,
+        outbound_rules=outbound_rules,
+        inbound_rules=inbound_rules,
+    )
+    for rel in deterministic_rels:
+        key = (rel["source"], rel["target"], rel["relationship_type"])
+        if key not in created_pairs:
+            all_relationships.append(rel)
+            created_pairs.add(key)
+
+    # Log deterministic results
+    logger.info(
+        "Deterministic derivation: %d relationships "
+        "(%d community, %d neighbor, %d name/file) for %s",
+        len(all_relationships),
+        len(community_rels),
+        len(neighbor_rels) if graph_manager else 0,
+        len(deterministic_rels),
+        element_type,
+    )
+
+    # -------------------------------------------------------------------------
+    # LLM REFINEMENT: Run for ALL elements, skip already-created relationships
+    # -------------------------------------------------------------------------
+    # LLM provides consistency - deterministic methods may vary between runs
+    # We run LLM for all elements but deduplicate against deterministic results
+    prompt = build_unified_relationship_prompt(
+        new_elements=new_elements,  # All elements for LLM consistency
         existing_elements=filtered_existing,
         element_type=element_type,
         outbound_rules=outbound_rules,
@@ -1426,9 +2026,9 @@ def derive_batch_relationships(
     )
 
     if not prompt:
-        return []
+        return all_relationships
 
-    # Phase 4: Check prompt size and warn if too large
+    # Check prompt size and warn if too large
     estimated_tokens, over_threshold = check_prompt_size(prompt)
     if over_threshold:
         logger.warning(
@@ -1450,7 +2050,7 @@ def derive_batch_relationships(
         )
     except Exception as e:
         logger.error("LLM error deriving %s relationships: %s", element_type, e)
-        return []
+        return all_relationships  # Return Tier 1 relationships on LLM error
 
     parse_result = parse_relationship_response(response_content)
 
@@ -1460,9 +2060,9 @@ def derive_batch_relationships(
             element_type,
             parse_result.get("errors"),
         )
-        return []
+        return all_relationships  # Return Tier 1 relationships on parse failure
 
-    # Validate relationships (use filtered_existing for consistency with prompt)
+    # Validate LLM relationships
     new_ids = {e.get("identifier", "") for e in new_elements}
     existing_ids = {e.get("identifier", "") for e in filtered_existing}
     all_ids = new_ids | existing_ids
@@ -1472,11 +2072,20 @@ def derive_batch_relationships(
         r.rel_type for r in inbound_rules
     }
 
-    relationships = []
+    llm_relationships = []
     for rel_data in parse_result.get("data", []):
         source = rel_data.get("source")
         target = rel_data.get("target")
         rel_type = rel_data.get("relationship_type")
+
+        # Skip if already created by deterministic derivation
+        if (source, target, rel_type) in created_pairs:
+            logger.debug(
+                "Skipping LLM relationship (already deterministic): %s -> %s",
+                source,
+                target,
+            )
+            continue
 
         # Both endpoints must exist
         if source not in all_ids or target not in all_ids:
@@ -1487,7 +2096,7 @@ def derive_batch_relationships(
 
         # At least one endpoint must be from new elements
         if source not in new_ids and target not in new_ids:
-            logger.debug("Skipping relationship: neither endpoint is new")
+            logger.debug("Skipping relationship: neither endpoint is new element")
             continue
 
         # Validate relationship type
@@ -1495,19 +2104,37 @@ def derive_batch_relationships(
             logger.debug("Skipping relationship: invalid type %s", rel_type)
             continue
 
-        relationships.append(
+        # Enforce minimum confidence threshold for consistency
+        confidence = rel_data.get("confidence", 0.5)
+        if confidence < 0.6:
+            logger.debug(
+                "Skipping low-confidence relationship (%s -> %s, confidence=%s)",
+                source,
+                target,
+                confidence,
+            )
+            continue
+
+        llm_relationships.append(
             {
                 "source": source,
                 "target": target,
                 "relationship_type": rel_type,
-                "confidence": rel_data.get("confidence", 0.5),
+                "confidence": confidence,
             }
         )
 
+    # Add LLM relationships to the combined deterministic results
+    all_relationships.extend(llm_relationships)
     logger.info(
-        "Derived %d relationships for %s batch", len(relationships), element_type
+        "Derived %d total relationships for %s batch "
+        "(deterministic: %d, LLM: %d)",
+        len(all_relationships),
+        element_type,
+        len(community_rels) + (len(neighbor_rels) if graph_manager else 0) + len(deterministic_rels),
+        len(llm_relationships),
     )
-    return relationships
+    return all_relationships
 
 
 def derive_element_relationships(

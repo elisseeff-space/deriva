@@ -6,6 +6,46 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
+## v0.6.5 - Tree-sitter Multi-Language Support & Relationship Consistency (January 12, 2026)
+
+### Tree-sitter Adapter (NEW)
+
+Complete replacement of Python's `ast` module with tree-sitter for multi-language code analysis:
+
+- **Multi-Language Support**: Python, JavaScript/TypeScript, Java, and C# extraction via unified `TreeSitterManager`
+- **Language-Specific Extractors**: Per-language modules in `adapters/treesitter/languages/` with proper grammar loading
+- **Deterministic Extraction**: `extract_types()`, `extract_methods()`, `extract_imports()` methods for precise structural analysis
+- **Backwards Compatibility**: Maintained `extract_types_from_source` and `extract_methods_from_source` aliases in extraction module
+
+The tree-sitter approach enables future expansion to additional languages (Go, Rust, Ruby) with minimal effort.
+
+### Graph-First Relationship Derivation
+
+Major improvements to relationship consistency due to deterministic graph techniques.
+
+- **Community-Based Derivation**: New `derive_community_relationships()` creates relationships between elements sharing the same Louvain community (0.95 confidence)
+- **Neighbor-Based Derivation**: New `derive_neighbor_relationships()` creates relationships between elements with direct graph connections (0.90 confidence)
+- **Name/File Matching**: Enhanced `derive_deterministic_relationships()` with semantic word overlap and file proximity matching
+- **Hybrid Approach**: Run deterministic methods first, then LLM for all elements with deduplication against deterministic results
+- **Element Enrichment**: All 13 derivation modules now store `source_community` and `source_pagerank` properties on elements
+- **Edge-to-Relationship Mapping**: CONTAINS→Composition, IMPLEMENTS→Realization, USES→Serving, CALLS→Flow, IMPORTS→Serving, INHERITS→Realization
+- **ArchiMate Constraints**: Validates source/target element type combinations per ArchiMate 3.2 metamodel
+- **Two Query Strategies**: Primary query with `source_identifier`, fallback to `properties_json` search
+
+### Benchmark Improvements
+
+- **Phase Tracking**: Added OCEL phase events for better pipeline observability
+- **Structured Outputs**: LLM structured output tracking in benchmark events
+- **Token Optimization**: Reduced context size through graph-aware filtering
+
+### Bug Fixes
+
+- Fixed chunking logic in external dependency extractor
+- Fixed TypeDefinitionNode constructor for placeholder nodes (correct parameter names)
+- Various test fixes for API changes
+
+---
+
 ## v0.6.4 - Benchmark with Deriva (this repo) runs stable and succesfull! (January 10 2026)
 
 ### Refine Module (NEW)
