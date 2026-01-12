@@ -26,6 +26,7 @@ from . import (
     cross_layer,
     duplicate_elements,
     duplicate_relationships,
+    graph_relationships,
     orphan_elements,
     structural_consistency,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "cross_layer",
     "duplicate_elements",
     "duplicate_relationships",
+    "graph_relationships",
     "orphan_elements",
     "structural_consistency",
 ]
