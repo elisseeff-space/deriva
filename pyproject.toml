@@ -30,12 +30,11 @@ classifiers = [
 ]
 
 dependencies = [
-
     "asyncio>=4.0.0",
     "duckdb>=1.4.3",
     "lxml>=6.0.2",
     "marimo>=0.19.2",
-    "neo4j>=6.0.3",
+    "neo4j>=6.1.0",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0.3",
@@ -44,6 +43,10 @@ dependencies = [
     "solvor>=0.5.3",
     "sqlglot>=28.5.0",
     "tree-sitter>=0.24.6",
+    "tree-sitter-python>=0.23.0",
+    "tree-sitter-javascript>=0.23.0",
+    "tree-sitter-java>=0.23.0",
+    "tree-sitter-c-sharp>=0.23.0",
 ]
 
 [project.optional-dependencies]
