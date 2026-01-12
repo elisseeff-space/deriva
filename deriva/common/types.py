@@ -103,6 +103,7 @@ class LLMDetails(TypedDict, total=False):
     tokens_in: int
     tokens_out: int
     cache_used: bool
+    chunks_processed: int  # Number of chunks processed for large files
 
 
 # =============================================================================

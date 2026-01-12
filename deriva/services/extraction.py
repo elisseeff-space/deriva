@@ -491,6 +491,7 @@ def _extract_llm_based(
                 llm_query_fn=step_llm_query_fn,
                 config=extraction_config,
                 subtype=file_info.get("subtype"),
+                model=model,
             )
             file_nodes = result["data"]["nodes"] if result["success"] else []
             file_edges = result["data"].get("edges", []) if result["success"] else []

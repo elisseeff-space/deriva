@@ -18,11 +18,13 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from deriva.common.chunking import chunk_content, should_chunk
 from deriva.common.json_utils import extract_json_from_response
 
 from .base import (
     create_empty_llm_details,
     current_timestamp,
+    deduplicate_nodes,
     generate_edge_id,
     strip_chunk_suffix,
 )
@@ -624,8 +626,78 @@ def _extract_from_llm(
     repo_name: str,
     llm_query_fn: Callable,
     config: dict[str, Any],
+    model: str | None = None,
 ) -> dict[str, Any]:
-    """Extract external dependencies using LLM."""
+    """Extract external dependencies using LLM with automatic chunking for large files."""
+    # Check if chunking is needed for large files
+    if should_chunk(file_content, model=model):
+        return _extract_from_llm_chunked(
+            file_path, file_content, repo_name, llm_query_fn, config, model
+        )
+
+    # Extract from full file content
+    return _extract_from_llm_single(
+        file_path, file_content, repo_name, llm_query_fn, config
+    )
+
+
+def _extract_from_llm_chunked(
+    file_path: str,
+    file_content: str,
+    repo_name: str,
+    llm_query_fn: Callable,
+    config: dict[str, Any],
+    model: str | None = None,
+) -> dict[str, Any]:
+    """Extract from large file by chunking and deduplicating results."""
+    chunks = chunk_content(file_content, model=model)
+    all_nodes: list[dict[str, Any]] = []
+    all_edges: list[dict[str, Any]] = []
+    all_errors: list[str] = []
+    combined_llm_details = create_empty_llm_details()
+    total_tokens_in = 0
+    total_tokens_out = 0
+
+    for chunk in chunks:
+        # Add chunk context to file path
+        chunk_path = f"{file_path} (lines {chunk.start_line}-{chunk.end_line})"
+
+        result = _extract_from_llm_single(
+            chunk_path, chunk.content, repo_name, llm_query_fn, config
+        )
+
+        if result["success"]:
+            all_nodes.extend(result["data"]["nodes"])
+            all_edges.extend(result["data"]["edges"])
+
+        all_errors.extend(result.get("errors", []))
+
+        # Accumulate token usage
+        llm_details = result.get("llm_details", {})
+        total_tokens_in += llm_details.get("tokens_in", 0)
+        total_tokens_out += llm_details.get("tokens_out", 0)
+
+    # Deduplicate nodes (same dependency might appear in multiple chunks)
+    unique_nodes = deduplicate_nodes(all_nodes)
+
+    # Update combined LLM details
+    combined_llm_details["tokens_in"] = total_tokens_in
+    combined_llm_details["tokens_out"] = total_tokens_out
+    combined_llm_details["chunks_processed"] = len(chunks)
+
+    result = _build_result(unique_nodes, all_edges, all_errors, "llm")
+    result["llm_details"] = combined_llm_details
+    return result
+
+
+def _extract_from_llm_single(
+    file_path: str,
+    file_content: str,
+    repo_name: str,
+    llm_query_fn: Callable,
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    """Extract external dependencies from a single file/chunk using LLM."""
     nodes: list[dict[str, Any]] = []
     edges: list[dict[str, Any]] = []
     errors: list[str] = []
@@ -853,6 +925,7 @@ def extract_external_dependencies(
     llm_query_fn: Callable | None = None,
     config: dict[str, Any] | None = None,
     subtype: str | None = None,
+    model: str | None = None,
 ) -> dict[str, Any]:
     """
     Extract external dependencies from a file.
@@ -869,6 +942,7 @@ def extract_external_dependencies(
         llm_query_fn: Optional LLM query function for fallback
         config: Optional extraction config for LLM
         subtype: Optional file subtype for method selection
+        model: Optional model name for token limit lookup (chunking)
 
     Returns:
         Dictionary with success, data, errors, stats
@@ -885,7 +959,7 @@ def extract_external_dependencies(
         return _extract_from_python_ast(file_path, file_content, repo_name)
     elif method == "llm" and llm_query_fn is not None:
         return _extract_from_llm(
-            file_path, file_content, repo_name, llm_query_fn, config or {}
+            file_path, file_content, repo_name, llm_query_fn, config or {}, model
         )
     else:
         return _build_result([], [], ["No extraction method available"], "none")

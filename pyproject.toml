@@ -1,6 +1,6 @@
 [project]
 name = "Deriva"
-version = "0.6.4"
+version = "0.6.5"
 description = "Deriva is a research project aimed at enabling digital architects by automating the derivation of enterprise architecture models. Deriva uses dual knowledge graphs, heuristics and LLM's."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -34,7 +34,7 @@ dependencies = [
     "asyncio>=4.0.0",
     "duckdb>=1.4.3",
     "lxml>=6.0.2",
-    "marimo>=0.19.1",
+    "marimo>=0.19.2",
     "neo4j>=6.0.3",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
@@ -44,11 +44,6 @@ dependencies = [
     "solvor>=0.5.3",
     "sqlglot>=28.5.0",
     "tree-sitter>=0.24.6",
-    # LLM Providers
-    "anthropic>=0.75.0",
-    "mistral>=21.0.0",
-    "ollama>=0.6.1",
-    "openai>=2.15.0",
 ]
 
 [project.optional-dependencies]
