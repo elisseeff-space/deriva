@@ -121,7 +121,7 @@ class StructuralConsistencyStep:
         """
         # Query Graph for containment relationships between nodes that have Model representations
         containment_query = f"""
-            MATCH (graph_parent)-[:Graph:CONTAINS]->(graph_child)
+            MATCH (graph_parent)-[:`Graph:CONTAINS`]->(graph_child)
             WHERE graph_parent.active = true AND graph_child.active = true
               AND any(lbl IN labels(graph_parent) WHERE lbl STARTS WITH 'Graph:')
               AND any(lbl IN labels(graph_child) WHERE lbl STARTS WITH 'Graph:')

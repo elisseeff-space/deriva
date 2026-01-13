@@ -17,8 +17,11 @@ Refine Step Name: "duplicate_elements"
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import TYPE_CHECKING, Any
+
+from deriva.modules.derivation.base import extract_response_content
 
 from .base import (
     RefineResult,
@@ -350,7 +353,13 @@ Consider if they represent the same concept, entity, or component in the archite
 
         try:
             response = llm_query_fn(prompt, schema)
-            return response.get("is_duplicate", False), response.get("confidence", 0.0)
+            content, error = extract_response_content(response)
+            if error:
+                logger.warning(f"LLM semantic check failed: {error}")
+                return False, 0.0
+            # Parse the JSON content
+            parsed = json.loads(content)
+            return parsed.get("is_duplicate", False), parsed.get("confidence", 0.0)
         except Exception as e:
             logger.warning(f"LLM semantic check failed: {e}")
             return False, 0.0

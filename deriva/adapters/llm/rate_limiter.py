@@ -24,10 +24,9 @@ DEFAULT_RATE_LIMITS: dict[str, int] = {
     "azure": 60,  # Azure OpenAI: varies by deployment
     "openai": 60,  # OpenAI: varies by tier (60-10000 RPM)
     "anthropic": 60,  # Anthropic: varies by tier
-    "mistral": 60,  # Mistral: varies by tier
+    "mistral": 24,  # Mistral: varies by tier
     "ollama": 0,  # Local - no limit
     "lmstudio": 0,  # Local - no limit
-    "claudecode": 30,  # Conservative for CLI-based calls
 }
 
 
@@ -114,9 +113,13 @@ class RateLimiter:
         with self._lock:
             self._consecutive_rate_limits = 0
 
-    def record_rate_limit(self) -> float:
+    def record_rate_limit(self, retry_after: float | None = None) -> float:
         """
         Record a rate limit error and calculate backoff delay.
+
+        Args:
+            retry_after: Optional retry-after value from API response header (seconds).
+                        If provided, uses this value instead of exponential backoff.
 
         Returns:
             float: Recommended wait time before retry
@@ -125,6 +128,16 @@ class RateLimiter:
 
         with self._lock:
             self._consecutive_rate_limits += 1
+
+            # Use retry-after header if provided
+            if retry_after is not None and retry_after > 0:
+                delay = min(retry_after, self.config.backoff_max)
+                logger.warning(
+                    "Rate limit hit (attempt %d), using retry-after header: %.2fs",
+                    self._consecutive_rate_limits,
+                    delay,
+                )
+                return delay
 
             # Calculate exponential backoff with jitter
             delay = min(
@@ -166,3 +179,39 @@ class RateLimiter:
 def get_default_rate_limit(provider: str) -> int:
     """Get the default rate limit for a provider."""
     return DEFAULT_RATE_LIMITS.get(provider.lower(), 60)
+
+
+def parse_retry_after(headers: dict[str, str] | None) -> float | None:
+    """
+    Parse the retry-after header from API response headers.
+
+    Handles both integer seconds and HTTP-date formats.
+    Checks common header name variations used by different providers.
+
+    Args:
+        headers: Response headers dict (case-insensitive lookup)
+
+    Returns:
+        Retry-after value in seconds, or None if not found/invalid
+    """
+    if not headers:
+        return None
+
+    # Normalize header names to lowercase for case-insensitive lookup
+    normalized = {k.lower(): v for k, v in headers.items()}
+
+    # Check common header names (all lowercase)
+    header_names = ["retry-after", "x-retry-after", "x-ratelimit-reset"]
+
+    for name in header_names:
+        value = normalized.get(name)
+        if value:
+            try:
+                # Try parsing as integer seconds
+                return float(value)
+            except ValueError:
+                # Could be HTTP-date format, but we only support seconds for simplicity
+                logger.debug("Could not parse retry-after value: %s", value)
+                continue
+
+    return None

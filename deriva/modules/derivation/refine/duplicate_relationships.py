@@ -64,7 +64,7 @@ class DuplicateRelationshipsStep:
                   AND any(lbl IN labels(b) WHERE lbl STARTS WITH '{ns}:')
                   AND type(r1) = type(r2)
                   AND type(r1) STARTS WITH '{ns}:'
-                  AND id(r1) < id(r2)
+                  AND elementId(r1) < elementId(r2)
                   AND a.enabled = true AND b.enabled = true
                 RETURN r1.identifier as r1_id,
                        r2.identifier as r2_id,

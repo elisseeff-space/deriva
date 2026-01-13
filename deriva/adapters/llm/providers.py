@@ -21,7 +21,12 @@ from typing import Any, Protocol, runtime_checkable
 import requests
 
 from deriva.common.exceptions import ProviderError as ProviderError
-from .rate_limiter import RateLimitConfig, RateLimiter, get_default_rate_limit
+from .rate_limiter import (
+    RateLimitConfig,
+    RateLimiter,
+    get_default_rate_limit,
+    parse_retry_after,
+)
 
 # Valid provider names - shared between providers and benchmark models
 VALID_PROVIDERS = frozenset(
@@ -168,9 +173,10 @@ class BaseProvider(ABC):
 
                 # Handle rate limit response (429)
                 if response.status_code == 429:
-                    self._rate_limiter.record_rate_limit()
+                    # Extract retry-after from headers if available
+                    retry_after = parse_retry_after(dict(response.headers))
+                    backoff = self._rate_limiter.record_rate_limit(retry_after)
                     if attempt < max_retries:
-                        backoff = self._rate_limiter.record_rate_limit()
                         time.sleep(backoff)
                         continue
                     raise ProviderError(
@@ -194,8 +200,10 @@ class BaseProvider(ABC):
                 # Check if this is a rate limit error from the response
                 if hasattr(e, "response") and e.response is not None:
                     if e.response.status_code == 429:
+                        # Extract retry-after from headers if available
+                        retry_after = parse_retry_after(dict(e.response.headers))
+                        backoff = self._rate_limiter.record_rate_limit(retry_after)
                         if attempt < max_retries:
-                            backoff = self._rate_limiter.record_rate_limit()
                             time.sleep(backoff)
                             continue
                     # Log full error response for debugging
