@@ -2,6 +2,12 @@
 Base utilities for refine phase modules.
 
 Provides shared types, utilities, and the refine step registry.
+
+This module defines:
+- RefineResult: Dataclass for refine step results with metrics
+- RefineStep: Protocol defining the interface for refine step implementations
+- REFINE_STEPS: Registry dict mapping step names to implementations
+- run_refine_step(): Function to execute a registered refine step
 """
 
 from __future__ import annotations
@@ -25,6 +31,7 @@ class RefineResult:
     step_name: str
     elements_disabled: int = 0
     elements_merged: int = 0
+    relationships_created: int = 0
     relationships_deleted: int = 0
     issues_found: int = 0
     issues_fixed: int = 0
@@ -38,6 +45,7 @@ class RefineResult:
             "step_name": self.step_name,
             "elements_disabled": self.elements_disabled,
             "elements_merged": self.elements_merged,
+            "relationships_created": self.relationships_created,
             "relationships_deleted": self.relationships_deleted,
             "issues_found": self.issues_found,
             "issues_fixed": self.issues_fixed,

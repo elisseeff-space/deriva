@@ -2,6 +2,20 @@
 Repository extraction - Build Repository graph node from repository metadata.
 
 This module extracts the root Repository node that represents the analyzed codebase.
+The Repository node is the top-level node in the graph hierarchy, with all other
+nodes (directories, files) connected to it via CONTAINS relationships.
+
+Example:
+    >>> from deriva.modules.extraction import extract_repository
+    >>> result = extract_repository({
+    ...     "name": "my-project",
+    ...     "url": "https://github.com/user/my-project",
+    ...     "description": "My awesome project",
+    ... })
+    >>> result["success"]
+    True
+    >>> result["data"]["nodes"][0]["label"]
+    'Repository'
 """
 
 from __future__ import annotations

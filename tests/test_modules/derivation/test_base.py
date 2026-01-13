@@ -1815,8 +1815,8 @@ class TestSharedGenerateBehavior:
 
         from deriva.modules.derivation.application_component import generate
 
-        with patch("deriva.modules.derivation.application_component.get_enrichments_from_neo4j", return_value={}):
-            with patch("deriva.modules.derivation.application_component.query_candidates", return_value=[]):
+        with patch("deriva.modules.derivation.element_base.get_enrichments_from_neo4j", return_value={}):
+            with patch("deriva.modules.derivation.element_base.query_candidates", return_value=[]):
                 result = generate(
                     graph_manager=MagicMock(),
                     archimate_manager=MagicMock(),
@@ -1839,8 +1839,8 @@ class TestSharedGenerateBehavior:
 
         from deriva.modules.derivation.application_component import generate
 
-        with patch("deriva.modules.derivation.application_component.get_enrichments_from_neo4j", return_value={}):
-            with patch("deriva.modules.derivation.application_component.query_candidates", side_effect=Exception("DB error")):
+        with patch("deriva.modules.derivation.element_base.get_enrichments_from_neo4j", return_value={}):
+            with patch("deriva.modules.derivation.element_base.query_candidates", side_effect=Exception("DB error")):
                 result = generate(
                     graph_manager=MagicMock(),
                     archimate_manager=MagicMock(),
@@ -1864,8 +1864,8 @@ class TestSharedGenerateBehavior:
         from deriva.modules.derivation.application_component import generate
         from deriva.modules.derivation.base import GenerationResult
 
-        with patch("deriva.modules.derivation.application_component.get_enrichments_from_neo4j", return_value={}):
-            with patch("deriva.modules.derivation.application_component.query_candidates", return_value=[]):
+        with patch("deriva.modules.derivation.element_base.get_enrichments_from_neo4j", return_value={}):
+            with patch("deriva.modules.derivation.element_base.query_candidates", return_value=[]):
                 result = generate(
                     graph_manager=MagicMock(),
                     archimate_manager=MagicMock(),

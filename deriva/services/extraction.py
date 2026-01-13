@@ -8,6 +8,24 @@ Orchestrates the extraction pipeline by:
 4. Persisting results to Neo4j GraphManager
 
 Used by both Marimo (visual) and CLI (headless).
+
+Usage:
+    from deriva.services import extraction
+    from deriva.adapters.graph import GraphManager
+    from deriva.adapters.database import get_connection
+
+    engine = get_connection()
+
+    with GraphManager() as gm:
+        result = extraction.run_extraction(
+            engine=engine,
+            graph_manager=gm,
+            llm_query_fn=my_llm_query,
+            repo_name="my-repo",
+            verbose=True,
+        )
+        print(f"Nodes created: {result['stats']['total_nodes']}")
+        print(f"Edges created: {result['stats']['total_edges']}")
 """
 
 from __future__ import annotations
@@ -38,6 +56,7 @@ from deriva.adapters.graph.models import (
     TypeDefinitionNode,
 )
 from deriva.adapters.repository import RepoManager
+from deriva.common.document_reader import read_document
 from deriva.common.file_utils import read_file_with_encoding
 from deriva.common.ocel import create_edge_id
 from deriva.modules import extraction
@@ -436,7 +455,13 @@ def _extract_llm_based(
         matching_files = [f for f in classified_files if extraction.is_python_file(f.get("subtype"))]
 
     if not matching_files:
-        return {"nodes_created": 0, "edges_created": 0, "errors": []}
+        # Not an error - valid case when no files match input sources
+        return {
+            "nodes_created": 0,
+            "edges_created": 0,
+            "errors": [],
+            "warnings": [f"No matching files for {node_type} in {repo.name}"],
+        }
 
     # Get extraction function and schema based on node type
     extract_fn, schema, node_class = _get_extraction_config(node_type)
@@ -460,29 +485,35 @@ def _extract_llm_based(
             max_tokens=cfg.max_tokens,
         )
 
-    # Check if we can use AST extraction for Python files
-    use_ast_for_python = node_type in ["TypeDefinition", "Method"]
+    # Check if we can use tree-sitter extraction for supported languages
+    use_treesitter = node_type in ["TypeDefinition", "Method"]
+    treesitter_languages = {"python", "javascript", "typescript", "java", "csharp"}
 
     # Process each matching file
     for file_info in matching_files:
         file_path = repo_path / file_info["path"]
 
         try:
-            content = read_file_with_encoding(file_path)
+            # Route document files to specialized reader
+            if file_path.suffix.lower() in (".docx", ".pdf"):
+                content = read_document(file_path)
+            else:
+                content = read_file_with_encoding(file_path)
             if content is None:
-                errors.append(f"Could not read {file_path}")
+                errors.append(f"Could not read {file_path} | repo={repo.name} | step={node_type}")
                 continue
         except Exception as e:
-            errors.append(f"Could not read {file_path}: {e}")
+            errors.append(f"Could not read {file_path} | repo={repo.name} | step={node_type} | exception={type(e).__name__}: {e}")
             continue
 
-        # Check if this is a Python file and we can use AST
-        is_python = extraction.is_python_file(file_info.get("subtype"))
+        # Check if this file's language is supported by tree-sitter
+        file_subtype = file_info.get("subtype", "").lower()
+        is_treesitter_supported = file_subtype in treesitter_languages
 
         # Track extraction method for this file
         extraction_method = "llm"  # Default
 
-        # ExternalDependency: use unified function (handles deterministic/AST/LLM)
+        # ExternalDependency: use unified function (handles deterministic/treesitter/LLM)
         if node_type == "ExternalDependency":
             result = extraction.extract_external_dependencies(
                 file_path=file_info["path"],
@@ -491,22 +522,23 @@ def _extract_llm_based(
                 llm_query_fn=step_llm_query_fn,
                 config=extraction_config,
                 subtype=file_info.get("subtype"),
+                model=model,
             )
             file_nodes = result["data"]["nodes"] if result["success"] else []
             file_edges = result["data"].get("edges", []) if result["success"] else []
             file_errors = result.get("errors", [])
-            # ExternalDependency uses AST for Python deps, structural for config files
+            # ExternalDependency uses tree-sitter for supported languages, structural for config files
             extraction_method = result.get("extraction_method", "llm")
-        elif use_ast_for_python and is_python:
-            # Use AST extraction for Python - faster and more precise
+        elif use_treesitter and is_treesitter_supported:
+            # Use tree-sitter extraction for supported languages - faster and more precise
             if node_type == "TypeDefinition":
-                result = extraction.extract_types_from_python(file_info["path"], content, repo.name)
+                result = extraction.extract_types_from_source(file_info["path"], content, repo.name)
             else:  # Method
-                result = extraction.extract_methods_from_python(file_info["path"], content, repo.name)
+                result = extraction.extract_methods_from_source(file_info["path"], content, repo.name)
             file_nodes = result["data"]["nodes"] if result["success"] else []
             file_edges = result["data"].get("edges", []) if result["success"] else []
             file_errors = result.get("errors", [])
-            extraction_method = "ast"
+            extraction_method = "treesitter"
         else:
             # Use LLM extraction for non-Python files or other node types
             file_nodes, file_edges, file_errors = _extract_file_content(
@@ -541,8 +573,25 @@ def _extract_llm_based(
             dst_id = edge_data.get("to_node_id", edge_data.get("to_id"))
             relationship = edge_data.get("relationship_type", edge_data.get("relationship"))
 
-            # Skip edges where target node doesn't exist (may have been filtered/failed)
-            if not graph_manager.node_exists(dst_id):
+            # For INHERITS/CALLS edges, create placeholder node if target doesn't exist
+            # These are semantic edges to types that may be external or in other files
+            if relationship in ("INHERITS", "CALLS") and not graph_manager.node_exists(dst_id):
+                # Create a placeholder TypeDefinition node for the referenced type
+                edge_props = edge_data.get("properties", {})
+                type_name = edge_props.get("base_name") or edge_props.get("type_annotation") or dst_id.split("_")[-1]
+                placeholder_node = TypeDefinitionNode(
+                    name=type_name,
+                    type_category="external_reference",
+                    file_path="external",  # Placeholder for external/unresolved types
+                    repository_name=repo.name,
+                    description=f"External or unresolved type reference: {type_name}",
+                    confidence=0.5,
+                    extraction_method="structural",
+                )
+                graph_manager.add_node(placeholder_node, node_id=dst_id)
+                logger.debug(f"Created placeholder node for {relationship} target: {dst_id}")
+            elif not graph_manager.node_exists(dst_id):
+                # Skip edges where target node doesn't exist (may have been filtered/failed)
                 logger.debug(f"Skipping edge to non-existent node: {dst_id}")
                 continue
 
@@ -554,7 +603,7 @@ def _extract_llm_based(
                 )
                 edges_created += 1
             except RuntimeError as e:
-                errors.append(f"Error in {node_type}: {e}")
+                errors.append(f"Error creating edge {relationship}: {e}")
 
     return {
         "nodes_created": nodes_created,

@@ -2,6 +2,24 @@
 
 This module provides the GraphManager class which handles all graph database
 operations using the shared Neo4j connection with namespace isolation.
+
+Usage:
+    from deriva.adapters.graph import GraphManager
+    from deriva.adapters.graph.models import RepositoryNode, FileNode
+
+    with GraphManager() as gm:
+        # Add nodes
+        repo = RepositoryNode(id="repo_myapp", name="myapp", url="https://...")
+        gm.add_node(repo)
+
+        # Add relationships
+        gm.add_edge("repo_myapp", "file_myapp_main_py", "CONTAINS")
+
+        # Query with Cypher
+        results = gm.execute("MATCH (r:Repository)-[:CONTAINS]->(f:File) RETURN f")
+
+        # Get enrichment data
+        enrichments = gm.get_enrichments(["file_myapp_main_py"])
 """
 
 from __future__ import annotations
@@ -65,10 +83,17 @@ _NODE_ID_PREFIXES = frozenset(
 
 
 def _extract_repo_from_node_id(node_id: str) -> str | None:
-    """Extract repository name from node ID format: prefix_reponame_path.
+    """Extract repository name from node ID.
 
-    Node IDs follow the pattern: prefix_reponame_rest
-    e.g., "file_myapp_src_main_py" -> "myapp"
+    Supports two formats:
+    - New format: prefix::reponame::identifier (preferred)
+    - Legacy format: prefix_reponame_identifier (for backward compatibility)
+
+    Examples:
+        >>> _extract_repo_from_node_id("file::myapp::src/main.py")
+        'myapp'
+        >>> _extract_repo_from_node_id("file_myapp_src_main_py")
+        'myapp'
 
     Args:
         node_id: The node ID string
@@ -79,13 +104,26 @@ def _extract_repo_from_node_id(node_id: str) -> str | None:
     if not node_id:
         return None
 
+    # New format: prefix::repo::identifier
+    if "::" in node_id:
+        parts = node_id.split("::", 2)
+        if len(parts) >= 2 and parts[0] in _NODE_ID_PREFIXES:
+            return parts[1]
+
+    # Legacy format: prefix_repo_identifier
     parts = node_id.split("_", 2)
     if len(parts) >= 2 and parts[0] in _NODE_ID_PREFIXES:
         return parts[1]
 
-    # Handle repo_ prefix specially
+    # Handle repo_ prefix specially (legacy format)
     if node_id.startswith("repo_"):
         return node_id[5:]  # Everything after "repo_"
+
+    # Handle repo:: prefix (new format)
+    if node_id.startswith("repo::"):
+        remaining = node_id[6:]  # Everything after "repo::"
+        # Return up to next :: or all if no more
+        return remaining.split("::", 1)[0]
 
     return None
 
@@ -95,11 +133,24 @@ class GraphManager:
 
     This class provides a high-level interface for:
     - Creating and managing property graphs
-    - Adding nodes and edges
-    - Querying graph structure
+    - Adding nodes and edges (Repository, Directory, File, Method, TypeDefinition, etc.)
+    - Querying graph structure with Cypher
     - Traversing relationships
 
     Uses the shared neo4j_manager service with "Graph" namespace.
+
+    Example:
+        from deriva.adapters.graph import GraphManager
+
+        with GraphManager() as gm:
+            # Add a node
+            gm.add_node(RepositoryNode(id="repo_myapp", name="myapp", url="..."))
+
+            # Query nodes
+            results = gm.execute("MATCH (n:Repository) RETURN n")
+
+            # Get node by ID
+            node = gm.get_node("repo_myapp")
     """
 
     def __init__(self):

@@ -13,6 +13,118 @@ from typing import Any, Protocol, TypedDict, runtime_checkable
 
 
 # =============================================================================
+# Error Context
+# =============================================================================
+
+
+@dataclass
+class ErrorContext:
+    """
+    Structured error context for pipeline operations.
+
+    Provides rich context for errors to aid debugging and reporting.
+    All fields except message are optional to allow flexible usage.
+
+    Attributes:
+        message: The core error message
+        repo_name: Repository being processed when error occurred
+        step_name: Derivation/extraction step name (e.g., 'BusinessObject')
+        phase_name: Pipeline phase (e.g., 'extraction', 'derivation')
+        file_path: File being processed when error occurred
+        batch_number: Batch number in batch processing
+        exception_type: Type of exception that caused the error
+        recoverable: Whether the error is recoverable (operation can continue)
+    """
+
+    message: str
+    repo_name: str | None = None
+    step_name: str | None = None
+    phase_name: str | None = None
+    file_path: str | None = None
+    batch_number: int | None = None
+    exception_type: str | None = None
+    recoverable: bool = True
+
+    def __str__(self) -> str:
+        """Format error with context as pipe-separated string."""
+        parts = [self.message]
+        if self.repo_name:
+            parts.append(f"repo={self.repo_name}")
+        if self.step_name:
+            parts.append(f"step={self.step_name}")
+        if self.phase_name:
+            parts.append(f"phase={self.phase_name}")
+        if self.file_path:
+            parts.append(f"file={self.file_path}")
+        if self.batch_number is not None:
+            parts.append(f"batch={self.batch_number}")
+        if self.exception_type:
+            parts.append(f"exception={self.exception_type}")
+        return " | ".join(parts)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result: dict[str, Any] = {"message": self.message}
+        if self.repo_name:
+            result["repo_name"] = self.repo_name
+        if self.step_name:
+            result["step_name"] = self.step_name
+        if self.phase_name:
+            result["phase_name"] = self.phase_name
+        if self.file_path:
+            result["file_path"] = self.file_path
+        if self.batch_number is not None:
+            result["batch_number"] = self.batch_number
+        if self.exception_type:
+            result["exception_type"] = self.exception_type
+        result["recoverable"] = self.recoverable
+        return result
+
+
+def create_error(
+    message: str,
+    *,
+    repo_name: str | None = None,
+    step_name: str | None = None,
+    phase_name: str | None = None,
+    file_path: str | None = None,
+    batch_number: int | None = None,
+    exception: Exception | None = None,
+    recoverable: bool = True,
+) -> str:
+    """
+    Create a formatted error message with context.
+
+    This is a convenience function for creating error strings with
+    consistent formatting. For structured error data, use ErrorContext directly.
+
+    Args:
+        message: Core error message
+        repo_name: Repository being processed
+        step_name: Derivation/extraction step name
+        phase_name: Pipeline phase
+        file_path: File being processed
+        batch_number: Batch number in batch processing
+        exception: Exception that caused the error (type will be extracted)
+        recoverable: Whether the operation can continue
+
+    Returns:
+        Formatted error string with context
+    """
+    ctx = ErrorContext(
+        message=message,
+        repo_name=repo_name,
+        step_name=step_name,
+        phase_name=phase_name,
+        file_path=file_path,
+        batch_number=batch_number,
+        exception_type=type(exception).__name__ if exception else None,
+        recoverable=recoverable,
+    )
+    return str(ctx)
+
+
+# =============================================================================
 # Progress Update (for generator-based progress)
 # =============================================================================
 
@@ -94,6 +206,11 @@ class PipelineResult(TypedDict, total=False):
     llm_details: LLMDetails  # LLM call details if used
     issues: list[dict[str, Any]]  # Validation issues (for validation stage)
 
+    # Enhanced error tracking
+    error_details: list[dict[str, Any]]  # Structured errors with context
+    partial_success: bool  # True if some items succeeded despite errors
+    affected_items: dict[str, int]  # {"failed": N, "succeeded": M, "skipped": K}
+
 
 class LLMDetails(TypedDict, total=False):
     """Details about an LLM call for logging purposes."""
@@ -103,6 +220,7 @@ class LLMDetails(TypedDict, total=False):
     tokens_in: int
     tokens_out: int
     cache_used: bool
+    chunks_processed: int  # Number of chunks processed for large files
 
 
 # =============================================================================
@@ -548,6 +666,9 @@ ValidationRegistry = dict[str, ValidationFunction]
 
 
 __all__ = [
+    # Error context
+    "ErrorContext",
+    "create_error",
     # Progress update (generator-based)
     "ProgressUpdate",
     # Base types

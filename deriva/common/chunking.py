@@ -2,10 +2,15 @@
 
 Provides chunking functionality to handle large files that exceed LLM token limits.
 Chunking strategy is configurable per file extension via the file_type_registry.
+
+Token limits can be configured via environment variables:
+- LLM_TOKEN_LIMIT_DEFAULT: Default limit for unknown models (default: 32000)
+- LLM_TOKEN_LIMIT_{MODEL}: Per-model override (e.g., LLM_TOKEN_LIMIT_MISTRAL_DEVSTRAL2)
 """
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 __all__ = [
@@ -32,24 +37,27 @@ MODEL_TOKEN_LIMITS: dict[str, int] = {
     "gpt-4-turbo": 128_000,
     "gpt-4": 8_192,
     "gpt-3.5-turbo": 16_385,
-    "gpt-4.1-mini": 1_000_000,  # GPT-4.1 mini has 1M context
-    "gpt-4.1-nano": 1_000_000,  # GPT-4.1 nano has 1M context
-    "gpt-5-mini": 1_000_000,  # GPT-5 mini has 1M context
+    "gpt-4.1-mini": 32_000,  # Normalized to 32k for benchmark consistency
+    "gpt-4.1-nano": 32_000,  # Normalized to 32k for benchmark consistency
+    "gpt-5-mini": 32_000,  # Normalized to 32k for benchmark consistency
+    "openai-gpt41mini": 32_000,  # Benchmark model alias
     # Anthropic models
     "claude-3-opus": 200_000,
     "claude-3-sonnet": 200_000,
-    "claude-3-haiku": 200_000,
+    "claude-3-haiku": 32_000,  # Normalized to 32k for benchmark consistency
     "claude-3.5-sonnet": 200_000,
     "claude-4-opus": 200_000,
     "claude-4-sonnet": 200_000,
-    "claude-4-haiku": 200_000,
-    "haiku": 200_000,  # Short alias for claudecode provider
+    "claude-4-haiku": 32_000,  # Normalized to 32k for benchmark consistency
+    "haiku": 32_000,  # Normalized to 32k for benchmark consistency
+    "anthropic-haiku": 32_000,  # Benchmark model alias
     "sonnet": 200_000,
     "opus": 200_000,
     # Azure OpenAI (same as OpenAI)
     "gpt-4o-mini-azure": 128_000,
     # Mistral AI models
     "devstral-2512": 32_000,  # Mistral Devstral
+    "mistral-devstral2": 32_000,  # Benchmark model alias
     # Ollama / local models (conservative estimates)
     "llama3": 8_192,
     "llama3.2": 8_192,
@@ -70,27 +78,65 @@ TOKEN_SAFETY_MARGIN = 0.8
 def get_model_token_limit(model: str | None = None) -> int:
     """Get the token limit for a model.
 
+    Checks environment variables first, then falls back to hardcoded defaults.
+    Environment variables:
+    - LLM_TOKEN_LIMIT_DEFAULT: Default limit for unknown models
+    - LLM_TOKEN_LIMIT_{MODEL}: Per-model limit (e.g., LLM_TOKEN_LIMIT_MISTRAL_DEVSTRAL2)
+
     Args:
         model: Model name or identifier. If None, returns default limit.
 
     Returns:
         Token limit for the model (with safety margin applied).
     """
+    limit = None
+
     if model is None:
-        limit = MODEL_TOKEN_LIMITS["default"]
+        # Check env var for default limit
+        env_default = os.environ.get("LLM_TOKEN_LIMIT_DEFAULT")
+        if env_default:
+            try:
+                limit = int(env_default)
+            except ValueError:
+                pass
+        if limit is None:
+            limit = MODEL_TOKEN_LIMITS["default"]
     else:
-        # Try exact match first
-        model_lower = model.lower()
-        if model_lower in MODEL_TOKEN_LIMITS:
-            limit = MODEL_TOKEN_LIMITS[model_lower]
-        else:
-            # Try partial match
-            for key, value in MODEL_TOKEN_LIMITS.items():
-                if key in model_lower or model_lower in key:
-                    limit = value
-                    break
+        # Check env var for specific model (convert model name to env var format)
+        # e.g., "mistral-devstral2" -> "LLM_TOKEN_LIMIT_MISTRAL_DEVSTRAL2"
+        env_key = f"LLM_TOKEN_LIMIT_{model.upper().replace('-', '_')}"
+        env_value = os.environ.get(env_key)
+        if env_value:
+            try:
+                limit = int(env_value)
+            except ValueError:
+                pass
+
+        # Fall back to hardcoded defaults if not in env
+        if limit is None:
+            model_lower = model.lower()
+            if model_lower in MODEL_TOKEN_LIMITS:
+                limit = MODEL_TOKEN_LIMITS[model_lower]
             else:
-                limit = MODEL_TOKEN_LIMITS["default"]
+                # Try partial match
+                for key, value in MODEL_TOKEN_LIMITS.items():
+                    if key in model_lower or model_lower in key:
+                        limit = value
+                        break
+                else:
+                    # Check env default as final fallback
+                    env_default = os.environ.get("LLM_TOKEN_LIMIT_DEFAULT")
+                    if env_default:
+                        try:
+                            limit = int(env_default)
+                        except ValueError:
+                            pass
+                    if limit is None:
+                        limit = MODEL_TOKEN_LIMITS["default"]
+
+    # Ensure limit is set (type checker can't track all branches above)
+    if limit is None:
+        limit = MODEL_TOKEN_LIMITS["default"]
 
     return int(limit * TOKEN_SAFETY_MARGIN)
 

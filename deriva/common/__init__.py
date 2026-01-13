@@ -72,6 +72,9 @@ from .logging import (
     teardown_logging_bridge,
 )
 from .types import (
+    # Error context
+    ErrorContext,
+    create_error,
     # Base types
     BaseResult,
     BatchExtractionFunction,
@@ -92,6 +95,7 @@ from .types import (
     ExtractionResult,
     FileExtractionResult,
     LLMDetails,
+    PipelineResult,
     ValidationConfig,
     ValidationData,
     ValidationFunction,
@@ -102,6 +106,9 @@ from .types import (
 )
 
 __all__ = [
+    # Error context
+    "ErrorContext",
+    "create_error",
     # Exceptions
     "BaseError",
     "ConfigurationError",
@@ -121,6 +128,7 @@ __all__ = [
     "teardown_logging_bridge",
     # Types - Base
     "BaseResult",
+    "PipelineResult",
     "LLMDetails",
     # Types - Extraction
     "ExtractionData",

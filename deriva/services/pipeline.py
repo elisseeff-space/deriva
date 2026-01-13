@@ -5,6 +5,26 @@ Orchestrates the full pipeline:
 Classification → Extraction → Derivation (enrich/generate/refine) → Export
 
 Used by both Marimo (visual) and CLI (headless).
+
+Usage:
+    from deriva.services import pipeline
+    from deriva.adapters.graph import GraphManager
+    from deriva.adapters.archimate import ArchimateManager
+    from deriva.adapters.database import get_connection
+
+    engine = get_connection()
+
+    with GraphManager() as gm, ArchimateManager() as am:
+        result = pipeline.run_full_pipeline(
+            engine=engine,
+            graph_manager=gm,
+            archimate_manager=am,
+            llm_query_fn=my_llm_query,
+            repo_name="my-repo",
+            verbose=True,
+        )
+        print(f"Extraction: {result['extraction']['stats']}")
+        print(f"Derivation: {result['derivation']['stats']}")
 """
 
 from __future__ import annotations

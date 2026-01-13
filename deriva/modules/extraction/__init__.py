@@ -14,6 +14,37 @@ All functions follow the module pattern:
 - Pure functions only (no I/O, no state)
 - Return data structures with error information
 - Never raise exceptions (return errors as data)
+
+Usage:
+    # Structural extraction (no LLM required)
+    from deriva.modules.extraction import extract_repository, extract_files
+
+    repo_result = extract_repository({"name": "myrepo", "url": "https://..."})
+    files_result = extract_files("/path/to/repo", "myrepo")
+
+    # Semantic extraction (requires LLM)
+    from deriva.modules.extraction import extract_type_definitions_batch
+
+    result = extract_type_definitions_batch(
+        files=[{"path": "app.py", "content": "class Foo: ..."}],
+        repo_name="myrepo",
+        llm_query_fn=my_llm_query,
+        config={"instruction": "...", "example": "..."},
+    )
+
+Return Format:
+    All extraction functions return a dict with consistent structure::
+
+        {
+            "success": bool,           # Whether extraction succeeded
+            "data": {
+                "nodes": [...],        # List of node dicts
+                "edges": [...],        # List of edge dicts
+            },
+            "errors": [...],           # List of error messages
+            "stats": {...},            # Statistics about the extraction
+            "llm_details": {...},      # Optional LLM call details (for LLM extractors)
+        }
 """
 
 from __future__ import annotations
@@ -82,8 +113,9 @@ from .type_definition import (
     extract_type_definitions,
     extract_type_definitions_batch,
     parse_llm_response as parse_type_definition_response,
-    # AST extraction
+    # AST extraction (both names for compatibility)
     extract_types_from_python,
+    extract_types_from_source,
 )
 from .method import (
     METHOD_SCHEMA,
@@ -92,8 +124,9 @@ from .method import (
     extract_methods,
     extract_methods_batch,
     parse_llm_response as parse_method_response,
-    # AST extraction
+    # AST extraction (both names for compatibility)
     extract_methods_from_python,
+    extract_methods_from_source,
 )
 from .technology import (
     TECHNOLOGY_SCHEMA,
@@ -175,6 +208,7 @@ __all__ = [
     "parse_type_definition_response",
     "TYPE_DEFINITION_SCHEMA",
     "extract_types_from_python",
+    "extract_types_from_source",
     # Method (LLM + AST)
     "build_method_node",
     "extract_methods",
@@ -183,6 +217,7 @@ __all__ = [
     "parse_method_response",
     "METHOD_SCHEMA",
     "extract_methods_from_python",
+    "extract_methods_from_source",
     # Technology
     "build_technology_node",
     "extract_technologies",

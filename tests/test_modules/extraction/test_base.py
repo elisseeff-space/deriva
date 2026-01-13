@@ -29,24 +29,24 @@ class TestGenerateNodeId:
     """Tests for generate_node_id function."""
 
     def test_basic_node_id(self):
-        """Should generate formatted node ID."""
+        """Should generate formatted node ID with :: separator."""
         node_id = generate_node_id("concept", "myrepo", "UserAuth")
-        assert node_id == "concept_myrepo_userauth"
+        assert node_id == "concept::myrepo::userauth"
 
     def test_normalizes_spaces(self):
         """Should replace spaces with underscores."""
         node_id = generate_node_id("type", "repo", "User Auth Service")
-        assert node_id == "type_repo_user_auth_service"
+        assert node_id == "type::repo::user_auth_service"
 
     def test_normalizes_hyphens(self):
         """Should replace hyphens with underscores."""
         node_id = generate_node_id("method", "repo", "get-user-data")
-        assert node_id == "method_repo_get_user_data"
+        assert node_id == "method::repo::get_user_data"
 
     def test_removes_special_chars(self):
         """Should remove non-alphanumeric characters."""
         node_id = generate_node_id("concept", "repo", "User@Auth#123")
-        assert node_id == "concept_repo_userauth123"
+        assert node_id == "concept::repo::userauth123"
 
 
 class TestGenerateEdgeId:

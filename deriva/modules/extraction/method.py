@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from deriva.adapters.ast import ASTManager, ExtractedMethod
+from deriva.adapters.treesitter import TreeSitterManager, ExtractedMethod
 
 from .base import (
     create_empty_llm_details,
@@ -234,7 +234,26 @@ def build_method_node(
 
 
 def parse_llm_response(response_content: str) -> dict[str, Any]:
-    """Parse LLM response for methods. Delegates to base parser."""
+    """
+    Parse LLM response for methods. Delegates to base parser.
+
+    Args:
+        response_content: Raw JSON string from LLM response
+
+    Returns:
+        Dictionary with:
+            - success: bool - True if parsing succeeded
+            - data: List[Dict] - Parsed method items
+            - errors: List[str] - Parsing errors if any
+
+    Example:
+        >>> response = '{"methods": [{"methodName": "get_user", "returnType": "User"}]}'
+        >>> result = parse_llm_response(response)
+        >>> result["success"]
+        True
+        >>> result["data"][0]["methodName"]
+        'get_user'
+    """
     return parse_json_response(response_content, "methods")
 
 
@@ -474,24 +493,24 @@ def extract_methods_batch(
 
 
 # =============================================================================
-# AST-based extraction for Python files
+# Tree-sitter based extraction for supported languages
 # =============================================================================
 
 
-def extract_methods_from_python(
+def extract_methods_from_source(
     file_path: str,
     file_content: str,
     repo_name: str,
 ) -> dict[str, Any]:
     """
-    Extract Method nodes from Python source using AST.
+    Extract Method nodes from source code using tree-sitter.
 
     This is deterministic and produces accurate line numbers.
-    Use this for Python files instead of LLM extraction.
+    Supports Python, JavaScript, Java, C#, and Perl.
 
     Args:
         file_path: Path to the file being analyzed (relative to repo)
-        file_content: Python source code
+        file_content: Source code
         repo_name: Repository name
 
     Returns:
@@ -502,8 +521,8 @@ def extract_methods_from_python(
     edges: list[dict[str, Any]] = []
 
     try:
-        ast_manager = ASTManager()
-        extracted_methods = ast_manager.extract_methods(file_content, file_path)
+        ts_manager = TreeSitterManager()
+        extracted_methods = ts_manager.extract_methods(file_content, file_path)
 
         # Build file node ID for CONTAINS edges
         original_path = strip_chunk_suffix(file_path)
@@ -511,7 +530,9 @@ def extract_methods_from_python(
         file_node_id = f"file_{repo_name}_{safe_path}"
 
         for ext_method in extracted_methods:
-            node_data = _build_method_node_from_ast(ext_method, file_path, repo_name)
+            node_data = _build_method_node_from_treesitter(
+                ext_method, file_path, repo_name
+            )
             nodes.append(node_data)
 
             # Create edge based on whether method belongs to a class or is top-level
@@ -543,6 +564,74 @@ def extract_methods_from_python(
                 }
             edges.append(edge)
 
+            # Create CALLS edges based on parameter type annotations
+            builtin_types = {
+                "str",
+                "int",
+                "float",
+                "bool",
+                "None",
+                "Any",
+                "object",
+                "list",
+                "dict",
+                "set",
+                "tuple",
+                "List",
+                "Dict",
+                "Set",
+                "Tuple",
+                "Optional",
+                "Union",
+                "Callable",
+                "Iterator",
+                "Iterable",
+                "Type",
+                "Sequence",
+                "Mapping",
+                "Self",
+            }
+            for param in ext_method.parameters:
+                annotation = param.get("annotation")
+                if not annotation:
+                    continue
+                # Extract base type from annotation (handle generics like List[MyType])
+                # Strip generic brackets: List[MyType] -> MyType, Dict[str, MyType] -> MyType
+                type_name = annotation
+                if "[" in type_name:
+                    # Extract inner types from generic
+                    inner = type_name[type_name.index("[") + 1 : type_name.rindex("]")]
+                    # Take the last non-builtin type from comma-separated types
+                    for inner_type in inner.split(","):
+                        inner_type = inner_type.strip()
+                        if inner_type and inner_type not in builtin_types:
+                            type_name = inner_type
+                            break
+                    else:
+                        continue  # All inner types are builtin
+                # Skip builtin types
+                if type_name in builtin_types:
+                    continue
+                # Create CALLS edge to the type definition
+                type_slug = (
+                    type_name.replace(" ", "_").replace("-", "_").replace(".", "_")
+                )
+                target_type_id = f"typedef_{repo_name}_{safe_path}_{type_slug}"
+                calls_edge = {
+                    "edge_id": generate_edge_id(
+                        node_data["node_id"], target_type_id, "CALLS"
+                    ),
+                    "from_node_id": node_data["node_id"],
+                    "to_node_id": target_type_id,
+                    "relationship_type": "CALLS",
+                    "properties": {
+                        "created_at": current_timestamp(),
+                        "parameter_name": param["name"],
+                        "type_annotation": annotation,
+                    },
+                }
+                edges.append(calls_edge)
+
         return {
             "success": True,
             "data": {"nodes": nodes, "edges": edges},
@@ -551,7 +640,7 @@ def extract_methods_from_python(
                 "total_nodes": len(nodes),
                 "total_edges": len(edges),
                 "node_types": {"Method": len(nodes)},
-                "extraction_method": "ast",
+                "extraction_method": "treesitter",
             },
         }
 
@@ -561,19 +650,27 @@ def extract_methods_from_python(
             "success": False,
             "data": {"nodes": [], "edges": []},
             "errors": errors,
-            "stats": {"total_nodes": 0, "total_edges": 0, "extraction_method": "ast"},
+            "stats": {
+                "total_nodes": 0,
+                "total_edges": 0,
+                "extraction_method": "treesitter",
+            },
         }
     except Exception as e:
-        errors.append(f"AST extraction error in {file_path}: {e}")
+        errors.append(f"Tree-sitter extraction error in {file_path}: {e}")
         return {
             "success": False,
             "data": {"nodes": [], "edges": []},
             "errors": errors,
-            "stats": {"total_nodes": 0, "total_edges": 0, "extraction_method": "ast"},
+            "stats": {
+                "total_nodes": 0,
+                "total_edges": 0,
+                "extraction_method": "treesitter",
+            },
         }
 
 
-def _build_method_node_from_ast(
+def _build_method_node_from_treesitter(
     ext_method: ExtractedMethod,
     file_path: str,
     repo_name: str,
@@ -621,13 +718,17 @@ def _build_method_node_from_ast(
             "endLine": ext_method.line_end,
             "confidence": 1.0,  # AST is deterministic
             "extracted_at": current_timestamp(),
-            "extraction_method": "ast",
+            "extraction_method": "treesitter",
             # AST-specific properties
             "decorators": ext_method.decorators,
             "is_classmethod": ext_method.is_classmethod,
             "is_property": ext_method.is_property,
         },
     }
+
+
+# Alias for backwards compatibility
+extract_methods_from_python = extract_methods_from_source
 
 
 __all__ = [
@@ -639,6 +740,7 @@ __all__ = [
     "parse_llm_response",
     "extract_methods",
     "extract_methods_batch",
-    # AST extraction
-    "extract_methods_from_python",
+    # Tree-sitter extraction
+    "extract_methods_from_source",
+    "extract_methods_from_python",  # Alias for backwards compatibility
 ]

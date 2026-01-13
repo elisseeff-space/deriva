@@ -6,6 +6,102 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
+## v0.6.6 - ElementDerivationBase & Document Parsing (Unreleased)
+
+### Derivation Module Refactoring (MAJOR)
+
+Major code reduction through new inheritance hierarchy eliminating ~80% duplication across 13 element modules:
+
+- **ElementDerivationBase**: New abstract base class providing common `generate()` flow shared by all element types
+- **PatternBasedDerivation**: Mixin for modules using include/exclude pattern filtering (10 of 13 modules)
+- **Unified Batch Processing**: `_process_batch()` and `_derive_relationships()` methods handle common operations
+- **Singleton Pattern**: Each module exports `ELEMENT_TYPE`, `OUTBOUND_RULES`, `INBOUND_RULES` for backward compatibility
+
+All 13 derivation modules (ApplicationComponent, ApplicationInterface, ApplicationService, BusinessActor, BusinessEvent, BusinessFunction, BusinessObject, BusinessProcess, DataObject, Device, Node, SystemSoftware, TechnologyService) now inherit from the base classes.
+
+### Document Parsing Support (NEW)
+
+Added core support for extracting text from office documents to limit token usage:
+
+- **PDF Parsing**: `pypdf>=6.6.0` as core dependency
+- **DOCX Parsing**: `python-docx>=1.2.0` as core dependency
+- Moved from optional `[documents]` extra to required dependencies
+
+### Structured Error Handling
+
+New structured error context system in `common/types.py`:
+
+- **ErrorContext**: Dataclass with repo_name, step_name, phase_name, file_path, batch_number, exception_type
+- **create_error()**: Convenience function for formatted error strings with context
+- **PipelineResult Extensions**: Added `error_details`, `partial_success`, `affected_items` fields
+
+### Config Service Enhancements
+
+New threshold and limit helpers in `services/config.py`:
+
+- **Confidence Thresholds**: `get_confidence_threshold()`, `get_min_relationship_confidence()`, `get_community_rel_confidence()`, etc.
+- **Derivation Limits**: `get_derivation_limit()`, `get_max_batch_size()`, `get_max_candidates()`, etc.
+- **Centralized Defaults**: `_DEFAULT_THRESHOLDS` and `_DEFAULT_LIMITS` dictionaries with configurable overrides via system_settings
+
+### Test Coverage Improvements
+
+- **Coverage Target**: Increased minimum coverage from 75% to 80%
+- **New Test Modules**: `test_adapters/treesitter/`, `test_common/test_document_reader.py`, `test_common/test_types.py`
+- **Coverage Exclusions**: Added exclusions for graph_relationships.py and benchmarking.py (require infrastructure)
+
+### Documentation Updates
+
+- New `ARCHITECTURE.MD` documenting system design
+- New `OPTIMIZATION.md` with performance tuning guidance
+- Updated adapter and CLI READMEs with usage examples
+- Enhanced docstrings across LLM manager and config service
+
+### Minor Fixes
+
+- Fixed type checker issue in `get_model_token_limit()` with explicit None check
+
+---
+
+## v0.6.5 - Tree-sitter Multi-Language Support & Relationship Consistency (Unreleased)
+
+### Tree-sitter Adapter (NEW)
+
+Complete replacement of Python's `ast` module with tree-sitter for multi-language code analysis:
+
+- **Multi-Language Support**: Python, JavaScript/TypeScript, Java, and C# extraction via unified `TreeSitterManager`
+- **Language-Specific Extractors**: Per-language modules in `adapters/treesitter/languages/` with proper grammar loading
+- **Deterministic Extraction**: `extract_types()`, `extract_methods()`, `extract_imports()` methods for precise structural analysis
+- **Backwards Compatibility**: Maintained `extract_types_from_source` and `extract_methods_from_source` aliases in extraction module
+
+The tree-sitter approach enables future expansion to additional languages (Go, Rust, Ruby) with minimal effort.
+
+### Graph-First Relationship Derivation
+
+Major improvements to relationship consistency due to deterministic graph techniques.
+
+- **Community-Based Derivation**: New `derive_community_relationships()` creates relationships between elements sharing the same Louvain community (0.95 confidence)
+- **Neighbor-Based Derivation**: New `derive_neighbor_relationships()` creates relationships between elements with direct graph connections (0.90 confidence)
+- **Name/File Matching**: Enhanced `derive_deterministic_relationships()` with semantic word overlap and file proximity matching
+- **Hybrid Approach**: Run deterministic methods first, then LLM for all elements with deduplication against deterministic results
+- **Element Enrichment**: All 13 derivation modules now store `source_community` and `source_pagerank` properties on elements
+- **Edge-to-Relationship Mapping**: CONTAINS→Composition, IMPLEMENTS→Realization, USES→Serving, CALLS→Flow, IMPORTS→Serving, INHERITS→Realization
+- **ArchiMate Constraints**: Validates source/target element type combinations per ArchiMate 3.2 metamodel
+- **Two Query Strategies**: Primary query with `source_identifier`, fallback to `properties_json` search
+
+### Benchmark Improvements
+
+- **Phase Tracking**: Added OCEL phase events for better pipeline observability
+- **Structured Outputs**: LLM structured output tracking in benchmark events
+- **Token Optimization**: Reduced context size through graph-aware filtering
+
+### Bug Fixes
+
+- Fixed chunking logic in external dependency extractor
+- Fixed TypeDefinitionNode constructor for placeholder nodes (correct parameter names)
+- Various test fixes for API changes
+
+---
+
 ## v0.6.4 - Benchmark with Deriva (this repo) runs stable and succesfull! (January 10 2026)
 
 ### Refine Module (NEW)

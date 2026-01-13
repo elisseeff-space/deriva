@@ -7,6 +7,8 @@ Validates that source graph structural patterns are preserved in the ArchiMate m
 - Import relationships in Graph → Serving in Model
 
 This ensures the derived model reflects the actual code structure.
+
+Refine Step Name: "structural_consistency"
 """
 
 from __future__ import annotations

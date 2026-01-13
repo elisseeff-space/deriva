@@ -1,4 +1,7 @@
-"""Data models for AST extraction results."""
+"""Data models for tree-sitter extraction results.
+
+These models are language-agnostic and used across all supported languages.
+"""
 
 from __future__ import annotations
 
@@ -8,16 +11,17 @@ from typing import Any
 
 @dataclass
 class ExtractedType:
-    """Represents an extracted type definition."""
+    """Represents an extracted type definition (class, interface, function, etc.)."""
 
     name: str
-    kind: str  # 'class', 'function', 'type_alias'
+    kind: str  # 'class', 'interface', 'enum', 'struct', 'function', 'type_alias', 'package'
     line_start: int
     line_end: int
     docstring: str | None = None
     bases: list[str] = field(default_factory=list)
     decorators: list[str] = field(default_factory=list)
     is_async: bool = False
+    visibility: str | None = None  # 'public', 'private', 'protected', etc.
 
 
 @dataclass
@@ -36,6 +40,7 @@ class ExtractedMethod:
     is_static: bool = False
     is_classmethod: bool = False
     is_property: bool = False
+    visibility: str | None = None  # 'public', 'private', 'protected', etc.
 
 
 @dataclass

@@ -20,6 +20,23 @@ Algorithms:
 - Degree centrality: In/out connectivity
 
 All algorithms treat the graph as undirected for structural analysis.
+
+Usage:
+    from deriva.modules.derivation.enrich import enrich_graph
+
+    # Prepare graph data
+    nodes = [{"id": "node1"}, {"id": "node2"}, ...]
+    edges = [{"source": "node1", "target": "node2"}, ...]
+
+    # Run enrichment
+    result = enrich_graph(nodes, edges)
+
+    # Access enrichment data per node
+    node1_pagerank = result.enrichments["node1"]["pagerank"]
+    node1_community = result.enrichments["node1"]["louvain_community"]
+
+    # Access graph-level metadata
+    print(f"Graph has {result.metadata.num_communities} communities")
 """
 
 from __future__ import annotations

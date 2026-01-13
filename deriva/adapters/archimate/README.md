@@ -6,7 +6,7 @@ Create, validate, and export ArchiMate enterprise architecture models using Neo4
 
 ## Purpose
 
-The ArchiMate adapter stores derived ArchiMate elements and relationships in Neo4j (namespace: `ArchiMate`), validates them against the ArchiMate 3.1 metamodel, and exports to XML format compatible with the [Archi](https://www.archimatetool.com/) modeling tool.
+The ArchiMate adapter stores derived ArchiMate elements and relationships in Neo4j (namespace: `Model`), validates them against the ArchiMate 3.2 metamodel, and exports to XML format compatible with the [Archi](https://www.archimatetool.com/) modeling tool.
 
 ## Key Exports
 
@@ -64,7 +64,7 @@ deriva/adapters/archimate/
 
 ## Supported Types
 
-**Element Types** (ArchiMate 3.1):
+**Element Types** (ArchiMate 3.2):
 
 - Application Layer: `ApplicationComponent`, `ApplicationInterface`, `ApplicationService`, `DataObject`
 - Business Layer: `BusinessObject`, `BusinessProcess`, `BusinessFunction`, `BusinessActor`
@@ -90,7 +90,7 @@ deriva/adapters/archimate/
 
 ## Data Isolation
 
-Uses Neo4j with namespace `ArchiMate` for label prefixing (e.g., `ArchiMate:ApplicationComponent`), keeping ArchiMate data separate from the Graph namespace.
+Uses Neo4j with namespace `Model` for label prefixing (e.g., `Model:ApplicationComponent`), keeping ArchiMate data separate from the Graph namespace.
 
 ## See Also
 

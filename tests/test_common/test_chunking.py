@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from unittest.mock import patch
+
 from deriva.common.chunking import (
     MODEL_TOKEN_LIMITS,
     TOKEN_SAFETY_MARGIN,
@@ -65,12 +68,17 @@ class TestChunk:
 class TestGetModelTokenLimit:
     """Tests for get_model_token_limit function."""
 
+    def _clear_token_env_vars(self):
+        """Return dict with LLM_TOKEN_LIMIT vars cleared for patching."""
+        return {k: v for k, v in os.environ.items() if not k.startswith("LLM_TOKEN_LIMIT")}
+
     def test_returns_default_for_none(self):
         """Should return default limit when model is None."""
-        limit = get_model_token_limit(None)
+        with patch.dict(os.environ, self._clear_token_env_vars(), clear=True):
+            limit = get_model_token_limit(None)
 
-        expected = int(MODEL_TOKEN_LIMITS["default"] * TOKEN_SAFETY_MARGIN)
-        assert limit == expected
+            expected = int(MODEL_TOKEN_LIMITS["default"] * TOKEN_SAFETY_MARGIN)
+            assert limit == expected
 
     def test_exact_match(self):
         """Should return exact match for known models."""
@@ -96,10 +104,11 @@ class TestGetModelTokenLimit:
 
     def test_unknown_model_returns_default(self):
         """Should return default for unknown models."""
-        limit = get_model_token_limit("unknown-model-xyz")
+        with patch.dict(os.environ, self._clear_token_env_vars(), clear=True):
+            limit = get_model_token_limit("unknown-model-xyz")
 
-        expected = int(MODEL_TOKEN_LIMITS["default"] * TOKEN_SAFETY_MARGIN)
-        assert limit == expected
+            expected = int(MODEL_TOKEN_LIMITS["default"] * TOKEN_SAFETY_MARGIN)
+            assert limit == expected
 
     def test_applies_safety_margin(self):
         """Should apply safety margin to limit."""
@@ -108,6 +117,36 @@ class TestGetModelTokenLimit:
 
         assert limit < raw_limit
         assert limit == int(raw_limit * TOKEN_SAFETY_MARGIN)
+
+    def test_uses_env_var_for_default(self):
+        """Should use LLM_TOKEN_LIMIT_DEFAULT env var when model is None."""
+        env = self._clear_token_env_vars()
+        env["LLM_TOKEN_LIMIT_DEFAULT"] = "50000"
+        with patch.dict(os.environ, env, clear=True):
+            limit = get_model_token_limit(None)
+
+            expected = int(50000 * TOKEN_SAFETY_MARGIN)
+            assert limit == expected
+
+    def test_uses_env_var_for_specific_model(self):
+        """Should use model-specific env var."""
+        env = self._clear_token_env_vars()
+        env["LLM_TOKEN_LIMIT_CUSTOM_MODEL"] = "60000"
+        with patch.dict(os.environ, env, clear=True):
+            limit = get_model_token_limit("custom-model")
+
+            expected = int(60000 * TOKEN_SAFETY_MARGIN)
+            assert limit == expected
+
+    def test_invalid_env_var_falls_back_to_default(self):
+        """Should fall back to default when env var is invalid."""
+        env = self._clear_token_env_vars()
+        env["LLM_TOKEN_LIMIT_DEFAULT"] = "not-a-number"
+        with patch.dict(os.environ, env, clear=True):
+            limit = get_model_token_limit(None)
+
+            expected = int(MODEL_TOKEN_LIMITS["default"] * TOKEN_SAFETY_MARGIN)
+            assert limit == expected
 
 
 class TestEstimateTokens:

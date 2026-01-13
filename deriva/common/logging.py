@@ -601,7 +601,7 @@ class RunLogger:
             confidence: Optional confidence score from LLM derivation
             properties: Optional additional element properties
         """
-        stats = {
+        stats: dict[str, Any] = {
             "element_id": element_id,
             "element_type": element_type,
             "name": name,
@@ -643,7 +643,7 @@ class RunLogger:
             confidence: Optional confidence score from LLM derivation
             properties: Optional additional relationship properties
         """
-        stats = {
+        stats: dict[str, Any] = {
             "relationship_id": relationship_id,
             "relationship_type": relationship_type,
             "source_element": source_element,

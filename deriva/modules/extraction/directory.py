@@ -2,6 +2,19 @@
 Directory extraction - Build Directory graph nodes from repository filesystem.
 
 This module extracts Directory nodes representing folders in the repository structure.
+Directories form the hierarchical container structure of the graph, with CONTAINS
+relationships linking parent directories to child directories and files.
+
+Note:
+    The .git directory and its contents are automatically excluded from extraction.
+
+Example:
+    >>> from deriva.modules.extraction import extract_directories
+    >>> result = extract_directories("/path/to/repo", "my-project")
+    >>> result["stats"]["total_nodes"]
+    15
+    >>> result["data"]["nodes"][0]["properties"]["path"]
+    'src'
 """
 
 from __future__ import annotations

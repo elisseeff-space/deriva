@@ -2,6 +2,29 @@
 
 This module provides a connection service that can be used by multiple
 managers (graph_manager, archimate_manager) with namespace isolation.
+
+Features:
+- Namespace isolation for multiple managers
+- Automatic retry with exponential backoff for transient failures
+- Connection state validation
+
+Usage:
+    from deriva.adapters.neo4j import Neo4jConnection
+
+    # Create a namespaced connection
+    conn = Neo4jConnection(namespace="Graph")
+    conn.connect()
+
+    # Execute Cypher queries
+    result = conn.execute("MATCH (n) RETURN count(n) as count")
+    print(f"Total nodes: {result[0]['count']}")
+
+    # Clean up
+    conn.disconnect()
+
+    # Or use context manager
+    with Neo4jConnection(namespace="Model") as conn:
+        conn.execute("CREATE (n:Element {name: 'Test'})")
 """
 
 from __future__ import annotations
@@ -9,8 +32,10 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import time
+from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 from dotenv import load_dotenv
 
@@ -23,6 +48,91 @@ except ModuleNotFoundError:
     GraphDatabase = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
+
+# Type variable for generic decorators
+T = TypeVar("T")
+
+
+def with_retry(
+    max_retries: int = 3, base_delay: float = 1.0, max_delay: float = 30.0
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """
+    Decorator for Neo4j operations with exponential backoff retry.
+
+    Retries failed operations up to max_retries times with increasing
+    delays between attempts. Useful for handling transient network issues
+    or temporary database unavailability.
+
+    Args:
+        max_retries: Maximum number of retry attempts
+        base_delay: Initial delay between retries (in seconds)
+        max_delay: Maximum delay cap (in seconds)
+
+    Returns:
+        Decorated function with retry logic
+
+    Example:
+        @with_retry(max_retries=3, base_delay=1.0)
+        def execute_query(self, query):
+            ...
+    """
+
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        @wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> T:
+            last_error: Exception | None = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_retries - 1:
+                        delay = min(base_delay * (2**attempt), max_delay)
+                        logger.warning(
+                            "Neo4j operation failed (attempt %d/%d): %s. "
+                            "Retrying in %.1fs...",
+                            attempt + 1,
+                            max_retries,
+                            e,
+                            delay,
+                        )
+                        time.sleep(delay)
+            # All retries exhausted, raise the last error
+            if last_error is not None:
+                raise last_error
+            # This should never happen, but keeps type checker happy
+            raise RuntimeError("Retry logic error: no error captured")
+
+        return wrapper
+
+    return decorator
+
+
+def requires_connection(
+    func: Callable[..., T],
+) -> Callable[..., T]:
+    """
+    Decorator to check Neo4j connection before operation.
+
+    Raises RuntimeError if the connection is not established.
+
+    Args:
+        func: Method to wrap (must be on Neo4jConnection instance)
+
+    Returns:
+        Wrapped function with connection check
+    """
+
+    @wraps(func)
+    def wrapper(self: "Neo4jConnection", *args: Any, **kwargs: Any) -> T:
+        if self.driver is None:
+            raise RuntimeError(
+                f"Not connected to Neo4j. Call connect() first. "
+                f"(Namespace: {self.namespace})"
+            )
+        return func(self, *args, **kwargs)
+
+    return wrapper
 
 
 class Neo4jConnection:
@@ -149,6 +259,8 @@ class Neo4jConnection:
         """Context manager exit."""
         self.disconnect()
 
+    @requires_connection
+    @with_retry(max_retries=3, base_delay=1.0)
     def execute(
         self,
         query: str,
@@ -158,6 +270,8 @@ class Neo4jConnection:
         """
         Execute a Cypher query and return results.
 
+        Automatically retries on transient failures with exponential backoff.
+
         Args:
             query: Cypher query string
             parameters: Query parameters
@@ -165,10 +279,10 @@ class Neo4jConnection:
 
         Returns:
             List of result records as dictionaries
-        """
-        if self.driver is None:
-            raise RuntimeError("Not connected to Neo4j. Call connect() first.")
 
+        Raises:
+            RuntimeError: If not connected to Neo4j
+        """
         if database is None:
             database = self.config["neo4j"]["database"]
 
@@ -178,7 +292,7 @@ class Neo4jConnection:
 
         try:
             params: dict[str, Any] = parameters if parameters is not None else {}
-            with self.driver.session(database=database) as session:
+            with self.driver.session(database=database) as session:  # type: ignore[union-attr]
                 result = session.run(query, params)  # type: ignore[arg-type] # neo4j stubs require LiteralString
                 records = [dict(record) for record in result]
                 return records
@@ -189,6 +303,8 @@ class Neo4jConnection:
             logger.error(f"Parameters: {parameters}")
             raise
 
+    @requires_connection
+    @with_retry(max_retries=3, base_delay=1.0)
     def execute_write(
         self,
         query: str,
@@ -198,6 +314,8 @@ class Neo4jConnection:
         """
         Execute a write transaction (CREATE, UPDATE, DELETE).
 
+        Automatically retries on transient failures with exponential backoff.
+
         Args:
             query: Cypher query string
             parameters: Query parameters
@@ -205,10 +323,10 @@ class Neo4jConnection:
 
         Returns:
             List of result records as dictionaries
-        """
-        if self.driver is None:
-            raise RuntimeError("Not connected to Neo4j. Call connect() first.")
 
+        Raises:
+            RuntimeError: If not connected to Neo4j
+        """
         if database is None:
             database = self.config["neo4j"]["database"]
 
@@ -218,7 +336,7 @@ class Neo4jConnection:
 
         try:
             params: dict[str, Any] = parameters if parameters is not None else {}
-            with self.driver.session(database=database) as session:
+            with self.driver.session(database=database) as session:  # type: ignore[union-attr]
                 result = session.execute_write(lambda tx: list(tx.run(query, params)))
                 return [dict(record) for record in result]
 
