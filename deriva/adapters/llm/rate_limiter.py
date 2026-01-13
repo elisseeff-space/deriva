@@ -27,6 +27,7 @@ DEFAULT_RATE_LIMITS: dict[str, int] = {
     "mistral": 24,  # Mistral: varies by tier
     "ollama": 0,  # Local - no limit
     "lmstudio": 0,  # Local - no limit
+    "claudecode": 30,  # Claude Code CLI: conservative default
 }
 
 
