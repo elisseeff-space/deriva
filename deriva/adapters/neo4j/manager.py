@@ -192,6 +192,11 @@ class Neo4jConnection:
                 "level": os.getenv("NEO4J_LOG_LEVEL", "INFO"),
                 "log_queries": os.getenv("NEO4J_LOG_QUERIES", "False").lower()
                 == "true",
+                # Suppress verbose Neo4j notifications (DEPRECATION, UNRECOGNIZED)
+                "suppress_notifications": os.getenv(
+                    "NEO4J_SUPPRESS_NOTIFICATIONS", "True"
+                ).lower()
+                == "true",
             },
         }
 
@@ -283,16 +288,14 @@ class Neo4jConnection:
         Raises:
             RuntimeError: If not connected to Neo4j
         """
-        if database is None:
-            database = self.config["neo4j"]["database"]
-
         if self.config["logging"].get("log_queries", False):
             logger.debug(f"Executing query: {query}")
             logger.debug(f"Parameters: {parameters}")
 
         try:
             params: dict[str, Any] = parameters if parameters is not None else {}
-            with self.driver.session(database=database) as session:  # type: ignore[union-attr]
+            session_kwargs = self._get_session_kwargs(database)
+            with self.driver.session(**session_kwargs) as session:  # type: ignore[union-attr]
                 result = session.run(query, params)  # type: ignore[arg-type] # neo4j stubs require LiteralString
                 records = [dict(record) for record in result]
                 return records
@@ -327,16 +330,14 @@ class Neo4jConnection:
         Raises:
             RuntimeError: If not connected to Neo4j
         """
-        if database is None:
-            database = self.config["neo4j"]["database"]
-
         if self.config["logging"].get("log_queries", False):
             logger.debug(f"Executing write query: {query}")
             logger.debug(f"Parameters: {parameters}")
 
         try:
             params: dict[str, Any] = parameters if parameters is not None else {}
-            with self.driver.session(database=database) as session:  # type: ignore[union-attr]
+            session_kwargs = self._get_session_kwargs(database)
+            with self.driver.session(**session_kwargs) as session:  # type: ignore[union-attr]
                 result = session.execute_write(lambda tx: list(tx.run(query, params)))
                 return [dict(record) for record in result]
 
@@ -366,16 +367,14 @@ class Neo4jConnection:
         if self.driver is None:
             raise RuntimeError("Not connected to Neo4j. Call connect() first.")
 
-        if database is None:
-            database = self.config["neo4j"]["database"]
-
         if self.config["logging"].get("log_queries", False):
             logger.debug(f"Executing read query: {query}")
             logger.debug(f"Parameters: {parameters}")
 
         try:
             params: dict[str, Any] = parameters if parameters is not None else {}
-            with self.driver.session(database=database) as session:
+            session_kwargs = self._get_session_kwargs(database)
+            with self.driver.session(**session_kwargs) as session:
                 result = session.execute_read(lambda tx: list(tx.run(query, params)))
                 return [dict(record) for record in result]
 
@@ -422,6 +421,37 @@ class Neo4jConnection:
             Namespaced label (e.g., "Graph:Repository", "ArchiMate:Element")
         """
         return f"{self.namespace}:{base_label}"
+
+    def _get_session_kwargs(self, database: str | None = None) -> dict[str, Any]:
+        """Get session configuration kwargs including notification filtering.
+
+        Args:
+            database: Database name (defaults to config database)
+
+        Returns:
+            Dictionary of session configuration options
+        """
+        if database is None:
+            database = self.config["neo4j"]["database"]
+
+        kwargs: dict[str, Any] = {"database": database}
+
+        # Suppress verbose notifications if configured (default: True)
+        if self.config["logging"].get("suppress_notifications", True):
+            try:
+                # Neo4j 5.x supports notification filtering
+                from neo4j import NotificationDisabledCategory
+
+                kwargs["notifications_disabled_categories"] = [
+                    NotificationDisabledCategory.DEPRECATION,
+                    NotificationDisabledCategory.UNRECOGNIZED,
+                    NotificationDisabledCategory.HINT,
+                ]
+            except ImportError:
+                # Older neo4j driver versions don't support this
+                pass
+
+        return kwargs
 
     def create_constraint(
         self, label: str, property_key: str, constraint_name: str | None = None

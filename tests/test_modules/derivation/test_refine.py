@@ -999,8 +999,13 @@ class TestDuplicateElementsMerge:
         elem_a = MockElement("id1", "Auth", "ApplicationComponent")
         elem_b = MockElement("id2", "Login", "ApplicationComponent")
 
+        # Create a mock response object with content attribute (JSON string)
+        mock_response = MagicMock()
+        mock_response.content = '{"is_duplicate": true, "confidence": 0.92}'
+        mock_response.response_type = "live"
+
         mock_llm = MagicMock()
-        mock_llm.return_value = {"is_duplicate": True, "confidence": 0.92}
+        mock_llm.return_value = mock_response
 
         step = DuplicateElementsStep()
         is_dup, conf = step._check_semantic_duplicate(mock_llm, elem_a, elem_b)

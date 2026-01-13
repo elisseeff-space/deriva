@@ -141,9 +141,12 @@ Enable the extraction steps you need:
 If using LLM-assisted extraction, configure your provider in `.env`:
 
 ```bash
-LLM_PROVIDER=openai  # or azure, anthropic
-LLM_OPENAI_API_KEY=your-key-here
-LLM_OPENAI_MODEL=gpt-4
+LLM_PROVIDER=mistral  # or azure, anthropic
+LLM_MISTRAL_API_KEY=your-key-here
+LLM_MISTRAL_MODEL=devstral2
+LLM_MISTRAL_URL=https://api.mistral.ai/v1/chat/completions
+LLM_MISTRAL_STRUCTURED_OUTPUT=true
+
 ```
 
 ---
@@ -203,10 +206,12 @@ NEO4J_URI=bolt://localhost:7687
 NEO4J_USERNAME=
 NEO4J_PASSWORD=
 
-# LLM Provider (openai, azure, anthropic, ollama, lmstudio)
-LLM_PROVIDER=openai
-LLM_OPENAI_API_KEY=your-key
-LLM_OPENAI_MODEL=gpt-4o-mini
+# LLM Provider (mistral, openai, azure, anthropic, ollama, lmstudio)
+LLM_MISTRAL_DEVSTRAL_PROVIDER=mistral
+LLM_MISTRAL_DEVSTRAL_MODEL=devstral-2512
+LLM_MISTRAL_DEVSTRAL_URL=https://api.mistral.ai/v1/chat/completions
+LLM_MISTRAL_DEVSTRAL_KEY=your-mistral-api-key
+LLM_MISTRAL_DEVSTRAL_STRUCTURED_OUTPUT=true
 
 # Namespaces
 NEO4J_GRAPH_NAMESPACE=Graph
@@ -234,13 +239,11 @@ Default rate limits by provider:
 
 | Provider | Default RPM |
 |----------|-------------|
-| Azure OpenAI | 60 |
-| OpenAI | 60 |
-| Anthropic | 60 |
-| Mistral | 60 |
+| OpenAI | 30 |
+| Anthropic | 30 |
+| Mistral | 24 |
 | Ollama | Unlimited |
 | LM Studio | Unlimited |
-| Claude Code | 30 |
 
 The rate limiter automatically:
 
