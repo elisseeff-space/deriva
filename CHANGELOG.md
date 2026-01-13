@@ -18,7 +18,7 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 ---
 
-## v0.6.6 - ElementDerivationBase & Document Parsing (Unreleased)
+## v0.6.6 - ElementDerivationBase & Document Parsing (January 13 2026)
 
 ### Derivation Module Refactoring
 
