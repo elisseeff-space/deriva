@@ -29,11 +29,22 @@ from .models import (
     TypeDefinitionNode,
 )
 from .manager import GraphManager
+from .cache import (
+    EnrichmentCache,
+    QueryCache,
+    compute_graph_hash,
+)
 
 __version__ = "1.0.0"
 
 __all__ = [
+    # Manager
     "GraphManager",
+    # Cache
+    "EnrichmentCache",
+    "QueryCache",
+    "compute_graph_hash",
+    # Node types
     "RepositoryNode",
     "DirectoryNode",
     "ModuleNode",
@@ -45,6 +56,7 @@ __all__ = [
     "TestNode",
     "ServiceNode",
     "ExternalDependencyNode",
+    # Relationship types
     "CONTAINS",
     "DEPENDS_ON",
     "REFERENCES",

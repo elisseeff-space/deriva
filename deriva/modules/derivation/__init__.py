@@ -64,6 +64,7 @@ from .base import (
     build_relationship_prompt,
     build_unified_relationship_prompt,
     create_result,
+    clear_enrichment_cache,
     derive_batch_relationships,
     derive_element_relationships,
     get_enrichments_from_neo4j,
@@ -72,8 +73,8 @@ from .base import (
     query_candidates,
 )
 
-# Enrichment module (submodule, not re-exported at top level)
-from . import enrich
+# Prep module (submodule, not re-exported at top level)
+from . import prep
 
 __all__ = [
     # Base
@@ -93,9 +94,10 @@ __all__ = [
     "derive_element_relationships",
     "derive_batch_relationships",
     "get_enrichments_from_neo4j",
+    "clear_enrichment_cache",
     "parse_derivation_response",
     "parse_relationship_response",
     "build_element",
     # Submodules
-    "enrich",
+    "prep",
 ]

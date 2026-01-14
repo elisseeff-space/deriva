@@ -232,7 +232,7 @@ def get_pipeline_status(engine: Any) -> dict[str, Any]:
     derivation_enabled = [c for c in derivation_configs if c.enabled]
 
     # Group derivation by phase
-    enrich_enabled = [c for c in derivation_enabled if c.phase == "enrich"]
+    prep_enabled = [c for c in derivation_enabled if c.phase == "prep"]
     generate_enabled = [c for c in derivation_enabled if c.phase == "generate"]
     refine_enabled = [c for c in derivation_enabled if c.phase == "refine"]
 
@@ -247,7 +247,7 @@ def get_pipeline_status(engine: Any) -> dict[str, Any]:
             "enabled": len(derivation_enabled),
             "steps": [c.step_name for c in derivation_enabled],
             "by_phase": {
-                "enrich": len(enrich_enabled),
+                "prep": len(prep_enabled),
                 "generate": len(generate_enabled),
                 "refine": len(refine_enabled),
             },

@@ -324,6 +324,19 @@ def cmd_run(args: argparse.Namespace) -> int:
     phase = getattr(args, "phase", None)
     quiet = getattr(args, "quiet", False)
 
+    # Validate phase is appropriate for stage
+    extraction_phases = {"classify", "parse"}
+    derivation_phases = {"prep", "generate", "refine"}
+    if phase:
+        if stage == "extraction" and phase not in extraction_phases:
+            print(f"Error: Phase '{phase}' is not valid for extraction.")
+            print(f"Valid extraction phases: {', '.join(sorted(extraction_phases))}")
+            return 1
+        if stage == "derivation" and phase not in derivation_phases:
+            print(f"Error: Phase '{phase}' is not valid for derivation.")
+            print(f"Valid derivation phases: {', '.join(sorted(derivation_phases))}")
+            return 1
+
     print(f"\n{'=' * 60}")
     print(f"DERIVA - Running {stage.upper()} pipeline")
     print(f"{'=' * 60}")
@@ -349,12 +362,15 @@ def cmd_run(args: argparse.Namespace) -> int:
         progress_reporter = create_progress_reporter(quiet=quiet or verbose)
 
         if stage == "extraction":
+            # Convert phase to phases list for extraction
+            phases = [phase] if phase else None
             with progress_reporter:
                 result = session.run_extraction(
                     repo_name=repo_name,
                     verbose=verbose,
                     no_llm=no_llm,
                     progress=progress_reporter,
+                    phases=phases,
                 )
             _print_extraction_result(result)
 
@@ -724,6 +740,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> int:
     clear_between_runs = not getattr(args, "no_clear", False)
     bench_hash = getattr(args, "bench_hash", False)
     defer_relationships = getattr(args, "defer_relationships", False)
+    per_repo = getattr(args, "per_repo", False)
     nocache_configs_str = getattr(args, "nocache_configs", None)
     nocache_configs = (
         [c.strip() for c in nocache_configs_str.split(",")]
@@ -731,13 +748,20 @@ def cmd_benchmark_run(args: argparse.Namespace) -> int:
         else None
     )
 
+    # Calculate total runs based on mode
+    if per_repo:
+        total_runs = len(repos) * len(models) * runs
+    else:
+        total_runs = len(models) * runs
+
     print(f"\n{'=' * 60}")
     print("DERIVA - Multi-Model Benchmark")
     print(f"{'=' * 60}")
     print(f"Repositories: {repos}")
     print(f"Models: {models}")
     print(f"Runs per combination: {runs}")
-    print(f"Total runs: {len(repos) * len(models) * runs}")
+    print(f"Mode: {'per-repo' if per_repo else 'combined'}")
+    print(f"Total runs: {total_runs}")
     if stages:
         print(f"Stages: {stages}")
     print(f"Cache: {'enabled' if use_cache else 'disabled'}")
@@ -772,6 +796,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> int:
                 clear_between_runs=clear_between_runs,
                 bench_hash=bench_hash,
                 defer_relationships=defer_relationships,
+                per_repo=per_repo,
             )
 
         print(f"\n{'=' * 60}")
@@ -1049,6 +1074,97 @@ def cmd_benchmark_deviations(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_benchmark_comprehensive(args: argparse.Namespace) -> int:
+    """Run comprehensive benchmark analysis."""
+    session_ids = args.session_ids
+    output = getattr(args, "output", "workspace/analysis")
+    format_type = getattr(args, "format", "both")
+    _include_semantic = not getattr(
+        args, "no_semantic", False
+    )  # Reserved for future use
+
+    print(f"\n{'=' * 60}")
+    print("BENCHMARK ANALYSIS")
+    print(f"{'=' * 60}\n")
+    print(f"Sessions: {', '.join(session_ids)}")
+
+    from deriva.services.analysis import BenchmarkAnalyzer
+
+    with PipelineSession() as session:
+        try:
+            analyzer = BenchmarkAnalyzer(
+                session_ids=list(session_ids),
+                engine=session._engine,
+            )
+        except ValueError as e:
+            print(f"Error: {e}")
+            return 1
+
+        # Generate report
+        print("\nRunning analysis...")
+        report = analyzer.generate_report()
+
+        # Display summary
+        print(f"\nRepositories: {', '.join(report.repositories)}")
+        print(f"Models: {', '.join(report.models)}")
+        print("\nOVERALL METRICS")
+        print("-" * 40)
+        print(f"  Consistency: {report.overall_consistency:.1%}")
+        print(f"  Precision:   {report.overall_precision:.1%}")
+        print(f"  Recall:      {report.overall_recall:.1%}")
+
+        # Show per-repo summary
+        if report.stability_reports:
+            print("\nPER-REPOSITORY STABILITY")
+            print("-" * 40)
+            for repo, phases in report.stability_reports.items():
+                if "derivation" in phases:
+                    print(
+                        f"  {repo}: {phases['derivation'].overall_consistency:.1%} derivation consistency"
+                    )
+
+        # Show semantic match summary
+        if report.semantic_reports:
+            print("\nSEMANTIC MATCH SUMMARY")
+            print("-" * 40)
+            for repo, sr in report.semantic_reports.items():
+                print(
+                    f"  {repo}: P={sr.element_precision:.1%} R={sr.element_recall:.1%} F1={sr.element_f1:.2f}"
+                )
+
+        # Show best/worst types from cross-repo
+        if report.cross_repo:
+            if report.cross_repo.best_element_types:
+                print("\nBEST ELEMENT TYPES (highest consistency)")
+                print("-" * 40)
+                for t, score in report.cross_repo.best_element_types[:5]:
+                    print(f"  {t}: {score:.1%}")
+
+            if report.cross_repo.worst_element_types:
+                print("\nWORST ELEMENT TYPES (lowest consistency)")
+                print("-" * 40)
+                for t, score in report.cross_repo.worst_element_types[:5]:
+                    print(f"  {t}: {score:.1%}")
+
+        # Show recommendations
+        if report.recommendations:
+            print("\nRECOMMENDATIONS")
+            print("-" * 40)
+            for rec in report.recommendations[:10]:
+                print(f"  • {rec}")
+
+        # Export
+        print(f"\nExporting to: {output}")
+        paths = analyzer.export_all(output)
+
+        if format_type in ("json", "both"):
+            print(f"  JSON: {paths.get('json', 'N/A')}")
+        if format_type in ("markdown", "both"):
+            print(f"  Markdown: {paths.get('markdown', 'N/A')}")
+
+    return 0
+
+
 # =============================================================================
 # Main Entry Point
 # =============================================================================
@@ -1087,7 +1203,7 @@ def create_parser() -> argparse.ArgumentParser:
     )
     config_list.add_argument(
         "--phase",
-        choices=["enrich", "generate", "refine"],
+        choices=["prep", "generate", "refine"],
         help="Filter derivation by phase",
     )
     config_list.set_defaults(func=cmd_config_list)
@@ -1257,8 +1373,8 @@ def create_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument(
         "--phase",
-        choices=["enrich", "generate", "refine"],
-        help="Run specific derivation phase only (default: all phases)",
+        choices=["classify", "parse", "prep", "generate", "refine"],
+        help="Run specific phase: extraction (classify, parse) or derivation (prep, generate, refine)",
     )
     run_parser.add_argument(
         "-v",
@@ -1295,8 +1411,8 @@ def create_parser() -> argparse.ArgumentParser:
         "-o",
         "--output",
         type=str,
-        default="workspace/output/model.archimate",
-        help="Output file path (default: workspace/output/model.archimate)",
+        default="workspace/output/model.xml",
+        help="Output file path (default: workspace/output/model.xml)",
     )
     export_parser.add_argument(
         "-n",
@@ -1469,6 +1585,11 @@ def create_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Two-phase derivation: create all elements first, then derive relationships in one pass",
     )
+    benchmark_run.add_argument(
+        "--per-repo",
+        action="store_true",
+        help="Run each repository as a separate benchmark (default: combine all repos into one model)",
+    )
     benchmark_run.set_defaults(func=cmd_benchmark_run)
 
     # benchmark list
@@ -1537,6 +1658,37 @@ def create_parser() -> argparse.ArgumentParser:
         help="Sort configs by this metric (default: deviation_count)",
     )
     benchmark_deviations.set_defaults(func=cmd_benchmark_deviations)
+
+    # benchmark comprehensive-analysis
+    benchmark_comprehensive = benchmark_subparsers.add_parser(
+        "comprehensive-analysis",
+        help="Run comprehensive analysis across multiple sessions",
+    )
+    benchmark_comprehensive.add_argument(
+        "session_ids",
+        nargs="+",
+        help="Benchmark session IDs to analyze (one or more)",
+    )
+    benchmark_comprehensive.add_argument(
+        "-o",
+        "--output",
+        type=str,
+        default="workspace/analysis",
+        help="Output directory for analysis files (default: workspace/analysis)",
+    )
+    benchmark_comprehensive.add_argument(
+        "-f",
+        "--format",
+        choices=["json", "markdown", "both"],
+        default="both",
+        help="Output format (default: both)",
+    )
+    benchmark_comprehensive.add_argument(
+        "--no-semantic",
+        action="store_true",
+        help="Skip semantic matching against reference models",
+    )
+    benchmark_comprehensive.set_defaults(func=cmd_benchmark_comprehensive)
 
     return parser
 

@@ -16,12 +16,16 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
+from deriva.adapters.graph.cache import EnrichmentCache, compute_graph_hash
 from deriva.adapters.llm import FailedResponse, ResponseType
 from deriva.common import current_timestamp, parse_json_array
 from deriva.common.types import PipelineResult
 
 if TYPE_CHECKING:
     from deriva.adapters.graph import GraphManager
+
+# Module-level enrichment cache for cross-element-type caching within a run
+_enrichment_cache = EnrichmentCache()
 
 
 def extract_response_content(response: Any) -> tuple[str, str | None]:
@@ -74,7 +78,10 @@ ESSENTIAL_PROPS: set[str] = {
     "docstring",
 }
 
-# Properties to exclude from relationship prompts (invalidate cache)
+# Properties to exclude from cache key computation (cause cache misses if included).
+# Note: Currently unused because strip_for_relationship_prompt() is more thorough,
+# removing ALL properties except {identifier, name, element_type}.
+# Kept for potential future use with partial stripping.
 EXCLUDED_FROM_CACHE: set[str] = {"derived_at"}
 
 # Essential fields for relationship derivation (reduces tokens by ~50%)
@@ -108,6 +115,11 @@ def strip_cache_breaking_props(elements: list[dict[str, Any]]) -> list[dict[str,
 
     The derived_at timestamp changes every run, causing cache misses
     even when the actual content is identical.
+
+    Note: Currently unused in production. All relationship prompt builders now use
+    strip_for_relationship_prompt() which is more thorough (strips to just
+    {identifier, name, element_type}). This function is kept for potential future
+    use where partial stripping is preferred over complete stripping.
 
     Args:
         elements: List of element dictionaries
@@ -215,6 +227,7 @@ class DerivationResult:
 
 def get_enrichments_from_neo4j(
     graph_manager: "GraphManager",
+    use_cache: bool = True,
 ) -> dict[str, dict[str, Any]]:
     """
     Get all graph enrichment data from Neo4j node properties.
@@ -222,12 +235,29 @@ def get_enrichments_from_neo4j(
     The prep phase stores enrichments (PageRank, Louvain, k-core, etc.)
     as properties on Neo4j nodes. This function reads them back.
 
+    Uses caching to avoid repeated Neo4j queries when called multiple times
+    for different element types in the same generation phase.
+
     Args:
         graph_manager: Connected GraphManager instance
+        use_cache: If True, check cache first (default True)
 
     Returns:
         Dict mapping node_id to enrichment data
     """
+    # Check cache first
+    if use_cache:
+        try:
+            graph_hash = compute_graph_hash(graph_manager)
+            if cached := _enrichment_cache.get_enrichments(graph_hash):
+                logger.debug(
+                    "Using cached enrichments for graph hash %s", graph_hash[:8]
+                )
+                return cached
+        except Exception as e:
+            logger.debug("Cache lookup failed, querying Neo4j: %s", e)
+
+    # Query Neo4j
     query = """
         MATCH (n)
         WHERE any(label IN labels(n) WHERE label STARTS WITH 'Graph:')
@@ -242,7 +272,7 @@ def get_enrichments_from_neo4j(
     """
     try:
         rows = graph_manager.query(query)
-        return {
+        enrichments = {
             row["node_id"]: {
                 "pagerank": row.get("pagerank") or 0.0,
                 "louvain_community": row.get("louvain_community"),
@@ -254,9 +284,29 @@ def get_enrichments_from_neo4j(
             for row in rows
             if row.get("node_id")
         }
+
+        # Cache the results
+        if use_cache:
+            try:
+                graph_hash = compute_graph_hash(graph_manager)
+                _enrichment_cache.set_enrichments(graph_hash, enrichments)
+            except Exception as e:
+                logger.debug("Failed to cache enrichments: %s", e)
+
+        return enrichments
     except Exception as e:
-        logger.warning(f"Failed to get enrichments from Neo4j: {e}")
+        logger.warning("Failed to get enrichments from Neo4j: %s", e)
         return {}
+
+
+def clear_enrichment_cache() -> None:
+    """Clear the module-level enrichment cache.
+
+    Call this when starting a new derivation run or when the graph
+    has been modified.
+    """
+    _enrichment_cache.clear_memory()
+    logger.debug("Cleared enrichment memory cache")
 
 
 # Backward compatibility alias (deprecated)
@@ -1455,9 +1505,15 @@ Return a JSON object with an "elements" array.
 
 
 def build_relationship_prompt(elements: list[dict[str, Any]]) -> str:
-    """Build LLM prompt for relationship derivation."""
+    """Build LLM prompt for relationship derivation.
+
+    Note: This is a legacy function. Prefer build_unified_relationship_prompt()
+    or build_per_element_relationship_prompt() for new code.
+    """
+    # Strip to essential fields (removes derived_at and other cache-breaking properties)
+    clean_elements = strip_for_relationship_prompt(elements)
     # Use compact JSON to reduce token usage
-    elements_json = json.dumps(elements, separators=(",", ":"), default=str)
+    elements_json = json.dumps(clean_elements, separators=(",", ":"), default=str)
     valid_ids = [e.get("identifier", "") for e in elements if e.get("identifier")]
 
     return f"""Derive relationships between these ArchiMate elements:
@@ -1499,10 +1555,17 @@ def build_element_relationship_prompt(
     instruction: str | None = None,
     example: str | None = None,
 ) -> str:
-    """Build LLM prompt for element-type-specific relationship derivation."""
+    """Build LLM prompt for element-type-specific relationship derivation.
+
+    Note: This is a legacy function. Prefer build_unified_relationship_prompt()
+    or build_per_element_relationship_prompt() for new code.
+    """
+    # Strip to essential fields (removes derived_at and other cache-breaking properties)
+    clean_sources = strip_for_relationship_prompt(source_elements)
+    clean_targets = strip_for_relationship_prompt(target_elements)
     # Use compact JSON to reduce token usage
-    sources_json = json.dumps(source_elements, separators=(",", ":"), default=str)
-    targets_json = json.dumps(target_elements, separators=(",", ":"), default=str)
+    sources_json = json.dumps(clean_sources, separators=(",", ":"), default=str)
+    targets_json = json.dumps(clean_targets, separators=(",", ":"), default=str)
 
     source_ids = [
         e.get("identifier", "") for e in source_elements if e.get("identifier")
@@ -2377,6 +2440,7 @@ __all__ = [
     # Enrichment
     "get_enrichments",
     "get_enrichments_from_neo4j",
+    "clear_enrichment_cache",
     "enrich_candidate",
     # Filtering
     "filter_by_pagerank",

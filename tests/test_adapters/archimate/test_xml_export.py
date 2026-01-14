@@ -68,7 +68,7 @@ class TestArchiMateXMLExporter:
     def test_export_writes_file(self, exporter, sample_element):
         """Should write XML to file."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = Path(tmpdir) / "model.archimate"
+            output_path = Path(tmpdir) / "model.xml"
             exporter.export([sample_element], [], str(output_path))
 
             assert output_path.exists()
@@ -78,7 +78,7 @@ class TestArchiMateXMLExporter:
     def test_export_creates_parent_directories(self, exporter, sample_element):
         """Should create parent directories if needed."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            output_path = Path(tmpdir) / "subdir" / "nested" / "model.archimate"
+            output_path = Path(tmpdir) / "subdir" / "nested" / "model.xml"
             exporter.export([sample_element], [], str(output_path))
 
             assert output_path.exists()

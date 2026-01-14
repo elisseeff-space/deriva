@@ -75,21 +75,6 @@ uv run python -m deriva.cli.cli benchmark run \
 # Step 4: Update config and repeat until 100%
 ```
 
-### A/B Testing Script
-
-For rapid iteration, use `scripts/ab_test.py`:
-
-```bash
-# Test a single config
-python scripts/ab_test.py DataObject --runs 5
-
-# Compare against baseline
-python scripts/ab_test.py ApplicationService --runs 5 --baseline bench_20260110_074211
-
-# Analyze existing session
-python scripts/ab_test.py DataObject -a bench_20260110_074602
-```
-
 ---
 
 ## Prompt Engineering Principles
@@ -140,6 +125,8 @@ If the answer is "no" or "it depends on the domain", the prompt is overfitting.
 | Correct level | `as_validate_data` | High (generalizes) |
 
 Guide the LLM to use GENERIC category names (data, entity, document) rather than domain-specific names.
+
+> **Empirical support:** Liang 2025 achieved 100% accuracy on domain-specific tasks by providing carefully engineered in-context learning prompts with explicit domain constraints. Their finding that domain-specific instructions improved performance by 30% on complex cases validates the importance of abstraction-level guidance in prompts.
 
 ### Key Techniques
 
@@ -263,10 +250,14 @@ Key findings from academic research on LLM-based ArchiMate derivation:
 | Finding | Source | Implication for Deriva |
 |---------|--------|------------------------|
 | Few-shot prompting works without fine-tuning | Chaaben 2022 | Use in-context examples, not trained models |
+| Domain-specific ICL prompts can achieve 100% accuracy | Liang 2025 | Invest in tailored prompt engineering per element type |
 | Guidance texts significantly improve output | Coutinho 2025 | Include domain-specific instruction documents |
 | Chain-of-thought may decrease performance | Chen 2023 | Prefer direct instructions over reasoning chains |
 | High precision, low recall is the norm | Chen 2023 | Expect correct but incomplete outputs |
+| Code-to-ArchiMate: 68% precision, 80% recall | Castillo 2019 | Industrial benchmark baseline for extraction |
+| NLP model extraction: 83-96% correctness | Arora 2016 | Achievable with explicit naming rules |
 | LLMs show higher consistency than humans | Reitemeyer 2025 | Multiple runs can improve reliability |
+| **Consistency ≠ accuracy (independent properties)** | Raj 2025 | Validate correctness separately from consistency |
 | Human-in-the-loop is essential | All sources | Design for validation, not full automation |
 
 ### Naming Conventions
@@ -375,6 +366,8 @@ When deriving ArchiMate elements, use these definitions and code signals:
 **Recommendation:** Use low temperature (0.2-0.3) for element derivation to maximize consistency across runs.
 
 ### Validation Strategies
+
+> **Critical caveat:** Consistency and accuracy are independent properties (Raj 2025). High consistency does NOT guarantee correctness. A process could consistently produce incorrect results. Always validate accuracy separately through manual review or ground truth comparison.
 
 <details>
 <summary><strong>Multi-Run Aggregation</strong></summary>
@@ -629,6 +622,8 @@ RETURN n.id, n.name, n.pagerank, n.kcore_level
 | Semantic (BusinessConcept) | Zero out-degree, floating | Less stable |
 
 Semantic nodes extracted by LLM have no structural relationships in the code graph. When derivation uses these as sources, the LLM has less context, leading to inconsistent outputs.
+
+This observation aligns with broader challenges in neural-symbolic integration: Cai 2025 identifies "representation gaps between neural network outputs and structured symbolic representations" as a fundamental challenge, particularly for complex relational reasoning. The graph-based filtering approach helps bridge this gap by grounding LLM interpretation in structural context.
 
 **Recommendation:** For element types that can use either structural or semantic sources, prefer structural sources or require minimum graph connectivity.
 
@@ -901,10 +896,11 @@ See [Graph-Based Optimization](#graph-based-optimization) for the full methodolo
 4. **Add determinism instruction** - "Output stable, deterministic results" in every LLM prompt
 5. **Test one config at a time** - Use `--nocache-configs` for targeted testing
 6. **Examples drive consistency** - A good example JSON is more effective than verbose rules
-7. **Abstraction level is key** - Use generic category names, not domain-specific names
+7. **Abstraction level is key** - Use generic category names, not domain-specific names (Liang 2025: +30% improvement)
 8. **Graph-based selection over name-based** - Filter by structural properties (in_degree, pagerank)
 9. **Never use repository-specific rules** - All optimizations must be generic
 10. **Prefer structural sources over semantic** - TypeDefinition/Method sources are more stable than BusinessConcept
+11. **Consistency ≠ accuracy** - High consistency doesn't guarantee correctness; validate both independently (Raj 2025)
 
 ---
 
@@ -1034,10 +1030,15 @@ After Phase 4 optimizations (5 runs, mistral-devstral2, flask_invoice_generator)
 
 | Citation | Reference | Key Contribution |
 |----------|-----------|------------------|
+| Arora 2016 | Arora et al., "Extracting domain models from natural-language requirements" | Industrial NLP extraction: 83-96% correctness, explicit naming rules |
+| Cai 2025 | Cai et al., "Practices, opportunities and challenges in the fusion of knowledge graphs and large language models" | KG-LLM integration taxonomy (KEL/LEK/LKC), neural-symbolic representation gaps |
+| Castillo 2019 | Castillo et al., "ArchiRev - Reverse engineering toward ArchiMate models" | Code-to-ArchiMate benchmark: 68% precision, 80% recall |
 | Chaaben 2022 | Chaaben et al., "Towards using Few-Shot Prompt Learning for Automating Model Completion" | Few-shot prompting without fine-tuning, frequency-based ranking |
 | Chaaben 2024 | Chaaben et al., "On the Utility of Domain Modeling Assistance with LLMs" | 20% time reduction, 33-56% suggestion contribution rates |
 | Chen 2023 | Chen et al., "Automated Domain Modeling with LLMs: A Comparative Study" | F1 scores (0.76 classes, 0.34 relationships), chain-of-thought caution |
 | Coutinho 2025 | Coutinho et al., "LLM-Based Modeling Assistance for Textual Ontology-Driven Conceptual Modeling" | Guidance texts significantly improve output quality |
+| Liang 2025 | Liang et al., "Integrating Large Language Models for Automated Structural Analysis" | Domain-specific ICL achieves 100% accuracy; benchmarking methodology |
+| Raj 2025 | Raj et al., "Semantic Consistency for Assuring Reliability of Large Language Models" | **Critical:** Consistency and accuracy are independent properties |
 | Reitemeyer 2025 | Reitemeyer & Fill, "Applying LLMs in Knowledge Graph-based Enterprise Modeling" | LLMs show higher consistency than humans, human-in-the-loop essential |
 | Wang 2025 | Wang & Wang, "Assessing Consistency and Reproducibility in LLM Outputs" | 3-5 runs optimal for consistency |
 

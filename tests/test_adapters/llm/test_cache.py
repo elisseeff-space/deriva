@@ -53,7 +53,7 @@ class TestCacheManager:
     def test_set_and_get_from_memory(self, cache_manager):
         """Should store and retrieve from memory cache."""
         cache_key = CacheManager.generate_cache_key("test", "gpt-4")
-        cache_manager.set(cache_key, "response content", "test", "gpt-4")
+        cache_manager.set_response(cache_key, "response content", "test", "gpt-4")
 
         cached = cache_manager.get_from_memory(cache_key)
         assert cached is not None
@@ -63,7 +63,7 @@ class TestCacheManager:
     def test_set_and_get_from_disk(self, cache_manager):
         """Should store and retrieve from disk cache."""
         cache_key = CacheManager.generate_cache_key("test", "gpt-4")
-        cache_manager.set(cache_key, "disk content", "test", "gpt-4")
+        cache_manager.set_response(cache_key, "disk content", "test", "gpt-4")
 
         # Clear memory to force disk read
         cache_manager.clear_memory()
@@ -75,7 +75,7 @@ class TestCacheManager:
     def test_get_checks_memory_first_then_disk(self, cache_manager):
         """Should check memory cache first, then disk."""
         cache_key = CacheManager.generate_cache_key("test", "gpt-4")
-        cache_manager.set(cache_key, "original content", "test", "gpt-4")
+        cache_manager.set_response(cache_key, "original content", "test", "gpt-4")
 
         # Clear memory
         cache_manager.clear_memory()
@@ -97,7 +97,7 @@ class TestCacheManager:
     def test_clear_memory(self, cache_manager):
         """Should clear memory cache."""
         cache_key = CacheManager.generate_cache_key("test", "gpt-4")
-        cache_manager.set(cache_key, "content", "test", "gpt-4")
+        cache_manager.set_response(cache_key, "content", "test", "gpt-4")
 
         assert cache_manager.get_from_memory(cache_key) is not None
 
@@ -107,7 +107,7 @@ class TestCacheManager:
     def test_clear_disk(self, cache_manager, temp_cache_dir):
         """Should clear disk cache."""
         cache_key = CacheManager.generate_cache_key("test", "gpt-4")
-        cache_manager.set(cache_key, "content", "test", "gpt-4")
+        cache_manager.set_response(cache_key, "content", "test", "gpt-4")
 
         # Verify file exists
         cache_files = list(Path(temp_cache_dir).glob("*.json"))
@@ -122,7 +122,7 @@ class TestCacheManager:
     def test_clear_all(self, cache_manager, temp_cache_dir):
         """Should clear both memory and disk cache."""
         cache_key = CacheManager.generate_cache_key("test", "gpt-4")
-        cache_manager.set(cache_key, "content", "test", "gpt-4")
+        cache_manager.set_response(cache_key, "content", "test", "gpt-4")
 
         cache_manager.clear_all()
 
@@ -134,7 +134,7 @@ class TestCacheManager:
         # Add some cache entries
         for i in range(3):
             key = CacheManager.generate_cache_key(f"test{i}", "gpt-4")
-            cache_manager.set(key, f"content {i}", f"test{i}", "gpt-4")
+            cache_manager.set_response(key, f"content {i}", f"test{i}", "gpt-4")
 
         stats = cache_manager.get_cache_stats()
 
@@ -148,7 +148,7 @@ class TestCacheManager:
         cache_key = CacheManager.generate_cache_key("test", "gpt-4")
         usage = {"prompt_tokens": 100, "completion_tokens": 50}
 
-        cache_manager.set(cache_key, "content", "test", "gpt-4", usage)
+        cache_manager.set_response(cache_key, "content", "test", "gpt-4", usage)
 
         cached = cache_manager.get(cache_key)
         assert cached["usage"] == usage
@@ -156,7 +156,7 @@ class TestCacheManager:
     def test_cache_includes_timestamp(self, cache_manager):
         """Should include cached_at timestamp."""
         cache_key = CacheManager.generate_cache_key("test", "gpt-4")
-        cache_manager.set(cache_key, "content", "test", "gpt-4")
+        cache_manager.set_response(cache_key, "content", "test", "gpt-4")
 
         cached = cache_manager.get(cache_key)
         assert "cached_at" in cached
@@ -225,7 +225,7 @@ class TestCacheManagerErrors:
         # Mock open to raise exception during write
         with patch("builtins.open", side_effect=PermissionError("Access denied")):
             with pytest.raises(CacheError) as exc_info:
-                cache_manager.set("key", "content", "prompt", "model")
+                cache_manager.set_response("key", "content", "prompt", "model")
 
             assert "Error writing cache file" in str(exc_info.value)
 
@@ -236,7 +236,7 @@ class TestCacheManagerErrors:
         cache_manager = CacheManager(temp_cache_dir)
 
         # Add a cache entry
-        cache_manager.set("key", "content", "prompt", "model")
+        cache_manager.set_response("key", "content", "prompt", "model")
 
         # Mock unlink to fail
         with patch.object(Path, "unlink", side_effect=PermissionError("Access denied")):

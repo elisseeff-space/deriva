@@ -45,9 +45,9 @@ class TestCreateParser:
     def test_run_command_with_options(self):
         """Should parse run command with options."""
         parser = create_parser()
-        args = parser.parse_args(["run", "derivation", "--phase", "enrich", "-v"])
+        args = parser.parse_args(["run", "derivation", "--phase", "prep", "-v"])
         assert args.stage == "derivation"
-        assert args.phase == "enrich"
+        assert args.phase == "prep"
         assert args.verbose is True
 
     def test_config_list_command(self):
@@ -76,9 +76,9 @@ class TestCreateParser:
     def test_export_command_with_options(self):
         """Should parse export command with options."""
         parser = create_parser()
-        args = parser.parse_args(["export", "-o", "out.archimate", "-n", "MyModel"])
+        args = parser.parse_args(["export", "-o", "out.xml", "-n", "MyModel"])
         assert args.command == "export"
-        assert args.output == "out.archimate"
+        assert args.output == "out.xml"
         assert args.name == "MyModel"
 
     def test_benchmark_run_command(self):
@@ -566,11 +566,11 @@ class TestCmdExport:
             "success": True,
             "elements_exported": 50,
             "relationships_exported": 30,
-            "output_path": "/path/to/model.archimate",
+            "output_path": "/path/to/model.xml",
         }
         mock_session_class.return_value.__enter__.return_value = mock_session
 
-        args = argparse.Namespace(output="out.archimate", name="MyModel", verbose=False)
+        args = argparse.Namespace(output="out.xml", name="MyModel", verbose=False)
         result = cmd_export(args)
 
         assert result == 0
@@ -584,7 +584,7 @@ class TestCmdExport:
         mock_session.export_model.return_value = {"success": False, "error": "No elements to export"}
         mock_session_class.return_value.__enter__.return_value = mock_session
 
-        args = argparse.Namespace(output="out.archimate", name="MyModel", verbose=False)
+        args = argparse.Namespace(output="out.xml", name="MyModel", verbose=False)
         result = cmd_export(args)
 
         assert result == 1
@@ -1284,7 +1284,7 @@ class TestCmdRun:
             repo=None,
             verbose=False,
             no_llm=False,
-            phase="enrich",
+            phase="prep",
             quiet=False,
         )
         result = cmd_run(args)

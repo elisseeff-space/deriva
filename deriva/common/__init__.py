@@ -11,6 +11,7 @@ This package provides:
 - schema_utils: JSON Schema builders for structured output
 - file_utils: File encoding utilities
 - chunking: File chunking for large content handling
+- cache_utils: Two-tier caching infrastructure
 """
 
 from __future__ import annotations
@@ -58,6 +59,11 @@ from .chunking import (
 from .time_utils import (
     calculate_duration_ms,
     current_timestamp,
+)
+from .cache_utils import (
+    BaseDiskCache,
+    dict_to_hashable,
+    hash_inputs,
 )
 from .logging import (
     LogEntry,
@@ -186,4 +192,8 @@ __all__ = [
     "get_model_token_limit",
     "MODEL_TOKEN_LIMITS",
     "should_chunk",
+    # Cache utils
+    "BaseDiskCache",
+    "hash_inputs",
+    "dict_to_hashable",
 ]

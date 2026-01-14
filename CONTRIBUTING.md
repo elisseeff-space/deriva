@@ -168,7 +168,7 @@ User clicks "Run Pipeline" in app/app.py  OR  runs `deriva run` in CLI
 │ with PipelineSession() as session:                          │
 │     session.run_extraction(repo_name="my-repo")             │
 │     session.run_derivation()                                │
-│     session.export_model("output.archimate")                │
+│     session.export_model("output.xml")                      │
 │                                                             │
 │ # For reactive UI (Marimo):                                 │
 │     stats = session.get_graph_stats()                       │
@@ -178,19 +178,20 @@ User clicks "Run Pipeline" in app/app.py  OR  runs `deriva run` in CLI
 ┌─────────────────────────────────────────────────────────────┐
 │ EXTRACTION (inside services.extraction)                     │
 ├─────────────────────────────────────────────────────────────┤
+│ Phases: classify → parse                                    │
 │ 1. Load config from DuckDB via services.config              │
 │ 2. Get repos from RepositoryManager                         │
-│ 3. Call modules.extraction.classification [PURE]            │
-│ 4. Call modules.extraction.structural/* [PURE]              │
-│ 5. Call modules.extraction.llm/* [PURE + LLM]               │
+│ 3. Classify: modules.extraction.classification [PURE]       │
+│ 4. Parse: modules.extraction.structural/* [PURE]            │
+│ 5. Parse: modules.extraction.llm/* [PURE + LLM]             │
 │ 6. Persist via GraphManager.add_node() [I/O]                │
 └─────────────────────────────────────────────────────────────┘
     ↓
 ┌─────────────────────────────────────────────────────────────┐
 │ DERIVATION (inside services.derivation)                     │
 ├─────────────────────────────────────────────────────────────┤
-│ Phases: enrich → generate → refine                          │
-│ 1. Enrich: Graph enrichment (PageRank, communities, k-core) │
+│ Phases: prep → generate → refine                             │
+│ 1. Prep: Graph enrichment (PageRank, communities, k-core)    │
 │ 2. Generate: Query candidates with enrichment data [I/O]    │
 │ 3. Generate: Call modules.derivation.{element}.generate()   │
 │ 4. Generate: Persist via ArchimateManager.add_element()     │
@@ -1153,7 +1154,7 @@ def has_node_sources(config: Dict) -> bool
 
 Derivation uses a hybrid approach combining graph algorithms with LLM:
 
-- **enrich phase** - Graph enrichment (PageRank, Louvain communities, k-core analysis)
+- **prep phase** - Graph enrichment (PageRank, Louvain communities, k-core analysis)
 - **generate phase** - LLM-based element derivation using graph metrics for filtering
 - **refine phase** - Cross-graph validation (duplicates, orphans, structural consistency)
 
@@ -1230,12 +1231,28 @@ def generate(
 <details>
 <summary><strong>Configuration Pattern</strong></summary>
 
-### Two Types of Configuration
+### Configuration Principle: "Who Changes It"
 
-Deriva has two configuration systems:
+Deriva splits configuration by **ownership** - who needs to change it and why:
 
-1. **Environment variables (`.env`)** - Runtime settings for adapters (connections, API keys, paths)
-2. **Database configs (DuckDB)** - Pipeline behavior (extraction steps, derivation prompts, patterns)
+| Category              | Location   | Owner      | Examples                                     |
+| --------------------- | ---------- | ---------- | -------------------------------------------- |
+| **Secrets & Keys**    | `.env`     | Ops/Deploy | API keys, passwords                          |
+| **Infrastructure**    | `.env`     | Ops/Deploy | Connection URIs, paths, provider URLs        |
+| **Provider Settings** | `.env`     | Ops/Deploy | LLM rate limits, timeouts, model definitions |
+| **Algorithm Tuning**  | Database   | Users      | PageRank damping, Louvain resolution         |
+| **Quality Thresholds**| Database   | Users      | Confidence thresholds, batch sizes           |
+| **Pipeline Configs**  | Database   | Users      | Extraction/derivation prompts, patterns      |
+
+**Rationale:**
+
+- **`.env`** = deployment-specific, rarely changes, requires restart
+- **Database** = tunable during optimization, versioned for rollback, UI-editable
+
+### Two Configuration Systems
+
+1. **Environment variables (`.env`)** - Infrastructure and provider settings
+2. **Database configs (DuckDB)** - Pipeline behavior and tuning parameters
 
 ### .env File (Adapter Configuration)
 
