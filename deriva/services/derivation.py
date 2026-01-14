@@ -419,7 +419,7 @@ def run_derivation(
 
         for cfg in prep_configs:
             if verbose:
-                print(f"  Enrich: {cfg.step_name}")
+                print(f"  Prep: {cfg.step_name}")
 
             # Start progress tracking for this step
             if progress:
@@ -796,7 +796,7 @@ def run_derivation_iter(
             current_step += 1
 
             if verbose:
-                print(f"  Enrich: {cfg.step_name}")
+                print(f"  Prep: {cfg.step_name}")
 
             result = _run_prep_step(cfg, graph_manager)
             stats["steps_completed"] += 1

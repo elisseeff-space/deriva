@@ -124,8 +124,10 @@ class TestGenerateFunction:
         module = get_module(module_name)
         element_type = module.ELEMENT_TYPE
 
-        # Setup graph manager with enrichment and candidate results
+        # Setup graph manager with stats, enrichment and candidate results
         mock_manager = MagicMock()
+        # Stats for compute_graph_hash (called first for cache lookup)
+        stats_results = [{"node_count": 10, "edge_count": 20}]
         enrichment_results = [
             {
                 "node_id": "node_1",
@@ -145,7 +147,8 @@ class TestGenerateFunction:
                 "properties": {"path": "/src/test"},
             },
         ]
-        mock_manager.query.side_effect = [enrichment_results, candidate_results]
+        # Order: stats (cache check) -> enrichments -> candidates
+        mock_manager.query.side_effect = [stats_results, enrichment_results, candidate_results]
 
         # Setup LLM response with valid element
         mock_llm = MagicMock()
@@ -188,6 +191,8 @@ class TestGenerateFunction:
 
         # Setup graph manager with valid results
         mock_manager = MagicMock()
+        # Stats for compute_graph_hash
+        stats_results = [{"node_count": 10, "edge_count": 20}]
         enrichment_results = [
             {
                 "node_id": "n1",
@@ -200,7 +205,7 @@ class TestGenerateFunction:
             }
         ]
         candidate_results = [{"id": "n1", "name": "Test", "labels": [], "properties": {}}]
-        mock_manager.query.side_effect = [enrichment_results, candidate_results]
+        mock_manager.query.side_effect = [stats_results, enrichment_results, candidate_results]
 
         # LLM throws exception
         failing_llm = MagicMock()
@@ -230,6 +235,8 @@ class TestGenerateFunction:
 
         # Setup graph manager
         mock_manager = MagicMock()
+        # Stats for compute_graph_hash
+        stats_results = [{"node_count": 10, "edge_count": 20}]
         enrichment_results = [
             {
                 "node_id": "n1",
@@ -242,7 +249,7 @@ class TestGenerateFunction:
             }
         ]
         candidate_results = [{"id": "n1", "name": "Test", "labels": [], "properties": {}}]
-        mock_manager.query.side_effect = [enrichment_results, candidate_results]
+        mock_manager.query.side_effect = [stats_results, enrichment_results, candidate_results]
 
         # LLM returns invalid JSON
         invalid_llm = MagicMock()
