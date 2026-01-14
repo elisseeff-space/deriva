@@ -162,9 +162,7 @@ def detect_underfit(
 
     # 2. Missing element types
     reference_types = {e.element_type for e in reference_elements}
-    derived_types = {
-        e.get("type", e.get("element_type", "")) for e in derived_elements
-    }
+    derived_types = {e.get("type", e.get("element_type", "")) for e in derived_elements}
 
     missing_types = reference_types - derived_types
     if missing_types:
@@ -276,7 +274,9 @@ def detect_overfit(
     return overfit_score, indicators
 
 
-def _find_similar_names(names: list[str], threshold: float = 0.9) -> list[tuple[str, str]]:
+def _find_similar_names(
+    names: list[str], threshold: float = 0.9
+) -> list[tuple[str, str]]:
     """
     Find pairs of very similar element names (potential duplicates).
 
@@ -428,9 +428,7 @@ def _generate_fit_recommendations(
                 "Add explicit exclusion rules in derivation prompts."
             )
         if "duplicates" in str(overfit_indicators).lower():
-            recommendations.append(
-                "Add deduplication logic or stricter naming rules."
-            )
+            recommendations.append("Add deduplication logic or stricter naming rules.")
 
     # Balance recommendation
     if underfit_score > 0.3 and overfit_score > 0.3:

@@ -250,7 +250,9 @@ def get_enrichments_from_neo4j(
         try:
             graph_hash = compute_graph_hash(graph_manager)
             if cached := _enrichment_cache.get_enrichments(graph_hash):
-                logger.debug("Using cached enrichments for graph hash %s", graph_hash[:8])
+                logger.debug(
+                    "Using cached enrichments for graph hash %s", graph_hash[:8]
+                )
                 return cached
         except Exception as e:
             logger.debug("Cache lookup failed, querying Neo4j: %s", e)

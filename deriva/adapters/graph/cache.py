@@ -180,9 +180,7 @@ class QueryCache(BaseDiskCache):
         """
         return hash_inputs(query, graph_hash)
 
-    def get_results(
-        self, query: str, graph_hash: str
-    ) -> list[dict[str, Any]] | None:
+    def get_results(self, query: str, graph_hash: str) -> list[dict[str, Any]] | None:
         """
         Get cached query results.
 

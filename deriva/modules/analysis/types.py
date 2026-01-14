@@ -211,7 +211,9 @@ class PhaseStabilityReport:
             "node_breakdown": [b.to_dict() for b in self.node_breakdown],
             "edge_breakdown": [b.to_dict() for b in self.edge_breakdown],
             "element_breakdown": [b.to_dict() for b in self.element_breakdown],
-            "relationship_breakdown": [b.to_dict() for b in self.relationship_breakdown],
+            "relationship_breakdown": [
+                b.to_dict() for b in self.relationship_breakdown
+            ],
         }
 
 
@@ -396,7 +398,9 @@ class BenchmarkReport:
     )  # repo -> report
 
     # 3. Fit Analysis
-    fit_analyses: dict[str, FitAnalysis] = field(default_factory=dict)  # repo -> analysis
+    fit_analyses: dict[str, FitAnalysis] = field(
+        default_factory=dict
+    )  # repo -> analysis
 
     # 4. Cross-Repository Comparison
     cross_repo: CrossRepoComparison | None = None
@@ -454,9 +458,11 @@ class BenchmarkReport:
         ]
 
         for repo in self.repositories:
-            consistency = self.stability_reports.get(repo, {}).get(
-                "derivation", PhaseStabilityReport("", repo, "", 0, 0.0)
-            ).overall_consistency
+            consistency = (
+                self.stability_reports.get(repo, {})
+                .get("derivation", PhaseStabilityReport("", repo, "", 0, 0.0))
+                .overall_consistency
+            )
             semantic = self.semantic_reports.get(repo)
             precision = semantic.element_precision if semantic else 0.0
             recall = semantic.element_recall if semantic else 0.0
@@ -476,11 +482,15 @@ class BenchmarkReport:
         for repo, phases in self.stability_reports.items():
             lines.append(f"### {repo}")
             for phase, report in phases.items():
-                lines.append(f"**{phase.title()} Phase:** {report.overall_consistency:.1%} consistency")
+                lines.append(
+                    f"**{phase.title()} Phase:** {report.overall_consistency:.1%} consistency"
+                )
                 if report.element_breakdown:
                     lines.append("| Element Type | Consistency | Stable | Unstable |")
                     lines.append("|--------------|-------------|--------|----------|")
-                    for b in sorted(report.element_breakdown, key=lambda x: -x.consistency_score):
+                    for b in sorted(
+                        report.element_breakdown, key=lambda x: -x.consistency_score
+                    ):
                         lines.append(
                             f"| {b.item_type} | {b.consistency_score:.1%} | {b.stable_count} | {b.unstable_count} |"
                         )

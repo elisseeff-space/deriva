@@ -104,6 +104,7 @@ def _hash_dict_tuple(dict_tuple: tuple[tuple[str, Any], ...]) -> str:
     Returns:
         JSON string representation
     """
+
     # Convert back to dict for JSON serialization
     def tuple_to_dict(t: tuple) -> dict | list | Any:
         if isinstance(t, tuple) and len(t) > 0:

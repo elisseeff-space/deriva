@@ -169,9 +169,21 @@ def parse_archi_xml(
         folder_type = folder.get("type", "")
         folder_name = folder.get("name", "")
 
-        if folder_type in ("business", "application", "technology", "strategy", "physical"):
+        if folder_type in (
+            "business",
+            "application",
+            "technology",
+            "strategy",
+            "physical",
+        ):
             layer = folder_type.title()
-        elif folder_name in ("Business", "Application", "Technology", "Strategy", "Physical"):
+        elif folder_name in (
+            "Business",
+            "Application",
+            "Technology",
+            "Strategy",
+            "Physical",
+        ):
             layer = folder_name
 
         # Process elements in this folder
@@ -651,11 +663,15 @@ def create_semantic_match_report(
 
     # Categorize matches
     correctly_derived = [m for m in element_matches if m.match_type != "no_match"]
-    spurious_elements = [m.derived_id for m in element_matches if m.match_type == "no_match"]
+    spurious_elements = [
+        m.derived_id for m in element_matches if m.match_type == "no_match"
+    ]
 
     # Find missing elements (reference elements not matched)
     matched_ref_ids = {m.reference_id for m in correctly_derived if m.reference_id}
-    missing_elements = [e for e in reference_elements if e.identifier not in matched_ref_ids]
+    missing_elements = [
+        e for e in reference_elements if e.identifier not in matched_ref_ids
+    ]
 
     # Compute metrics
     element_metrics = compute_semantic_metrics(element_matches, len(reference_elements))
@@ -691,8 +707,12 @@ def create_semantic_match_report(
         correctly_derived=correctly_derived,
         missing_elements=missing_elements,
         spurious_elements=spurious_elements,
-        total_derived_relationships=len(derived_relationships) if derived_relationships else 0,
-        total_reference_relationships=len(reference_relationships) if reference_relationships else 0,
+        total_derived_relationships=len(derived_relationships)
+        if derived_relationships
+        else 0,
+        total_reference_relationships=len(reference_relationships)
+        if reference_relationships
+        else 0,
         correctly_derived_relationships=correctly_derived_rels,
         missing_relationships=missing_rels,
         spurious_relationships=spurious_rels,

@@ -101,9 +101,7 @@ class BenchmarkAnalyzer:
         self.models = self._extract_models()
 
         # Cache for reference models
-        self._reference_cache: dict[
-            str, tuple[list[ReferenceElement], list[ReferenceRelationship]]
-        ] = {}
+        self._reference_cache: dict[str, tuple[list[ReferenceElement], list[ReferenceRelationship]]] = {}
 
         # Analysis results
         self._stability_reports: dict[str, dict[str, PhaseStabilityReport]] = {}
@@ -153,9 +151,7 @@ class BenchmarkAnalyzer:
             models.update(config.get("models", []))
         return sorted(models)
 
-    def _load_reference_model(
-        self, repo: str
-    ) -> tuple[list[ReferenceElement], list[ReferenceRelationship]]:
+    def _load_reference_model(self, repo: str) -> tuple[list[ReferenceElement], list[ReferenceRelationship]]:
         """Load and parse reference model for a repository."""
         if repo in self._reference_cache:
             return self._reference_cache[repo]
@@ -181,9 +177,7 @@ class BenchmarkAnalyzer:
             print(f"Warning: Failed to parse reference model for {repo}: {e}")
             return [], []
 
-    def _get_objects_by_run(
-        self, object_type: str, repo: str | None = None
-    ) -> dict[str, set[str]]:
+    def _get_objects_by_run(self, object_type: str, repo: str | None = None) -> dict[str, set[str]]:
         """
         Get objects grouped by run from OCEL logs.
 
@@ -428,20 +422,14 @@ class BenchmarkAnalyzer:
 
         # Compute average precision/recall
         if semantic:
-            overall_precision = sum(s.element_precision for s in semantic.values()) / len(
-                semantic
-            )
-            overall_recall = sum(s.element_recall for s in semantic.values()) / len(
-                semantic
-            )
+            overall_precision = sum(s.element_precision for s in semantic.values()) / len(semantic)
+            overall_recall = sum(s.element_recall for s in semantic.values()) / len(semantic)
         else:
             overall_precision = 0.0
             overall_recall = 0.0
 
         # Generate recommendations
-        recommendations = self._generate_recommendations(
-            stability, semantic, fit, cross_repo, metrics
-        )
+        recommendations = self._generate_recommendations(stability, semantic, fit, cross_repo, metrics)
 
         # Create report
         self._report = BenchmarkReport(
@@ -476,36 +464,21 @@ class BenchmarkAnalyzer:
         if metrics.get("worst_element_types"):
             for elem_type, score in metrics["worst_element_types"][:3]:
                 if score < 0.5:
-                    recommendations.append(
-                        f"HIGH: '{elem_type}' has low consistency ({score:.0%}). "
-                        "Review derivation prompt for stricter naming rules."
-                    )
+                    recommendations.append(f"HIGH: '{elem_type}' has low consistency ({score:.0%}). Review derivation prompt for stricter naming rules.")
 
         # Semantic-based recommendations
         for repo, sr in semantic.items():
             if sr.element_recall < 0.5:
-                recommendations.append(
-                    f"MEDIUM: {repo} has low recall ({sr.element_recall:.0%}). "
-                    "Consider adding more derivation rules."
-                )
+                recommendations.append(f"MEDIUM: {repo} has low recall ({sr.element_recall:.0%}). Consider adding more derivation rules.")
             if sr.element_precision < 0.5:
-                recommendations.append(
-                    f"MEDIUM: {repo} has low precision ({sr.element_precision:.0%}). "
-                    "Add filtering to reduce false positives."
-                )
+                recommendations.append(f"MEDIUM: {repo} has low precision ({sr.element_precision:.0%}). Add filtering to reduce false positives.")
 
         # Fit-based recommendations
         for repo, fa in fit.items():
             if fa.underfit_score > 0.5:
-                recommendations.append(
-                    f"HIGH: {repo} shows underfit ({fa.underfit_score:.0%}). "
-                    "Model is too simple."
-                )
+                recommendations.append(f"HIGH: {repo} shows underfit ({fa.underfit_score:.0%}). Model is too simple.")
             if fa.overfit_score > 0.5:
-                recommendations.append(
-                    f"HIGH: {repo} shows overfit ({fa.overfit_score:.0%}). "
-                    "Too many spurious elements."
-                )
+                recommendations.append(f"HIGH: {repo} shows overfit ({fa.overfit_score:.0%}). Too many spurious elements.")
 
         # Cross-repo recommendations
         if cross_repo:

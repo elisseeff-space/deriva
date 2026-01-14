@@ -1079,7 +1079,9 @@ def cmd_benchmark_comprehensive(args: argparse.Namespace) -> int:
     session_ids = args.session_ids
     output = getattr(args, "output", "workspace/analysis")
     format_type = getattr(args, "format", "both")
-    _include_semantic = not getattr(args, "no_semantic", False)  # Reserved for future use
+    _include_semantic = not getattr(
+        args, "no_semantic", False
+    )  # Reserved for future use
 
     print(f"\n{'=' * 60}")
     print("BENCHMARK ANALYSIS")

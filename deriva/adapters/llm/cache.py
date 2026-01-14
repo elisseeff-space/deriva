@@ -137,7 +137,6 @@ class CacheManager(BaseDiskCache):
         # Use base class set() for storage
         super().set(cache_key, cache_data)
 
-
     def get_cache_stats(self) -> dict[str, Any]:
         """
         Get statistics about the cache.

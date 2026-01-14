@@ -335,7 +335,9 @@ def compute_phase_stability(
         # Calculate overall consistency
         all_breakdowns = node_breakdown + edge_breakdown
         if all_breakdowns:
-            overall = sum(b.consistency_score for b in all_breakdowns) / len(all_breakdowns)
+            overall = sum(b.consistency_score for b in all_breakdowns) / len(
+                all_breakdowns
+            )
         else:
             overall = 0.0
 
@@ -371,7 +373,9 @@ def compute_phase_stability(
         # Calculate overall consistency
         all_breakdowns = element_breakdown + relationship_breakdown
         if all_breakdowns:
-            overall = sum(b.consistency_score for b in all_breakdowns) / len(all_breakdowns)
+            overall = sum(b.consistency_score for b in all_breakdowns) / len(
+                all_breakdowns
+            )
         else:
             overall = 0.0
 
@@ -438,7 +442,9 @@ def identify_stability_patterns(
                 stable_name_patterns.extend(stable_prefixes)
 
         if breakdown.unstable_items:
-            unstable_prefixes = _find_common_patterns(list(breakdown.unstable_items.keys()))
+            unstable_prefixes = _find_common_patterns(
+                list(breakdown.unstable_items.keys())
+            )
             if unstable_prefixes:
                 unstable_name_patterns.extend(unstable_prefixes)
 
@@ -520,7 +526,9 @@ def aggregate_stability_metrics(
             derivation_consistencies.append(phases["derivation"].overall_consistency)
 
             for breakdown in phases["derivation"].element_breakdown:
-                element_type_scores[breakdown.item_type].append(breakdown.consistency_score)
+                element_type_scores[breakdown.item_type].append(
+                    breakdown.consistency_score
+                )
 
             for breakdown in phases["derivation"].relationship_breakdown:
                 relationship_type_scores[breakdown.item_type].append(
@@ -554,7 +562,9 @@ def aggregate_stability_metrics(
         "avg_extraction_consistency": avg_extraction,
         "avg_derivation_consistency": avg_derivation,
         "best_element_types": element_type_avgs[:5],  # Top 5
-        "worst_element_types": element_type_avgs[-5:][::-1] if element_type_avgs else [],
+        "worst_element_types": element_type_avgs[-5:][::-1]
+        if element_type_avgs
+        else [],
         "best_relationship_types": relationship_type_avgs[:5],
         "worst_relationship_types": (
             relationship_type_avgs[-5:][::-1] if relationship_type_avgs else []

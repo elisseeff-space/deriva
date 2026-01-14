@@ -204,7 +204,9 @@ def identify_generalizable_patterns(
     for repo, phases in stability_reports.items():
         if "derivation" in phases:
             for breakdown in phases["derivation"].element_breakdown:
-                element_consistency[breakdown.item_type][repo] = breakdown.consistency_score
+                element_consistency[breakdown.item_type][repo] = (
+                    breakdown.consistency_score
+                )
 
             for breakdown in phases["derivation"].relationship_breakdown:
                 relationship_consistency[breakdown.item_type][repo] = (
@@ -273,7 +275,9 @@ def identify_repo_specific_issues(
     for repo, phases in stability_reports.items():
         if "derivation" in phases:
             for breakdown in phases["derivation"].element_breakdown:
-                element_consistency[breakdown.item_type][repo] = breakdown.consistency_score
+                element_consistency[breakdown.item_type][repo] = (
+                    breakdown.consistency_score
+                )
 
     # Find element types that fail on specific repos
     for elem_type, repo_scores in element_consistency.items():
@@ -291,9 +295,9 @@ def identify_repo_specific_issues(
 
     # Check semantic report issues
     if semantic_reports:
-        avg_precision = sum(s.element_precision for s in semantic_reports.values()) / len(
-            semantic_reports
-        )
+        avg_precision = sum(
+            s.element_precision for s in semantic_reports.values()
+        ) / len(semantic_reports)
         avg_recall = sum(s.element_recall for s in semantic_reports.values()) / len(
             semantic_reports
         )

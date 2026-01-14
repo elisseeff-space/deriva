@@ -862,9 +862,7 @@ class BenchmarkOrchestrator:
         try:
             used_keys = getattr(llm_query_fn, "used_cache_keys", [])
             if used_keys and llm_manager.cache:
-                copied = self._copy_used_cache_entries(
-                    used_keys, llm_manager.cache.cache_dir, model_name
-                )
+                copied = self._copy_used_cache_entries(used_keys, llm_manager.cache.cache_dir, model_name)
                 stats["cache_entries_copied"] = copied
         except Exception:
             pass  # Don't fail run if cache copy fails

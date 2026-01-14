@@ -1256,9 +1256,7 @@ def get_algorithm_setting(engine: Any, key: str, default: str | None = None) -> 
     return _DEFAULT_ALGORITHM_SETTINGS.get(key, "")
 
 
-def get_algorithm_setting_float(
-    engine: Any, key: str, default: float | None = None
-) -> float:
+def get_algorithm_setting_float(engine: Any, key: str, default: float | None = None) -> float:
     """Get an algorithm setting as float."""
     value = get_algorithm_setting(engine, key)
     try:
@@ -1267,9 +1265,7 @@ def get_algorithm_setting_float(
         return default if default is not None else 0.0
 
 
-def get_algorithm_setting_int(
-    engine: Any, key: str, default: int | None = None
-) -> int:
+def get_algorithm_setting_int(engine: Any, key: str, default: int | None = None) -> int:
     """Get an algorithm setting as int."""
     value = get_algorithm_setting(engine, key)
     try:
@@ -1286,15 +1282,9 @@ def get_pagerank_config(engine: Any) -> dict[str, float | int]:
         Dict with 'damping', 'max_iter', 'tol' keys
     """
     return {
-        "damping": get_algorithm_setting_float(
-            engine, "algorithm_pagerank_damping", 0.85
-        ),
-        "max_iter": get_algorithm_setting_int(
-            engine, "algorithm_pagerank_max_iter", 100
-        ),
-        "tol": get_algorithm_setting_float(
-            engine, "algorithm_pagerank_tolerance", 1e-6
-        ),
+        "damping": get_algorithm_setting_float(engine, "algorithm_pagerank_damping", 0.85),
+        "max_iter": get_algorithm_setting_int(engine, "algorithm_pagerank_max_iter", 100),
+        "tol": get_algorithm_setting_float(engine, "algorithm_pagerank_tolerance", 1e-6),
     }
 
 
@@ -1306,7 +1296,5 @@ def get_louvain_config(engine: Any) -> dict[str, float]:
         Dict with 'resolution' key
     """
     return {
-        "resolution": get_algorithm_setting_float(
-            engine, "algorithm_louvain_resolution", 1.0
-        ),
+        "resolution": get_algorithm_setting_float(engine, "algorithm_louvain_resolution", 1.0),
     }
