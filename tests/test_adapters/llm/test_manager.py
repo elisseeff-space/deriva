@@ -908,12 +908,12 @@ class TestQuery:
             with patch.dict("os.environ", env_vars, clear=True):
                 manager = LLMManager()
                 manager.cache.get = MagicMock(return_value=None)  # type: ignore[method-assign]
-                manager.cache.set = MagicMock()  # type: ignore[method-assign]
+                manager.cache.set_response = MagicMock()  # type: ignore[method-assign]
                 manager.provider.complete = MagicMock(return_value=mock_result)  # type: ignore[method-assign]
 
                 manager.query("Hello")
 
-        manager.cache.set.assert_called_once()
+        manager.cache.set_response.assert_called_once()
 
     def test_query_skips_cached_error_and_retries(self, tmp_path, monkeypatch):
         """Should skip cached errors and retry API call instead."""
