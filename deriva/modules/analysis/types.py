@@ -15,6 +15,16 @@ __all__ = [
     "InconsistencyInfo",
     "IntraModelMetrics",
     "InterModelMetrics",
+    # Comprehensive analysis types
+    "StabilityBreakdown",
+    "PhaseStabilityReport",
+    "ReferenceElement",
+    "ReferenceRelationship",
+    "SemanticMatch",
+    "SemanticMatchReport",
+    "FitAnalysis",
+    "CrossRepoComparison",
+    "BenchmarkReport",
 ]
 
 
@@ -147,3 +157,390 @@ class InterModelMetrics:
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         return asdict(self)
+
+
+# ============================================================================
+# Comprehensive Benchmark Analysis Types
+# ============================================================================
+
+
+@dataclass
+class StabilityBreakdown:
+    """Stability metrics breakdown by item type."""
+
+    item_type: str  # e.g., "ApplicationComponent", "Serving", "CONTAINS"
+    phase: str  # "extraction" or "derivation"
+    total_count: int  # Total unique items across all runs
+    stable_count: int  # Items appearing in ALL runs
+    unstable_count: int  # Items appearing in SOME runs
+    consistency_score: float  # stable_count / total_count (0.0 to 1.0)
+    stable_items: list[str] = field(default_factory=list)
+    unstable_items: dict[str, int] = field(default_factory=dict)  # item -> run_count
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+
+@dataclass
+class PhaseStabilityReport:
+    """Stability report for extraction or derivation phase."""
+
+    phase: str  # "extraction" or "derivation"
+    repository: str
+    model: str
+    total_runs: int
+    overall_consistency: float  # Average consistency across all types
+
+    # For extraction phase
+    node_breakdown: list[StabilityBreakdown] = field(default_factory=list)
+    edge_breakdown: list[StabilityBreakdown] = field(default_factory=list)
+
+    # For derivation phase
+    element_breakdown: list[StabilityBreakdown] = field(default_factory=list)
+    relationship_breakdown: list[StabilityBreakdown] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "phase": self.phase,
+            "repository": self.repository,
+            "model": self.model,
+            "total_runs": self.total_runs,
+            "overall_consistency": self.overall_consistency,
+            "node_breakdown": [b.to_dict() for b in self.node_breakdown],
+            "edge_breakdown": [b.to_dict() for b in self.edge_breakdown],
+            "element_breakdown": [b.to_dict() for b in self.element_breakdown],
+            "relationship_breakdown": [b.to_dict() for b in self.relationship_breakdown],
+        }
+
+
+@dataclass
+class ReferenceElement:
+    """Element from a reference ArchiMate model."""
+
+    identifier: str
+    name: str
+    element_type: str  # e.g., "ApplicationComponent", "BusinessProcess"
+    layer: str = ""  # "Business", "Application", "Technology"
+    documentation: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+
+@dataclass
+class ReferenceRelationship:
+    """Relationship from a reference ArchiMate model."""
+
+    identifier: str
+    source: str  # Source element identifier
+    target: str  # Target element identifier
+    relationship_type: str  # e.g., "Composition", "Serving"
+    name: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+
+@dataclass
+class SemanticMatch:
+    """Match result between a derived element and reference element."""
+
+    derived_id: str
+    derived_name: str
+    derived_type: str
+    reference_id: str | None  # None if no match found
+    reference_name: str | None
+    reference_type: str | None
+    match_type: str  # "exact", "fuzzy_name", "type_only", "no_match"
+    similarity_score: float  # 0.0 to 1.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+
+@dataclass
+class SemanticMatchReport:
+    """Semantic comparison results between derived and reference models."""
+
+    repository: str
+    reference_model_path: str
+    derived_run: str
+
+    # Element matching
+    total_derived_elements: int
+    total_reference_elements: int
+    correctly_derived: list[SemanticMatch] = field(default_factory=list)
+    missing_elements: list[ReferenceElement] = field(default_factory=list)
+    spurious_elements: list[str] = field(default_factory=list)
+
+    # Relationship matching
+    total_derived_relationships: int = 0
+    total_reference_relationships: int = 0
+    correctly_derived_relationships: list[SemanticMatch] = field(default_factory=list)
+    missing_relationships: list[ReferenceRelationship] = field(default_factory=list)
+    spurious_relationships: list[str] = field(default_factory=list)
+
+    # Aggregate metrics
+    element_precision: float = 0.0  # correctly_derived / total_derived
+    element_recall: float = 0.0  # correctly_derived / total_reference
+    element_f1: float = 0.0
+    relationship_precision: float = 0.0
+    relationship_recall: float = 0.0
+    relationship_f1: float = 0.0
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "repository": self.repository,
+            "reference_model_path": self.reference_model_path,
+            "derived_run": self.derived_run,
+            "total_derived_elements": self.total_derived_elements,
+            "total_reference_elements": self.total_reference_elements,
+            "correctly_derived": [m.to_dict() for m in self.correctly_derived],
+            "missing_elements": [e.to_dict() for e in self.missing_elements],
+            "spurious_elements": self.spurious_elements,
+            "total_derived_relationships": self.total_derived_relationships,
+            "total_reference_relationships": self.total_reference_relationships,
+            "correctly_derived_relationships": [
+                m.to_dict() for m in self.correctly_derived_relationships
+            ],
+            "missing_relationships": [r.to_dict() for r in self.missing_relationships],
+            "spurious_relationships": self.spurious_relationships,
+            "element_precision": self.element_precision,
+            "element_recall": self.element_recall,
+            "element_f1": self.element_f1,
+            "relationship_precision": self.relationship_precision,
+            "relationship_recall": self.relationship_recall,
+            "relationship_f1": self.relationship_f1,
+        }
+
+
+@dataclass
+class FitAnalysis:
+    """Analysis of how well a derived model fits the codebase."""
+
+    repository: str
+    run_id: str
+
+    # Coverage metrics
+    coverage_score: float  # 0.0 to 1.0 - how well codebase concepts are captured
+    concepts_covered: list[str] = field(default_factory=list)
+    concepts_missing: list[str] = field(default_factory=list)
+
+    # Underfit detection (model too simple)
+    underfit_score: float = 0.0  # Higher = more underfit
+    underfit_indicators: list[str] = field(default_factory=list)
+
+    # Overfit detection (model has spurious elements)
+    overfit_score: float = 0.0  # Higher = more overfit
+    overfit_indicators: list[str] = field(default_factory=list)
+
+    # Recommendations
+    recommendations: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+
+@dataclass
+class CrossRepoComparison:
+    """Comparison of benchmark results across multiple repositories."""
+
+    repositories: list[str]
+    model: str
+
+    # Per-repo metrics
+    consistency_by_repo: dict[str, float] = field(default_factory=dict)
+    element_count_by_repo: dict[str, int] = field(default_factory=dict)
+    precision_by_repo: dict[str, float] = field(default_factory=dict)
+    recall_by_repo: dict[str, float] = field(default_factory=dict)
+
+    # Best/worst performers (sorted by consistency)
+    best_element_types: list[tuple[str, float]] = field(default_factory=list)
+    worst_element_types: list[tuple[str, float]] = field(default_factory=list)
+    best_relationship_types: list[tuple[str, float]] = field(default_factory=list)
+    worst_relationship_types: list[tuple[str, float]] = field(default_factory=list)
+
+    # Generalization analysis
+    generalizable_patterns: list[str] = field(default_factory=list)
+    repo_specific_issues: dict[str, list[str]] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return asdict(self)
+
+
+@dataclass
+class BenchmarkReport:
+    """Full comprehensive benchmark analysis report."""
+
+    session_ids: list[str]
+    repositories: list[str]
+    models: list[str]
+    generated_at: str
+
+    # 1. Stability Analysis
+    stability_reports: dict[str, dict[str, PhaseStabilityReport]] = field(
+        default_factory=dict
+    )  # repo -> phase -> report
+
+    # 2. Semantic Match Analysis
+    semantic_reports: dict[str, SemanticMatchReport] = field(
+        default_factory=dict
+    )  # repo -> report
+
+    # 3. Fit Analysis
+    fit_analyses: dict[str, FitAnalysis] = field(default_factory=dict)  # repo -> analysis
+
+    # 4. Cross-Repository Comparison
+    cross_repo: CrossRepoComparison | None = None
+
+    # Summary metrics
+    overall_consistency: float = 0.0
+    overall_precision: float = 0.0
+    overall_recall: float = 0.0
+
+    # Recommendations
+    recommendations: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        return {
+            "meta": {
+                "session_ids": self.session_ids,
+                "repositories": self.repositories,
+                "models": self.models,
+                "generated_at": self.generated_at,
+            },
+            "stability": {
+                repo: {phase: report.to_dict() for phase, report in phases.items()}
+                for repo, phases in self.stability_reports.items()
+            },
+            "semantic_match": {
+                repo: report.to_dict() for repo, report in self.semantic_reports.items()
+            },
+            "fit_analysis": {
+                repo: analysis.to_dict() for repo, analysis in self.fit_analyses.items()
+            },
+            "cross_repo": self.cross_repo.to_dict() if self.cross_repo else None,
+            "summary": {
+                "overall_consistency": self.overall_consistency,
+                "overall_precision": self.overall_precision,
+                "overall_recall": self.overall_recall,
+            },
+            "recommendations": self.recommendations,
+        }
+
+    def to_markdown(self) -> str:
+        """Generate human-readable markdown summary."""
+        lines = [
+            "# Comprehensive Benchmark Analysis Report",
+            "",
+            f"**Generated:** {self.generated_at}",
+            f"**Sessions:** {', '.join(self.session_ids)}",
+            f"**Repositories:** {', '.join(self.repositories)}",
+            f"**Models:** {', '.join(self.models)}",
+            "",
+            "## Executive Summary",
+            "",
+            "| Repository | Consistency | Precision | Recall | F1 |",
+            "|------------|-------------|-----------|--------|-----|",
+        ]
+
+        for repo in self.repositories:
+            consistency = self.stability_reports.get(repo, {}).get(
+                "derivation", PhaseStabilityReport("", repo, "", 0, 0.0)
+            ).overall_consistency
+            semantic = self.semantic_reports.get(repo)
+            precision = semantic.element_precision if semantic else 0.0
+            recall = semantic.element_recall if semantic else 0.0
+            f1 = semantic.element_f1 if semantic else 0.0
+            lines.append(
+                f"| {repo} | {consistency:.1%} | {precision:.1%} | {recall:.1%} | {f1:.2f} |"
+            )
+
+        lines.extend(
+            [
+                "",
+                "## 1. Stability Analysis",
+                "",
+            ]
+        )
+
+        for repo, phases in self.stability_reports.items():
+            lines.append(f"### {repo}")
+            for phase, report in phases.items():
+                lines.append(f"**{phase.title()} Phase:** {report.overall_consistency:.1%} consistency")
+                if report.element_breakdown:
+                    lines.append("| Element Type | Consistency | Stable | Unstable |")
+                    lines.append("|--------------|-------------|--------|----------|")
+                    for b in sorted(report.element_breakdown, key=lambda x: -x.consistency_score):
+                        lines.append(
+                            f"| {b.item_type} | {b.consistency_score:.1%} | {b.stable_count} | {b.unstable_count} |"
+                        )
+            lines.append("")
+
+        if self.semantic_reports:
+            lines.extend(
+                [
+                    "## 2. Semantic Match with Reference Models",
+                    "",
+                ]
+            )
+            for repo, report in self.semantic_reports.items():
+                lines.extend(
+                    [
+                        f"### {repo}",
+                        f"- **Reference:** {report.reference_model_path}",
+                        f"- **Precision:** {report.element_precision:.1%}",
+                        f"- **Recall:** {report.element_recall:.1%}",
+                        f"- **F1 Score:** {report.element_f1:.2f}",
+                        f"- **Correctly Derived:** {len(report.correctly_derived)}",
+                        f"- **Missing Elements:** {len(report.missing_elements)}",
+                        f"- **Spurious Elements:** {len(report.spurious_elements)}",
+                        "",
+                    ]
+                )
+
+        if self.cross_repo:
+            lines.extend(
+                [
+                    "## 3. Best/Worst Performing",
+                    "",
+                    "### Best Element Types",
+                    "| Type | Avg Consistency |",
+                    "|------|-----------------|",
+                ]
+            )
+            for t, score in self.cross_repo.best_element_types[:5]:
+                lines.append(f"| {t} | {score:.1%} |")
+
+            lines.extend(
+                [
+                    "",
+                    "### Worst Element Types",
+                    "| Type | Avg Consistency |",
+                    "|------|-----------------|",
+                ]
+            )
+            for t, score in self.cross_repo.worst_element_types[:5]:
+                lines.append(f"| {t} | {score:.1%} |")
+            lines.append("")
+
+        if self.recommendations:
+            lines.extend(
+                [
+                    "## 4. Recommendations",
+                    "",
+                ]
+            )
+            for i, rec in enumerate(self.recommendations, 1):
+                lines.append(f"{i}. {rec}")
+
+        return "\n".join(lines)

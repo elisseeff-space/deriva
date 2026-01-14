@@ -1,8 +1,8 @@
-"""Tests for deriva.modules.derivation.enrich module."""
+"""Tests for deriva.modules.derivation.prep module."""
 
 from __future__ import annotations
 
-from deriva.modules.derivation import enrich
+from deriva.modules.derivation import prep
 
 
 class TestBuildAdjacency:
@@ -10,14 +10,14 @@ class TestBuildAdjacency:
 
     def test_empty_edges_returns_empty(self):
         """Should return empty sets for empty edge list."""
-        nodes, adj = enrich.build_adjacency([])
+        nodes, adj = prep.build_adjacency([])
         assert nodes == set()
         assert adj == {}
 
     def test_single_edge(self):
         """Should build adjacency for single edge."""
         edges = [{"source": "A", "target": "B"}]
-        nodes, adj = enrich.build_adjacency(edges)
+        nodes, adj = prep.build_adjacency(edges)
 
         assert nodes == {"A", "B"}
         assert adj == {"A": {"B"}, "B": {"A"}}
@@ -29,7 +29,7 @@ class TestBuildAdjacency:
             {"source": "B", "target": "C"},
             {"source": "A", "target": "C"},
         ]
-        nodes, adj = enrich.build_adjacency(edges)
+        nodes, adj = prep.build_adjacency(edges)
 
         assert nodes == {"A", "B", "C"}
         assert "B" in adj["A"] and "C" in adj["A"]
@@ -39,7 +39,7 @@ class TestBuildAdjacency:
     def test_self_loop(self):
         """Should handle self-loop edges."""
         edges = [{"source": "A", "target": "A"}]
-        nodes, adj = enrich.build_adjacency(edges)
+        nodes, adj = prep.build_adjacency(edges)
 
         assert nodes == {"A"}
         assert adj == {"A": {"A"}}
@@ -50,7 +50,7 @@ class TestBuildDirectedAdjacency:
 
     def test_empty_edges_returns_empty(self):
         """Should return empty structures for empty edge list."""
-        nodes, outgoing, incoming = enrich.build_directed_adjacency([])
+        nodes, outgoing, incoming = prep.build_directed_adjacency([])
         assert nodes == set()
         assert outgoing == {}
         assert incoming == {}
@@ -58,7 +58,7 @@ class TestBuildDirectedAdjacency:
     def test_single_edge(self):
         """Should build directed adjacency for single edge."""
         edges = [{"source": "A", "target": "B"}]
-        nodes, outgoing, incoming = enrich.build_directed_adjacency(edges)
+        nodes, outgoing, incoming = prep.build_directed_adjacency(edges)
 
         assert nodes == {"A", "B"}
         assert outgoing == {"A": {"B"}}
@@ -71,7 +71,7 @@ class TestBuildDirectedAdjacency:
             {"source": "A", "target": "C"},
             {"source": "B", "target": "C"},
         ]
-        nodes, outgoing, incoming = enrich.build_directed_adjacency(edges)
+        nodes, outgoing, incoming = prep.build_directed_adjacency(edges)
 
         assert nodes == {"A", "B", "C"}
         assert outgoing["A"] == {"B", "C"}
@@ -85,7 +85,7 @@ class TestComputePagerank:
 
     def test_empty_edges_returns_empty(self):
         """Should return empty dict for empty edges."""
-        result = enrich.compute_pagerank([])
+        result = prep.compute_pagerank([])
         assert result == {}
 
     def test_simple_graph(self):
@@ -95,7 +95,7 @@ class TestComputePagerank:
             {"source": "B", "target": "C"},
             {"source": "C", "target": "A"},
         ]
-        result = enrich.compute_pagerank(edges)
+        result = prep.compute_pagerank(edges)
 
         assert len(result) == 3
         assert all(0 <= score <= 1 for score in result.values())
@@ -110,7 +110,7 @@ class TestComputePagerank:
             {"source": "center", "target": "B"},
             {"source": "center", "target": "C"},
         ]
-        result = enrich.compute_pagerank(edges)
+        result = prep.compute_pagerank(edges)
 
         assert len(result) == 4
         # Center should have higher pagerank than leaves
@@ -119,7 +119,7 @@ class TestComputePagerank:
     def test_custom_damping(self):
         """Should accept custom damping factor."""
         edges = [{"source": "A", "target": "B"}]
-        result = enrich.compute_pagerank(edges, damping=0.5)
+        result = prep.compute_pagerank(edges, damping=0.5)
         assert len(result) == 2
 
 
@@ -128,7 +128,7 @@ class TestComputeLouvain:
 
     def test_empty_edges_returns_empty(self):
         """Should return empty dict for empty edges."""
-        result = enrich.compute_louvain([])
+        result = prep.compute_louvain([])
         assert result == {}
 
     def test_connected_component(self):
@@ -137,7 +137,7 @@ class TestComputeLouvain:
             {"source": "A", "target": "B"},
             {"source": "B", "target": "C"},
         ]
-        result = enrich.compute_louvain(edges)
+        result = prep.compute_louvain(edges)
 
         assert len(result) == 3
         # All connected nodes should be in same community
@@ -149,7 +149,7 @@ class TestComputeLouvain:
             {"source": "A", "target": "B"},
             {"source": "C", "target": "D"},
         ]
-        result = enrich.compute_louvain(edges)
+        result = prep.compute_louvain(edges)
 
         assert len(result) == 4
         # Each component is its own community
@@ -163,7 +163,7 @@ class TestComputeKcore:
 
     def test_empty_edges_returns_empty(self):
         """Should return empty dict for empty edges."""
-        result = enrich.compute_kcore([])
+        result = prep.compute_kcore([])
         assert result == {}
 
     def test_simple_graph(self):
@@ -172,7 +172,7 @@ class TestComputeKcore:
             {"source": "A", "target": "B"},
             {"source": "B", "target": "C"},
         ]
-        result = enrich.compute_kcore(edges)
+        result = prep.compute_kcore(edges)
 
         assert len(result) == 3
         assert all(isinstance(level, int) for level in result.values())
@@ -187,7 +187,7 @@ class TestComputeKcore:
             {"source": "B", "target": "C"},
             {"source": "C", "target": "A"},
         ]
-        result = enrich.compute_kcore(edges)
+        result = prep.compute_kcore(edges)
 
         # Triangle has core level 2
         assert all(result[n] == 2 for n in ["A", "B", "C"])
@@ -198,7 +198,7 @@ class TestComputeArticulationPoints:
 
     def test_empty_edges_returns_empty(self):
         """Should return empty set for empty edges."""
-        result = enrich.compute_articulation_points([])
+        result = prep.compute_articulation_points([])
         assert result == set()
 
     def test_no_articulation_points(self):
@@ -209,7 +209,7 @@ class TestComputeArticulationPoints:
             {"source": "B", "target": "C"},
             {"source": "C", "target": "A"},
         ]
-        result = enrich.compute_articulation_points(edges)
+        result = prep.compute_articulation_points(edges)
         assert result == set()
 
     def test_bridge_node(self):
@@ -219,7 +219,7 @@ class TestComputeArticulationPoints:
             {"source": "A", "target": "B"},
             {"source": "B", "target": "C"},
         ]
-        result = enrich.compute_articulation_points(edges)
+        result = prep.compute_articulation_points(edges)
         assert "B" in result
 
 
@@ -228,13 +228,13 @@ class TestComputeDegreeCentrality:
 
     def test_empty_edges_returns_empty(self):
         """Should return empty dict for empty edges."""
-        result = enrich.compute_degree_centrality([])
+        result = prep.compute_degree_centrality([])
         assert result == {}
 
     def test_single_edge(self):
         """Should compute correct degrees for single edge."""
         edges = [{"source": "A", "target": "B"}]
-        result = enrich.compute_degree_centrality(edges)
+        result = prep.compute_degree_centrality(edges)
 
         assert result["A"]["out_degree"] == 1
         assert result["A"]["in_degree"] == 0
@@ -248,7 +248,7 @@ class TestComputeDegreeCentrality:
             {"source": "A", "target": "C"},
             {"source": "B", "target": "C"},
         ]
-        result = enrich.compute_degree_centrality(edges)
+        result = prep.compute_degree_centrality(edges)
 
         assert result["A"]["out_degree"] == 2
         assert result["A"]["in_degree"] == 0
@@ -261,14 +261,14 @@ class TestEnrichGraph:
 
     def test_empty_edges_returns_empty(self):
         """Should return empty EnrichmentResult for empty edges."""
-        result = enrich.enrich_graph([], ["pagerank"])
+        result = prep.enrich_graph([], ["pagerank"])
         assert result.enrichments == {}
         assert result.metadata.total_nodes == 0
 
     def test_single_algorithm(self):
         """Should run single algorithm."""
         edges = [{"source": "A", "target": "B"}]
-        result = enrich.enrich_graph(edges, ["pagerank"])
+        result = prep.enrich_graph(edges, ["pagerank"])
 
         assert "A" in result.enrichments
         assert "B" in result.enrichments
@@ -281,7 +281,7 @@ class TestEnrichGraph:
             {"source": "A", "target": "B"},
             {"source": "B", "target": "C"},
         ]
-        result = enrich.enrich_graph(edges, ["pagerank", "degree", "kcore"])
+        result = prep.enrich_graph(edges, ["pagerank", "degree", "kcore"])
 
         for node in ["A", "B", "C"]:
             assert "pagerank" in result.enrichments[node]
@@ -292,7 +292,7 @@ class TestEnrichGraph:
     def test_louvain_algorithm(self):
         """Should run louvain algorithm."""
         edges = [{"source": "A", "target": "B"}]
-        result = enrich.enrich_graph(edges, ["louvain"])
+        result = prep.enrich_graph(edges, ["louvain"])
 
         assert "louvain_community" in result.enrichments["A"]
         assert "louvain_community" in result.enrichments["B"]
@@ -303,7 +303,7 @@ class TestEnrichGraph:
             {"source": "A", "target": "B"},
             {"source": "B", "target": "C"},
         ]
-        result = enrich.enrich_graph(edges, ["articulation_points"])
+        result = prep.enrich_graph(edges, ["articulation_points"])
 
         assert "is_articulation_point" in result.enrichments["A"]
         assert "is_articulation_point" in result.enrichments["B"]
@@ -318,7 +318,7 @@ class TestEnrichGraph:
             {"source": "B", "target": "C"},
             {"source": "C", "target": "A"},
         ]
-        result = enrich.enrich_graph(
+        result = prep.enrich_graph(
             edges,
             ["pagerank", "louvain", "kcore", "articulation_points", "degree"],
         )
@@ -334,7 +334,7 @@ class TestEnrichGraph:
     def test_custom_params(self):
         """Should accept custom parameters for algorithms."""
         edges = [{"source": "A", "target": "B"}]
-        result = enrich.enrich_graph(
+        result = prep.enrich_graph(
             edges,
             ["pagerank", "louvain"],
             params={
@@ -349,7 +349,7 @@ class TestEnrichGraph:
     def test_no_algorithms(self):
         """Should return nodes with empty enrichments for no algorithms."""
         edges = [{"source": "A", "target": "B"}]
-        result = enrich.enrich_graph(edges, [])
+        result = prep.enrich_graph(edges, [])
 
         assert "A" in result.enrichments
         assert "B" in result.enrichments
@@ -362,23 +362,23 @@ class TestPercentileNormalization:
 
     def test_normalize_to_percentiles_empty(self):
         """Should return empty dict for empty input."""
-        result = enrich.normalize_to_percentiles({})
+        result = prep.normalize_to_percentiles({})
         assert result == {}
 
     def test_normalize_to_percentiles_single_value(self):
         """Should return 100 for single value."""
-        result = enrich.normalize_to_percentiles({"A": 0.5})
+        result = prep.normalize_to_percentiles({"A": 0.5})
         assert result == {"A": 100.0}
 
     def test_normalize_to_percentiles_two_values(self):
         """Should return 0 and 100 for two values."""
-        result = enrich.normalize_to_percentiles({"A": 0.1, "B": 0.9})
+        result = prep.normalize_to_percentiles({"A": 0.1, "B": 0.9})
         assert result["A"] == 0.0
         assert result["B"] == 100.0
 
     def test_normalize_to_percentiles_multiple_values(self):
         """Should distribute percentiles correctly."""
-        result = enrich.normalize_to_percentiles(
+        result = prep.normalize_to_percentiles(
             {
                 "A": 0.1,
                 "B": 0.2,
@@ -396,12 +396,12 @@ class TestPercentileNormalization:
 
     def test_normalize_to_percentiles_int_empty(self):
         """Should return empty dict for empty input."""
-        result = enrich.normalize_to_percentiles_int({})
+        result = prep.normalize_to_percentiles_int({})
         assert result == {}
 
     def test_normalize_to_percentiles_int_with_ties(self):
         """Should handle ties by averaging ranks."""
-        result = enrich.normalize_to_percentiles_int(
+        result = prep.normalize_to_percentiles_int(
             {
                 "A": 1,
                 "B": 1,  # Tie with A
@@ -426,7 +426,7 @@ class TestGraphMetadata:
             {"source": "B", "target": "C"},
             {"source": "C", "target": "A"},
         ]
-        result = enrich.enrich_graph(
+        result = prep.enrich_graph(
             edges,
             ["pagerank", "kcore", "louvain", "articulation_points", "degree"],
         )
@@ -441,7 +441,7 @@ class TestGraphMetadata:
     def test_metadata_to_dict(self):
         """Should convert metadata to dict."""
         edges = [{"source": "A", "target": "B"}]
-        result = enrich.enrich_graph(edges, ["pagerank"])
+        result = prep.enrich_graph(edges, ["pagerank"])
 
         meta_dict = result.metadata.to_dict()
         assert "total_nodes" in meta_dict
@@ -460,7 +460,7 @@ class TestPercentileEnrichments:
             {"source": "A", "target": "B"},
             {"source": "B", "target": "C"},
         ]
-        result = enrich.enrich_graph(edges, ["pagerank"], include_percentiles=True)
+        result = prep.enrich_graph(edges, ["pagerank"], include_percentiles=True)
 
         assert "pagerank_percentile" in result.enrichments["A"]
         assert "pagerank_percentile" in result.enrichments["B"]
@@ -469,7 +469,7 @@ class TestPercentileEnrichments:
     def test_percentiles_disabled(self):
         """Should not include percentiles when disabled."""
         edges = [{"source": "A", "target": "B"}]
-        result = enrich.enrich_graph(edges, ["pagerank"], include_percentiles=False)
+        result = prep.enrich_graph(edges, ["pagerank"], include_percentiles=False)
 
         assert "pagerank" in result.enrichments["A"]
         assert "pagerank_percentile" not in result.enrichments["A"]
@@ -480,7 +480,7 @@ class TestPercentileEnrichments:
             {"source": "A", "target": "B"},
             {"source": "B", "target": "C"},
         ]
-        result = enrich.enrich_graph(edges, ["kcore"], include_percentiles=True)
+        result = prep.enrich_graph(edges, ["kcore"], include_percentiles=True)
 
         assert "kcore_percentile" in result.enrichments["A"]
         assert "kcore_level" in result.enrichments["A"]
@@ -491,7 +491,7 @@ class TestPercentileEnrichments:
             {"source": "A", "target": "B"},
             {"source": "A", "target": "C"},
         ]
-        result = enrich.enrich_graph(edges, ["degree"], include_percentiles=True)
+        result = prep.enrich_graph(edges, ["degree"], include_percentiles=True)
 
         assert "in_degree_percentile" in result.enrichments["B"]
         assert "out_degree_percentile" in result.enrichments["A"]
@@ -503,7 +503,7 @@ class TestPercentileEnrichments:
             {"source": "A", "target": "B"},
             {"source": "B", "target": "C"},
         ]
-        small_result = enrich.enrich_graph(small_edges, ["pagerank"])
+        small_result = prep.enrich_graph(small_edges, ["pagerank"])
 
         # Larger graph with same structure repeated
         large_edges = [
@@ -514,7 +514,7 @@ class TestPercentileEnrichments:
             {"source": "G", "target": "H"},
             {"source": "H", "target": "I"},
         ]
-        large_result = enrich.enrich_graph(large_edges, ["pagerank"])
+        large_result = prep.enrich_graph(large_edges, ["pagerank"])
 
         # Percentiles should be in valid range regardless of graph size
         for node in small_result.enrichments:
@@ -532,7 +532,7 @@ class TestEnrichGraphLegacy:
     def test_returns_dict_directly(self):
         """Should return enrichments dict for backwards compatibility."""
         edges = [{"source": "A", "target": "B"}]
-        result = enrich.enrich_graph_legacy(edges, ["pagerank"])
+        result = prep.enrich_graph_legacy(edges, ["pagerank"])
 
         # Should be a plain dict, not EnrichmentResult
         assert isinstance(result, dict)

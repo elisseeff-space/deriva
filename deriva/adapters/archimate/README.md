@@ -48,7 +48,7 @@ with ArchimateManager() as am:
     elements = am.get_elements(element_type="ApplicationComponent")
 
     # Export to Archi-compatible XML
-    am.export_to_xml("model.archimate", model_name="My Model")
+    am.export_to_xml("model.xml", model_name="My Model")
 ```
 
 ## File Structure

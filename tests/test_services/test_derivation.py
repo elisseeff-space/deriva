@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from deriva.modules.derivation.enrich import EnrichmentResult
+from deriva.modules.derivation.prep import EnrichmentResult
 from deriva.services import derivation
 
 
@@ -64,11 +64,11 @@ class TestGetGraphEdges:
         assert edges == []
 
 
-class TestRunEnrichStep:
-    """Tests for _run_enrich_step function."""
+class TestRunPrepStep:
+    """Tests for _run_prep_step function."""
 
-    def test_runs_known_enrich_step(self):
-        """Should run known enrich step."""
+    def test_runs_known_prep_step(self):
+        """Should run known prep step."""
         graph_manager = MagicMock()
         graph_manager.batch_update_properties.return_value = 5
         cfg = MagicMock()
@@ -77,22 +77,22 @@ class TestRunEnrichStep:
 
         mock_result = EnrichmentResult(enrichments={"n1": {"pagerank": 0.5}})
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph", return_value=mock_result):
-                result = derivation._run_enrich_step(cfg, graph_manager)
+            with patch.object(derivation.prep, "enrich_graph", return_value=mock_result):
+                result = derivation._run_prep_step(cfg, graph_manager)
 
         assert result["success"] is True
 
-    def test_unknown_enrich_step_returns_error(self):
-        """Should return error for unknown enrich step."""
+    def test_unknown_prep_step_returns_error(self):
+        """Should return error for unknown prep step."""
         graph_manager = MagicMock()
         cfg = MagicMock()
         cfg.step_name = "unknown_step"
         cfg.params = None
 
-        result = derivation._run_enrich_step(cfg, graph_manager)
+        result = derivation._run_prep_step(cfg, graph_manager)
 
         assert result["success"] is False
-        assert "Unknown enrich step" in result["errors"][0]
+        assert "Unknown prep step" in result["errors"][0]
 
     def test_handles_empty_edges(self):
         """Should handle case when no edges found."""
@@ -102,7 +102,7 @@ class TestRunEnrichStep:
         cfg.params = None
 
         with patch.object(derivation, "_get_graph_edges", return_value=[]):
-            result = derivation._run_enrich_step(cfg, graph_manager)
+            result = derivation._run_prep_step(cfg, graph_manager)
 
         assert result["success"] is True
         assert result["stats"]["nodes_updated"] == 0
@@ -116,9 +116,9 @@ class TestRunEnrichStep:
         cfg.params = '{"damping": 0.85}'
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph") as mock_enrich:
+            with patch.object(derivation.prep, "enrich_graph") as mock_enrich:
                 mock_enrich.return_value = EnrichmentResult(enrichments={"n1": {"pagerank": 0.5}})
-                result = derivation._run_enrich_step(cfg, graph_manager)
+                result = derivation._run_prep_step(cfg, graph_manager)
 
         assert result["success"] is True
         # Check that params were passed to enrich_graph
@@ -133,8 +133,8 @@ class TestRunEnrichStep:
         cfg.params = None
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph", side_effect=Exception("Test error")):
-                result = derivation._run_enrich_step(cfg, graph_manager)
+            with patch.object(derivation.prep, "enrich_graph", side_effect=Exception("Test error")):
+                result = derivation._run_prep_step(cfg, graph_manager)
 
         assert result["success"] is False
         assert "Enrichment failed" in result["errors"][0]
@@ -144,7 +144,7 @@ class TestRunDerivation:
     """Tests for run_derivation function."""
 
     def test_runs_all_phases_by_default(self):
-        """Should run enrich and generate phases by default."""
+        """Should run prep and generate phases by default."""
         engine = MagicMock()
         graph_manager = MagicMock()
         archimate_manager = MagicMock()
@@ -158,7 +158,7 @@ class TestRunDerivation:
             )
 
         phases_queried = [call.kwargs.get("phase") for call in mock_get.call_args_list]
-        assert "enrich" in phases_queried
+        assert "prep" in phases_queried
         assert "generate" in phases_queried
 
     def test_tracks_stats(self):
@@ -332,8 +332,8 @@ class TestLoadAllElementModules:
 class TestRunDerivationWithConfigs:
     """Tests for run_derivation with actual mock configs."""
 
-    def test_runs_enrich_phase_with_configs(self):
-        """Should execute enrich step configs."""
+    def test_runs_prep_phase_with_configs(self):
+        """Should execute prep step configs."""
         engine = MagicMock()
         graph_manager = MagicMock()
         graph_manager.batch_update_properties.return_value = 3
@@ -344,14 +344,14 @@ class TestRunDerivationWithConfigs:
         enrich_cfg.params = None
 
         with patch.object(derivation.config, "get_derivation_configs") as mock_get:
-            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "enrich" else [])
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "prep" else [])
             with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "a", "target": "b"}]):
-                with patch.object(derivation.enrich, "enrich_graph", return_value=EnrichmentResult(enrichments={"a": {"pagerank": 0.5}})):
+                with patch.object(derivation.prep, "enrich_graph", return_value=EnrichmentResult(enrichments={"a": {"pagerank": 0.5}})):
                     result = derivation.run_derivation(
                         engine=engine,
                         graph_manager=graph_manager,
                         archimate_manager=archimate_manager,
-                        phases=["enrich"],
+                        phases=["prep"],
                     )
 
         assert result["success"] is True
@@ -493,8 +493,8 @@ class TestRunDerivationWithConfigs:
         run_logger.phase_start.assert_called_once()
         run_logger.phase_complete.assert_called_once()
 
-    def test_verbose_output_for_enrich_phase(self, capsys):
-        """Should print verbose output during enrich phase."""
+    def test_verbose_output_for_prep_phase(self, capsys):
+        """Should print verbose output during prep phase."""
         engine = MagicMock()
         graph_manager = MagicMock()
         graph_manager.batch_update_properties.return_value = 0
@@ -505,19 +505,19 @@ class TestRunDerivationWithConfigs:
         enrich_cfg.params = None
 
         with patch.object(derivation.config, "get_derivation_configs") as mock_get:
-            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "enrich" else [])
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "prep" else [])
             with patch.object(derivation, "_get_graph_edges", return_value=[]):
                 derivation.run_derivation(
                     engine=engine,
                     graph_manager=graph_manager,
                     archimate_manager=archimate_manager,
                     verbose=True,
-                    phases=["enrich"],
+                    phases=["prep"],
                 )
 
         captured = capsys.readouterr()
-        assert "Running 1 enrich steps" in captured.out
-        assert "Enrich: pagerank" in captured.out
+        assert "Running 1 prep steps" in captured.out
+        assert "Prep: pagerank" in captured.out
 
     def test_verbose_output_for_generate_phase(self, capsys):
         """Should print verbose output during generate phase."""
@@ -674,22 +674,22 @@ class TestRunDerivationWithConfigs:
         enrich_cfg.params = None
 
         with patch.object(derivation.config, "get_derivation_configs") as mock_get:
-            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "enrich" else [])
-            with patch.object(derivation, "_run_enrich_step", return_value={"success": False, "errors": ["Test error"]}):
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "prep" else [])
+            with patch.object(derivation, "_run_prep_step", return_value={"success": False, "errors": ["Test error"]}):
                 derivation.run_derivation(
                     engine=engine,
                     graph_manager=graph_manager,
                     archimate_manager=archimate_manager,
                     progress=progress,
-                    phases=["enrich"],
+                    phases=["prep"],
                 )
 
         progress.log.assert_called()
         assert "error" in str(progress.log.call_args)
 
 
-class TestRunEnrichStepEdgeCases:
-    """Tests for edge cases in _run_enrich_step function."""
+class TestRunPrepStepEdgeCases:
+    """Tests for edge cases in _run_prep_step function."""
 
     def test_returns_success_when_enrichment_returns_empty(self):
         """Should return success when enrichment returns empty results."""
@@ -699,8 +699,8 @@ class TestRunEnrichStepEdgeCases:
         cfg.params = None
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph", return_value=EnrichmentResult(enrichments={})):
-                result = derivation._run_enrich_step(cfg, graph_manager)
+            with patch.object(derivation.prep, "enrich_graph", return_value=EnrichmentResult(enrichments={})):
+                result = derivation._run_prep_step(cfg, graph_manager)
 
         assert result["success"] is True
         assert result["stats"]["nodes_updated"] == 0
@@ -714,8 +714,8 @@ class TestRunEnrichStepEdgeCases:
         cfg.params = "not valid json {"
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph", return_value=EnrichmentResult(enrichments={"n1": {"pagerank": 0.5}})):
-                result = derivation._run_enrich_step(cfg, graph_manager)
+            with patch.object(derivation.prep, "enrich_graph", return_value=EnrichmentResult(enrichments={"n1": {"pagerank": 0.5}})):
+                result = derivation._run_prep_step(cfg, graph_manager)
 
         # Should succeed despite invalid params (uses defaults)
         assert result["success"] is True
@@ -729,9 +729,9 @@ class TestRunEnrichStepEdgeCases:
         cfg.params = '{"damping": 0.85, "description": "PageRank algorithm"}'
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph") as mock_enrich:
+            with patch.object(derivation.prep, "enrich_graph") as mock_enrich:
                 mock_enrich.return_value = EnrichmentResult(enrichments={"n1": {"pagerank": 0.5}})
-                derivation._run_enrich_step(cfg, graph_manager)
+                derivation._run_prep_step(cfg, graph_manager)
 
         # Verify description was filtered out
         call_kwargs = mock_enrich.call_args.kwargs
@@ -747,8 +747,8 @@ class TestRunEnrichStepEdgeCases:
         cfg.params = None
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph", return_value=EnrichmentResult(enrichments={"n1": {"community": 1}})):
-                result = derivation._run_enrich_step(cfg, graph_manager)
+            with patch.object(derivation.prep, "enrich_graph", return_value=EnrichmentResult(enrichments={"n1": {"community": 1}})):
+                result = derivation._run_prep_step(cfg, graph_manager)
 
         assert result["success"] is True
         assert result["stats"]["algorithm"] == "louvain"
@@ -762,8 +762,8 @@ class TestRunEnrichStepEdgeCases:
         cfg.params = None
 
         with patch.object(derivation, "_get_graph_edges", return_value=[{"source": "n1", "target": "n2"}]):
-            with patch.object(derivation.enrich, "enrich_graph", return_value=EnrichmentResult(enrichments={"n1": {"degree": 2}})):
-                result = derivation._run_enrich_step(cfg, graph_manager)
+            with patch.object(derivation.prep, "enrich_graph", return_value=EnrichmentResult(enrichments={"n1": {"degree": 2}})):
+                result = derivation._run_prep_step(cfg, graph_manager)
 
         assert result["success"] is True
         assert result["stats"]["algorithm"] == "degree"
@@ -786,14 +786,14 @@ class TestRunDerivationIter:
         enrich_cfg.params = None
 
         with patch.object(derivation.config, "get_derivation_configs") as mock_get:
-            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "enrich" else [])
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "prep" else [])
             with patch.object(derivation, "_get_graph_edges", return_value=[]):
                 updates = list(
                     derivation.run_derivation_iter(
                         engine=engine,
                         graph_manager=graph_manager,
                         archimate_manager=archimate_manager,
-                        phases=["enrich"],
+                        phases=["prep"],
                     )
                 )
 
@@ -819,8 +819,8 @@ class TestRunDerivationIter:
         assert updates[0].status == "error"
         assert "No derivation configs enabled" in updates[0].message
 
-    def test_yields_step_complete_for_each_enrich_step(self):
-        """Should yield step complete for each enrich step."""
+    def test_yields_step_complete_for_each_prep_step(self):
+        """Should yield step complete for each prep step."""
         engine = MagicMock()
         graph_manager = MagicMock()
         graph_manager.batch_update_properties.return_value = 0
@@ -835,18 +835,18 @@ class TestRunDerivationIter:
         enrich_cfg2.params = None
 
         with patch.object(derivation.config, "get_derivation_configs") as mock_get:
-            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg1, enrich_cfg2] if phase == "enrich" else [])
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg1, enrich_cfg2] if phase == "prep" else [])
             with patch.object(derivation, "_get_graph_edges", return_value=[]):
                 updates = list(
                     derivation.run_derivation_iter(
                         engine=engine,
                         graph_manager=graph_manager,
                         archimate_manager=archimate_manager,
-                        phases=["enrich"],
+                        phases=["prep"],
                     )
                 )
 
-        # Should have 2 enrich step updates + 1 final completion
+        # Should have 2 prep step updates + 1 final completion
         step_updates = [u for u in updates if u.step]
         assert len(step_updates) == 2
         assert step_updates[0].step == "pagerank"
@@ -970,14 +970,14 @@ class TestRunDerivationIter:
         enrich_cfg.params = None
 
         with patch.object(derivation.config, "get_derivation_configs") as mock_get:
-            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "enrich" else [])
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "prep" else [])
             with patch.object(derivation, "_get_graph_edges", return_value=[]):
                 updates = list(
                     derivation.run_derivation_iter(
                         engine=engine,
                         graph_manager=graph_manager,
                         archimate_manager=archimate_manager,
-                        phases=["enrich"],
+                        phases=["prep"],
                     )
                 )
 

@@ -33,11 +33,20 @@ from .deviation import (
     group_objects_by_config,
 )
 from .types import (
+    BenchmarkReport,
     ConfigDeviation,
+    CrossRepoComparison,
     DeviationReport,
+    FitAnalysis,
     InconsistencyInfo,
     InterModelMetrics,
     IntraModelMetrics,
+    PhaseStabilityReport,
+    ReferenceElement,
+    ReferenceRelationship,
+    SemanticMatch,
+    SemanticMatchReport,
+    StabilityBreakdown,
 )
 
 __all__ = [
@@ -47,6 +56,16 @@ __all__ = [
     "InconsistencyInfo",
     "IntraModelMetrics",
     "InterModelMetrics",
+    # Comprehensive analysis types
+    "StabilityBreakdown",
+    "PhaseStabilityReport",
+    "ReferenceElement",
+    "ReferenceRelationship",
+    "SemanticMatch",
+    "SemanticMatchReport",
+    "FitAnalysis",
+    "CrossRepoComparison",
+    "BenchmarkReport",
     # Consistency functions
     "compute_consistency_score",
     "find_inconsistencies",

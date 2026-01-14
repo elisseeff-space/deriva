@@ -8,7 +8,7 @@ methods (run_*) and query methods (get_*) for reactive UI.
 Usage (CLI):
     with PipelineSession() as session:
         result = session.run_extraction(repo_name="my-repo")
-        session.export_model("output.archimate")
+        session.export_model("output.xml")
 
 Usage (Marimo):
     session = PipelineSession(auto_connect=True)
@@ -357,8 +357,21 @@ class PipelineSession:
         verbose: bool = False,
         no_llm: bool = False,
         progress: ProgressReporter | None = None,
+        phases: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Run extraction pipeline."""
+        """
+        Run extraction pipeline.
+
+        Args:
+            repo_name: Specific repo to extract, or None for all
+            verbose: Print progress to stdout
+            no_llm: Skip LLM-based extraction steps
+            progress: Optional progress reporter for tracking
+            phases: List of phases to run (classify, parse), or None for all
+
+        Returns:
+            Dict with extraction results
+        """
         self._ensure_connected()
         assert self._engine is not None
         assert self._graph_manager is not None
@@ -374,6 +387,7 @@ class PipelineSession:
             verbose=verbose,
             run_logger=run_logger,
             progress=progress,
+            phases=phases,
         )
 
     def run_extraction_iter(
@@ -431,7 +445,7 @@ class PipelineSession:
 
         Args:
             verbose: Print progress to stdout
-            phases: List of phases to run ("enrich", "generate", "refine").
+            phases: List of phases to run ("prep", "generate", "refine").
                     Default: all phases.
             progress: Optional progress reporter for visual feedback
 
@@ -477,7 +491,7 @@ class PipelineSession:
 
         Args:
             verbose: Print progress to stdout
-            phases: List of phases to run ("enrich", "generate", "refine")
+            phases: List of phases to run ("prep", "generate", "refine")
 
         Yields:
             ProgressUpdate objects for each step in the pipeline
@@ -512,14 +526,14 @@ class PipelineSession:
             enabled_only: Only count enabled derivation steps
 
         Returns:
-            Total number of steps (enrich + generate phases)
+            Total number of steps (prep + generate phases)
         """
         self._ensure_connected()
         assert self._engine is not None
 
-        enrich_configs = config.get_derivation_configs(self._engine, enabled_only=enabled_only, phase="enrich")
+        prep_configs = config.get_derivation_configs(self._engine, enabled_only=enabled_only, phase="prep")
         gen_configs = config.get_derivation_configs(self._engine, enabled_only=enabled_only, phase="generate")
-        return len(enrich_configs) + len(gen_configs)
+        return len(prep_configs) + len(gen_configs)
 
     def run_pipeline(
         self,
@@ -557,7 +571,7 @@ class PipelineSession:
 
     def export_model(
         self,
-        output_path: str = "workspace/output/model.archimate",
+        output_path: str = "workspace/output/model.xml",
         model_name: str = "Deriva Model",
     ) -> dict[str, Any]:
         """Export ArchiMate model to XML file.
@@ -984,6 +998,7 @@ class PipelineSession:
         clear_between_runs: bool = True,
         bench_hash: bool = False,
         defer_relationships: bool = True,
+        per_repo: bool = False,
     ) -> benchmarking.BenchmarkResult:
         """
         Run a full benchmark matrix.
@@ -1002,6 +1017,7 @@ class PipelineSession:
             clear_between_runs: Clear graph/model between runs (default: True)
             bench_hash: Include repo/model/run in cache key for per-run isolation (default: False)
             defer_relationships: Two-phase derivation: create elements first, then relationships (default: False)
+            per_repo: Run each repository as a separate benchmark instead of combined (default: False)
 
         Returns:
             BenchmarkResult with session details
@@ -1034,6 +1050,7 @@ class PipelineSession:
             clear_between_runs=clear_between_runs,
             bench_hash=bench_hash,
             defer_relationships=defer_relationships,
+            per_repo=per_repo,
         )
 
         orchestrator = benchmarking.BenchmarkOrchestrator(

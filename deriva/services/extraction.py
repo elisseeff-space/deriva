@@ -75,6 +75,7 @@ def run_extraction(
     run_logger: RunLoggerProtocol | None = None,
     progress: ProgressReporter | None = None,
     model: str | None = None,
+    phases: list[str] | None = None,
 ) -> dict[str, Any]:
     """
     Run the extraction pipeline.
@@ -89,10 +90,14 @@ def run_extraction(
         run_logger: Optional RunLogger for structured logging
         progress: Optional progress reporter for visual feedback
         model: LLM model name for token limit lookup (chunking)
+        phases: Phases to run (classify, parse), or None for all
 
     Returns:
         Dict with success, stats, errors
     """
+    # Determine which phases to run
+    run_classify = phases is None or "classify" in phases
+    run_parse = phases is None or "parse" in phases
     stats = {
         "repos_processed": 0,
         "nodes_created": 0,
@@ -128,7 +133,11 @@ def run_extraction(
     registry_list = [{"extension": ft.extension, "file_type": ft.file_type, "subtype": ft.subtype} for ft in file_types]
 
     # Start progress tracking
-    total_steps = len(configs) * len(repos)
+    # If only classify: 1 step per repo; if parse: steps = configs * repos
+    if run_parse:
+        total_steps = len(configs) * len(repos)
+    else:
+        total_steps = len(repos)  # Just classification
     if progress:
         progress.start_phase("extraction", total_steps)
 
@@ -152,12 +161,30 @@ def run_extraction(
                 # Normalize to forward slashes for consistent path handling
                 file_paths.append(str(f.relative_to(repo_path)).replace("\\", "/"))
 
-        # Classify files
+        # Classify files (always needed - prerequisite for parse phase)
         classification_result = classification.classify_files(file_paths, registry_list)
         classified_files = classification_result["classified"]
         undefined_files = classification_result["undefined"]
 
-        # Process each extraction step in sequence order
+        # Track classification stats
+        stats["files_classified"] = stats.get("files_classified", 0) + len(classified_files)
+        stats["files_undefined"] = stats.get("files_undefined", 0) + len(undefined_files)
+
+        if verbose and run_classify:
+            print(f"  Classify: {len(classified_files)} files classified, {len(undefined_files)} undefined")
+
+        # Skip parse phase if only running classify
+        if not run_parse:
+            if verbose:
+                print("  Skipping parse phase (classify only)")
+            # Track progress for classify-only mode
+            if progress:
+                progress.start_step("classify")
+                progress.complete_step(f"{len(classified_files)} files classified")
+            stats["steps_completed"] += 1
+            continue
+
+        # Process each extraction step in sequence order (parse phase)
         for cfg in configs:
             node_type = cfg.node_type
 

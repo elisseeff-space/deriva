@@ -18,7 +18,7 @@ Usage (CLI):
 
     with PipelineSession() as session:
         result = session.run_extraction(repo_name="my-repo")
-        session.export_model("output.archimate")
+        session.export_model("output.xml")
 
 Usage (Marimo):
     from deriva.services.session import PipelineSession

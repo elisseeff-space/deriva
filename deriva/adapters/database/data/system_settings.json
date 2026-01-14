@@ -1,0 +1,62 @@
+[
+  {
+    "key": "algorithm_louvain_resolution",
+    "value": "1.0"
+  },
+  {
+    "key": "algorithm_pagerank_damping",
+    "value": "0.85"
+  },
+  {
+    "key": "algorithm_pagerank_max_iter",
+    "value": "100"
+  },
+  {
+    "key": "algorithm_pagerank_tolerance",
+    "value": "1e-6"
+  },
+  {
+    "key": "confidence_community_rel",
+    "value": "0.95"
+  },
+  {
+    "key": "confidence_file_match",
+    "value": "0.85"
+  },
+  {
+    "key": "confidence_fuzzy_match",
+    "value": "0.85"
+  },
+  {
+    "key": "confidence_min_relationship",
+    "value": "0.6"
+  },
+  {
+    "key": "confidence_name_match",
+    "value": "0.95"
+  },
+  {
+    "key": "confidence_pagerank_min",
+    "value": "0.001"
+  },
+  {
+    "key": "confidence_semantic",
+    "value": "0.95"
+  },
+  {
+    "key": "default_batch_size",
+    "value": "10"
+  },
+  {
+    "key": "default_max_candidates",
+    "value": "30"
+  },
+  {
+    "key": "high_pagerank_non_roots",
+    "value": "10"
+  },
+  {
+    "key": "max_relationships_per_derivation",
+    "value": "500"
+  }
+]

@@ -2,7 +2,7 @@
 Derivation service for Deriva.
 
 Orchestrates the derivation pipeline with phases:
-1. enrich: Pre-derivation graph analysis (pagerank, louvain, k-core)
+1. prep: Pre-derivation graph analysis (pagerank, louvain, k-core)
 2. generate: LLM-based element and relationship derivation
 3. refine: Post-generation model refinement (dedup, orphans, etc.)
 
@@ -27,7 +27,7 @@ Usage:
         )
 
         # Or run individual phases
-        enrich_result = derivation.run_enrich_phase(gm, engine)
+        prep_result = derivation.run_prep_phase(gm, engine)
         generate_result = derivation.run_generate_phase(gm, am, engine, llm_query_fn)
         refine_result = derivation.run_refine_phase(am, gm, engine)
 """
@@ -46,7 +46,7 @@ from deriva.common.types import PipelineResult, ProgressUpdate
 if TYPE_CHECKING:
     from deriva.common.types import ProgressReporter, RunLoggerProtocol
 from deriva.adapters.graph import GraphManager
-from deriva.modules.derivation import enrich
+from deriva.modules.derivation import prep
 from deriva.modules.derivation.base import derive_consolidated_relationships
 from deriva.modules.derivation.refine import run_refine_step
 from deriva.services import config
@@ -207,7 +207,7 @@ logger = logging.getLogger(__name__)
 # PREP STEP REGISTRY
 # =============================================================================
 
-# Enrichment algorithm registry - maps step_name to algorithm key for enrich module
+# Enrichment algorithm registry - maps step_name to algorithm key for prep module
 ENRICHMENT_ALGORITHMS: dict[str, str] = {
     "pagerank": "pagerank",
     "louvain_communities": "louvain",
@@ -223,7 +223,7 @@ def _get_graph_edges(
 ) -> list[dict[str, str]]:
     """Get edges from the graph for enrichment algorithms.
 
-    Returns edges in the format expected by enrich module:
+    Returns edges in the format expected by prep module:
     [{"source": "node_id_1", "target": "node_id_2"}, ...]
 
     Args:
@@ -260,11 +260,11 @@ def _get_graph_edges(
     return [{"source": row["source"], "target": row["target"]} for row in result]
 
 
-def _run_enrich_step(
+def _run_prep_step(
     cfg: config.DerivationConfig,
     graph_manager: GraphManager,
 ) -> PipelineResult:
-    """Run a single enrich step (graph enrichment algorithm).
+    """Run a single prep step (graph enrichment algorithm).
 
     Enrich steps compute graph metrics (PageRank, Louvain, k-core, etc.)
     and store them as properties on Neo4j nodes.
@@ -274,7 +274,7 @@ def _run_enrich_step(
 
     # Check if this is a known enrichment algorithm
     if step_name not in ENRICHMENT_ALGORITHMS:
-        return {"success": False, "errors": [f"Unknown enrich step: {step_name}"]}
+        return {"success": False, "errors": [f"Unknown prep step: {step_name}"]}
 
     algorithm = ENRICHMENT_ALGORITHMS[step_name]
 
@@ -301,7 +301,7 @@ def _run_enrich_step(
             return {"success": True, "stats": {"nodes_updated": 0}}
 
         # Run the enrichment algorithm
-        result = enrich.enrich_graph(
+        result = prep.enrich_graph(
             edges=edges,
             algorithms=[algorithm],
             params=params,
@@ -367,7 +367,7 @@ def run_derivation(
         llm_query_fn: Function to call LLM (prompt, schema) -> response
         enabled_only: Only run enabled derivation steps
         verbose: Print progress to stdout
-        phases: List of phases to run ("enrich", "generate", "refine").
+        phases: List of phases to run ("prep", "generate", "refine").
         run_logger: Optional RunLogger for structured logging
         progress: Optional progress reporter for visual feedback
         defer_relationships: If True, skip per-batch relationship derivation.
@@ -378,7 +378,7 @@ def run_derivation(
         Dict with success, stats, errors
     """
     if phases is None:
-        phases = ["enrich", "generate"]
+        phases = ["prep", "generate"]
 
     stats = {
         "elements_created": 0,
@@ -389,7 +389,7 @@ def run_derivation(
     errors: list[str] = []
     all_created_elements: list[dict] = []
 
-    # Accumulate graph metadata from enrich phase for use in refine steps
+    # Accumulate graph metadata from prep phase for use in refine steps
     graph_metadata: dict[str, Any] = {}
 
     # Start phase logging
@@ -397,24 +397,27 @@ def run_derivation(
         run_logger.phase_start("derivation", "Starting derivation pipeline")
 
     # Calculate total steps for progress
-    enrich_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="enrich")
+    prep_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="prep")
     gen_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="generate")
+    refine_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="refine")
     total_steps = 0
-    if "enrich" in phases:
-        total_steps += len(enrich_configs)
+    if "prep" in phases:
+        total_steps += len(prep_configs)
     if "generate" in phases:
         total_steps += len(gen_configs)
+    if "refine" in phases:
+        total_steps += len(refine_configs)
 
     # Start progress tracking
     if progress:
         progress.start_phase("derivation", total_steps)
 
-    # Run enrich phase
-    if "enrich" in phases:
-        if enrich_configs and verbose:
-            print(f"Running {len(enrich_configs)} enrich steps...")
+    # Run prep phase
+    if "prep" in phases:
+        if prep_configs and verbose:
+            print(f"Running {len(prep_configs)} prep steps...")
 
-        for cfg in enrich_configs:
+        for cfg in prep_configs:
             if verbose:
                 print(f"  Enrich: {cfg.step_name}")
 
@@ -424,9 +427,9 @@ def run_derivation(
 
             step_ctx = None
             if run_logger:
-                step_ctx = run_logger.step_start(cfg.step_name, f"Running enrich step: {cfg.step_name}")
+                step_ctx = run_logger.step_start(cfg.step_name, f"Running prep step: {cfg.step_name}")
 
-            result = _run_enrich_step(cfg, graph_manager)
+            result = _run_prep_step(cfg, graph_manager)
             stats["steps_completed"] += 1
 
             # Capture graph metadata for refine steps
@@ -447,9 +450,9 @@ def run_derivation(
                 progress.complete_step()
 
             if verbose and result.get("stats"):
-                enrich_stats = result["stats"]
-                if "top_nodes" in enrich_stats:
-                    top_names = [n["id"].split("_")[-1] for n in enrich_stats["top_nodes"][:3]]
+                prep_stats = result["stats"]
+                if "top_nodes" in prep_stats:
+                    top_names = [n["id"].split("_")[-1] for n in prep_stats["top_nodes"][:3]]
                     print(f"    Top nodes: {top_names}")
 
     # Run generate phase
@@ -619,8 +622,6 @@ def run_derivation(
 
     # Run refine phase
     if "refine" in phases:
-        refine_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="refine")
-
         if refine_configs and verbose:
             print(f"Running {len(refine_configs)} refine steps...")
 
@@ -749,13 +750,13 @@ def run_derivation_iter(
         llm_query_fn: Function to call LLM (prompt, schema) -> response
         enabled_only: Only run enabled derivation steps
         verbose: Print progress to stdout
-        phases: List of phases to run ("enrich", "generate", "refine")
+        phases: List of phases to run ("prep", "generate", "refine")
 
     Yields:
         ProgressUpdate objects for each step in the pipeline
     """
     if phases is None:
-        phases = ["enrich", "generate"]
+        phases = ["prep", "generate"]
 
     stats = {
         "elements_created": 0,
@@ -767,12 +768,12 @@ def run_derivation_iter(
     all_created_elements: list[dict] = []
 
     # Calculate total steps for progress
-    enrich_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="enrich")
+    prep_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="prep")
     gen_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="generate")
     refine_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="refine")
     total_steps = 0
-    if "enrich" in phases:
-        total_steps += len(enrich_configs)
+    if "prep" in phases:
+        total_steps += len(prep_configs)
     if "generate" in phases:
         total_steps += len(gen_configs)
     if "refine" in phases:
@@ -789,15 +790,15 @@ def run_derivation_iter(
 
     current_step = 0
 
-    # Run enrich phase
-    if "enrich" in phases:
-        for cfg in enrich_configs:
+    # Run prep phase
+    if "prep" in phases:
+        for cfg in prep_configs:
             current_step += 1
 
             if verbose:
                 print(f"  Enrich: {cfg.step_name}")
 
-            result = _run_enrich_step(cfg, graph_manager)
+            result = _run_prep_step(cfg, graph_manager)
             stats["steps_completed"] += 1
 
             if result.get("errors"):
@@ -810,8 +811,8 @@ def run_derivation_iter(
                 status="complete",
                 current=current_step,
                 total=total_steps,
-                message="enrich complete",
-                stats={"enrich": True},
+                message="prep complete",
+                stats={"prep": True},
             )
 
     # Run generate phase

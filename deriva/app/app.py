@@ -559,7 +559,7 @@ def _(get_model_refresh, mo, session):
 
 @app.cell
 def _(mo):
-    export_path_input = mo.ui.text(value="workspace/output/model.archimate", label="Export Path")
+    export_path_input = mo.ui.text(value="workspace/output/model.xml", label="Export Path")
     export_btn = mo.ui.run_button(label="Export Model")
 
     mo.hstack([export_path_input, export_btn])

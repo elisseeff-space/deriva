@@ -22,13 +22,13 @@ Algorithms:
 All algorithms treat the graph as undirected for structural analysis.
 
 Usage:
-    from deriva.modules.derivation.enrich import enrich_graph
+    from deriva.modules.derivation.prep import enrich_graph
 
     # Prepare graph data
     nodes = [{"id": "node1"}, {"id": "node2"}, ...]
     edges = [{"source": "node1", "target": "node2"}, ...]
 
-    # Run enrichment
+    # Run graph enrichment (prep phase)
     result = enrich_graph(nodes, edges)
 
     # Access enrichment data per node

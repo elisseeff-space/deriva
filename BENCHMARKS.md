@@ -121,6 +121,26 @@ deriva benchmark run \
 
 > **Important:** Use `--no-cache` for initial benchmarks to measure actual LLM variance. Cached runs always produce identical outputs.
 
+#### Per-Repository Mode
+
+By default, multiple repos are combined into one model. Use `--per-repo` to benchmark each repository individually:
+
+```bash
+# Per-repo mode: each repo gets its own benchmark runs
+deriva benchmark run \
+  --repos repo1,repo2 \
+  --models gpt4 \
+  -n 3 \
+  --per-repo
+# Creates 6 runs: 2 repos × 1 model × 3 iterations
+```
+
+**When to use per-repo mode:**
+
+- Comparing model performance across different codebases
+- Testing prompts that may work better for certain repo structures
+- Getting independent consistency scores per repository
+
 ### 2. Analyze Results
 
 ```bash
@@ -190,6 +210,7 @@ deriva benchmark run --repos <repos> --models <models> [options]
   --no-cache          Disable all LLM caching
   --nocache-configs   Configs to skip cache for (comma-separated)
   --no-export-models  Disable exporting ArchiMate model files
+  --per-repo          Run each repo as separate benchmark (default: combine all)
   -v, --verbose       Show detailed text progress
   -q, --quiet         Disable progress bar display
 
@@ -322,7 +343,7 @@ Deriva supports a two-phase derivation architecture via the `defer_relationships
 - Reduced ordering effects improve consistency
 - Graph-aware filtering more effective with complete element set
 
-See [optimization_guide.md](optimization_guide.md#separated-derivation-phases-phase-46) for implementation details.
+See [OPTIMIZATION.md](OPTIMIZATION.md#separated-derivation-phases-phase-46) for implementation details.
 
 ---
 
@@ -338,5 +359,5 @@ See [optimization_guide.md](optimization_guide.md#separated-derivation-phases-ph
 
 ## Further Reading
 
-- [optimization_guide.md](optimization_guide.md) - Detailed case studies, prompt engineering findings, and optimization log
+- [OPTIMIZATION.md](OPTIMIZATION.md) - Detailed case studies, prompt engineering findings, and optimization log
 - [CONTRIBUTING.md](CONTRIBUTING.md) - Architecture and development patterns

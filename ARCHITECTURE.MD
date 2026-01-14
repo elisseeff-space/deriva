@@ -44,7 +44,7 @@ Repository --> Extraction --> Graph --> Derivation --> ArchiMate Model --> Expor
 |  |  +---------+ +-------------+  |  |  +-------------+ +-------------+  |   |
 |  |  |  Neo4j  | |  Database   |  |  |  |  Extraction | |  Derivation |  |   |
 |  |  |  (neo4j)| |  (database) |  |  |  |             | |             |  |   |
-|  |  +---------+ +-------------+  |  |  |  - Business | |  - Enrich   |  |   |
+|  |  +---------+ +-------------+  |  |  |  - Business | |  - Prep     |  |   |
 |  |  +---------+ +-------------+  |  |  |  - TypeDef  | |  - Generate |  |   |
 |  |  |  Graph  | |  ArchiMate  |  |  |  |  - Method   | |  - Refine   |  |   |
 |  |  |  (graph)| |  (archimate)|  |  |  |  - Tech     | |             |  |   |
@@ -212,7 +212,7 @@ Each layer has a `ruff.toml` file enforcing boundaries:
                  +------------+------------+
                               |
 3. DERIVE        +------------+------------+
-   (Enrich)      |  PageRank, Louvain,     |
+   (Prep)        |  PageRank, Louvain,     |
                  |  K-core enrichment       |
                  +------------+------------+
                               |
@@ -227,7 +227,7 @@ Each layer has a `ruff.toml` file enforcing boundaries:
                  |  Quality Assurance       |
                  +------------+------------+
                               |
-4. EXPORT        +--------> .archimate XML file
+4. EXPORT        +--------> .xml file (Open Exchange ArchiMate format)
 ```
 
 ### Data Storage

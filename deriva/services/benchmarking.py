@@ -258,12 +258,16 @@ class BenchmarkConfig:
     export_models: bool = True  # Export ArchiMate model file after each run
     bench_hash: bool = False  # Include repo/model/run in cache key for per-run isolation
     defer_relationships: bool = True  # Two-phase derivation: elements first, then relationships (recommended)
+    per_repo: bool = False  # Run each repo as separate benchmark (vs combined)
 
     def total_runs(self) -> int:
         """Calculate total number of runs in the matrix.
 
-        Each (model, iteration) is ONE run - repos are processed together.
+        Combined mode: Each (model, iteration) is ONE run - repos are processed together.
+        Per-repo mode: Each (repo, model, iteration) is ONE run - repos run separately.
         """
+        if self.per_repo:
+            return len(self.repositories) * len(self.models) * self.runs_per_combination
         return len(self.models) * self.runs_per_combination
 
     def get_combined_repo_name(self) -> str:
@@ -489,70 +493,124 @@ class BenchmarkOrchestrator:
             print(f"Repositories: {self.config.repositories}")
             print(f"Models: {self.config.models}")
             print(f"Runs per combination: {self.config.runs_per_combination}")
+            print(f"Mode: {'per-repo' if self.config.per_repo else 'combined'}")
             print(f"Total runs: {self.config.total_runs()}")
             print(f"{'=' * 60}\n")
 
-        # Execute the matrix: iteration → model → [all repos together]
-        # Alternates between models to help prevent rate limits
-        # Each (model, iteration) is ONE run - repos are combined
         run_number = 0
         total_runs = self.config.total_runs()
-        combined_repo_name = self.config.get_combined_repo_name()
 
-        for iteration in range(1, self.config.runs_per_combination + 1):
-            for model_name in self.config.models:
-                run_number += 1
+        if self.config.per_repo:
+            # Per-repo mode: each repo gets its own benchmark runs
+            # Iterate: repo → iteration → model
+            for repo_name in self.config.repositories:
+                for iteration in range(1, self.config.runs_per_combination + 1):
+                    for model_name in self.config.models:
+                        run_number += 1
 
-                if verbose:
-                    print(f"\n--- Run {run_number}/{total_runs} ---")
-                    print(f"Repositories: {', '.join(self.config.repositories)}")
-                    print(f"Model: {model_name}")
-                    print(f"Iteration: {iteration}")
-
-                # Start progress tracking for this run
-                if progress:
-                    progress.start_run(
-                        run_number=run_number,
-                        repository=combined_repo_name,
-                        model=model_name,
-                        iteration=iteration,
-                    )
-
-                try:
-                    result = self._run_combined(
-                        repositories=self.config.repositories,
-                        model_name=model_name,
-                        iteration=iteration,
-                        verbose=verbose,
-                        progress=progress,
-                    )
-
-                    if result.status == "completed":
-                        runs_completed += 1
                         if verbose:
-                            print(f"[OK] Completed: {result.stats}")
-                        if progress:
-                            progress.complete_run("completed", result.stats)
-                    else:
-                        runs_failed += 1
-                        errors.extend(result.errors)
-                        if verbose:
-                            print(f"[FAIL] Failed: {result.errors}")
-                        if progress:
-                            progress.complete_run("failed", result.stats)
+                            print(f"\n--- Run {run_number}/{total_runs} ---")
+                            print(f"Repository: {repo_name}")
+                            print(f"Model: {model_name}")
+                            print(f"Iteration: {iteration}")
 
-                except Exception as e:
-                    runs_failed += 1
-                    error_msg = f"Run failed ({combined_repo_name}/{model_name}/{iteration}): {e}"
-                    errors.append(error_msg)
+                        if progress:
+                            progress.start_run(
+                                run_number=run_number,
+                                repository=repo_name,
+                                model=model_name,
+                                iteration=iteration,
+                            )
+
+                        try:
+                            result = self._run_combined(
+                                repositories=[repo_name],  # Single repo as list
+                                model_name=model_name,
+                                iteration=iteration,
+                                verbose=verbose,
+                                progress=progress,
+                            )
+
+                            if result.status == "completed":
+                                runs_completed += 1
+                                if verbose:
+                                    print(f"[OK] Completed: {result.stats}")
+                                if progress:
+                                    progress.complete_run("completed", result.stats)
+                            else:
+                                runs_failed += 1
+                                errors.extend(result.errors)
+                                if verbose:
+                                    print(f"[FAIL] Failed: {result.errors}")
+                                if progress:
+                                    progress.complete_run("failed", result.stats)
+
+                        except Exception as e:
+                            runs_failed += 1
+                            error_msg = f"Run failed ({repo_name}/{model_name}/{iteration}): {e}"
+                            errors.append(error_msg)
+                            if verbose:
+                                print(f"[FAIL] Exception: {e}")
+                            if progress:
+                                progress.complete_run("failed")
+
+                        self._export_ocel_incremental()
+        else:
+            # Combined mode: all repos processed together per run
+            # Iterate: iteration → model → [all repos together]
+            combined_repo_name = self.config.get_combined_repo_name()
+
+            for iteration in range(1, self.config.runs_per_combination + 1):
+                for model_name in self.config.models:
+                    run_number += 1
+
                     if verbose:
-                        print(f"[FAIL] Exception: {e}")
-                    if progress:
-                        progress.complete_run("failed")
+                        print(f"\n--- Run {run_number}/{total_runs} ---")
+                        print(f"Repositories: {', '.join(self.config.repositories)}")
+                        print(f"Model: {model_name}")
+                        print(f"Iteration: {iteration}")
 
-                # Export events incrementally after each run (success or failure)
-                # This ensures partial results are saved even if benchmark fails later
-                self._export_ocel_incremental()
+                    if progress:
+                        progress.start_run(
+                            run_number=run_number,
+                            repository=combined_repo_name,
+                            model=model_name,
+                            iteration=iteration,
+                        )
+
+                    try:
+                        result = self._run_combined(
+                            repositories=self.config.repositories,
+                            model_name=model_name,
+                            iteration=iteration,
+                            verbose=verbose,
+                            progress=progress,
+                        )
+
+                        if result.status == "completed":
+                            runs_completed += 1
+                            if verbose:
+                                print(f"[OK] Completed: {result.stats}")
+                            if progress:
+                                progress.complete_run("completed", result.stats)
+                        else:
+                            runs_failed += 1
+                            errors.extend(result.errors)
+                            if verbose:
+                                print(f"[FAIL] Failed: {result.errors}")
+                            if progress:
+                                progress.complete_run("failed", result.stats)
+
+                    except Exception as e:
+                        runs_failed += 1
+                        error_msg = f"Run failed ({combined_repo_name}/{model_name}/{iteration}): {e}"
+                        errors.append(error_msg)
+                        if verbose:
+                            print(f"[FAIL] Exception: {e}")
+                        if progress:
+                            progress.complete_run("failed")
+
+                    self._export_ocel_incremental()
 
         # Calculate duration
         duration = (datetime.now() - self.session_start).total_seconds()
@@ -660,10 +718,12 @@ class BenchmarkOrchestrator:
                 self.archimate_manager.clear_model()
 
             # Create LLM managers for this model
+            # Cache uses default location: workspace/cache/llm
             model_config = self._model_configs[model_name]
             global_nocache = not self.config.use_cache
 
             if global_nocache:
+                # nocache=True skips reading cache but still writes
                 llm_manager = LLMManager.from_config(model_config, nocache=True)
                 nocache_llm_manager = llm_manager
             else:
@@ -741,7 +801,7 @@ class BenchmarkOrchestrator:
                     run_logger=cast("RunLoggerProtocol", ocel_run_logger),
                     progress=progress,
                     defer_relationships=self.config.defer_relationships,
-                    phases=["enrich", "generate", "refine"],  # Include refine for graph_relationships
+                    phases=["prep", "generate", "refine"],  # Include refine for graph_relationships
                 )
                 stats["derivation"] = result.get("stats", {})
                 self._log_derivation_results(result)
@@ -798,11 +858,13 @@ class BenchmarkOrchestrator:
         # Update run in database
         self._complete_run(run_id, status, stats)
 
-        # Copy used LLM cache entries to benchmark folder for audit trail
+        # Copy used LLM cache entries to benchmark session folder for audit trail
         try:
             used_keys = getattr(llm_query_fn, "used_cache_keys", [])
             if used_keys and llm_manager.cache:
-                copied = self._copy_used_cache_entries(used_keys, llm_manager.cache.cache_dir)
+                copied = self._copy_used_cache_entries(
+                    used_keys, llm_manager.cache.cache_dir, model_name
+                )
                 stats["cache_entries_copied"] = copied
         except Exception:
             pass  # Don't fail run if cache copy fails
@@ -951,7 +1013,7 @@ class BenchmarkOrchestrator:
         """
         Export ArchiMate model to file after a benchmark run.
 
-        Creates a uniquely named model file: {repo}_{model}_{iteration}.archimate
+        Creates a uniquely named model file: {repo}_{model}_{iteration}.xml
 
         Args:
             repo_name: Repository name
@@ -978,11 +1040,11 @@ class BenchmarkOrchestrator:
             models_dir = Path("workspace/benchmarks") / session_id / "models"
             models_dir.mkdir(parents=True, exist_ok=True)
 
-            # Generate unique filename: {repo}_{model}_{iteration}.archimate
+            # Generate unique filename: {repo}_{model}_{iteration}.xml
             # Sanitize names to be filesystem-safe
             safe_repo = repo_name.replace("/", "_").replace("\\", "_")
             safe_model = model_name.replace("/", "_").replace("\\", "_")
-            filename = f"{safe_repo}_{safe_model}_{iteration}.archimate"
+            filename = f"{safe_repo}_{safe_model}_{iteration}.xml"
             output_path = models_dir / filename
 
             # Export using ArchiMateXMLExporter
@@ -1124,19 +1186,21 @@ class BenchmarkOrchestrator:
         self,
         used_cache_keys: list[str],
         cache_dir: Path,
+        model_name: str,
     ) -> int:
         """
-        Copy used LLM cache entries to the benchmark folder for audit trail.
+        Copy used LLM cache entries to the benchmark session folder for audit trail.
 
         Args:
             used_cache_keys: List of cache keys (SHA256 hashes) used during the run
             cache_dir: Source cache directory where cache files are stored
+            model_name: Name of the model (used for organizing cache by model)
 
         Returns:
             Number of cache files successfully copied
         """
         session_id = self.session_id or "unknown"
-        target_dir = Path("workspace/benchmarks") / session_id / "cache"
+        target_dir = Path("workspace/benchmarks") / session_id / "cache" / model_name
         target_dir.mkdir(parents=True, exist_ok=True)
 
         copied = 0

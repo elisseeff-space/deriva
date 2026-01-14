@@ -6,15 +6,37 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
-## v0.6.7 - (Unreleased)
+## v0.6.7 - (January 15 2026)
+
+### Caching & Performance
+- **Graph Cache**: New `cache.py` in graph adapter with hash-based cache for expensive graph queries
+- **Common Cache Utils**: Shared `cache_utils.py` module unifying cache patterns across graph and LLM adapters
+
+### Pipeline Phases
+- **Derivation Prep Phase**: Renamed `enrich` phase to `prep` throughout codebase (modules, services, configs, CLI, tests)
+- **Extraction Phases**: Added `--phase classify` and `--phase parse` options to extraction CLI for granular control
+
+### Configuration Rationalization
+- **Settings Principle**: New "Who Changes It" architecture - `.env` for ops/deployment (secrets, connections, provider settings), database for user tuning (algorithms, thresholds)
+- **Algorithm Settings in DB**: PageRank damping/iterations/tolerance, Louvain resolution, confidence thresholds, batch sizes now in `system_settings` table
+- **LLM Settings in .env**: Rate limits, timeouts, backoff config remain in environment (provider-specific operational settings)
+
+### Benchmarking
+- **Rich Progress Bars**: Fixed phase tracking in CLI benchmark runs with proper Rich progress display
+- **Per-Repo Flag**: New `--per-repo` flag for running multiple repositories without combining results
+- **XML Export**: Changed default export format from `.archimate` to `.xml` for broader compatibility
+
+### Documentation
+- **MD Files Review**: Comprehensive pass on all markdown files for accuracy and consistent style
+- **Config Pattern Docs**: Updated CONTRIBUTING.md with configuration ownership table and rationale
 
 ### Fixed
 - **Graph bugs**: Fixed Neo4j relationship syntax in structural_consistency.py and fixed bug in duplicate_elements.py
 - **bench-hash Cache Fix**: Fixed cache hit detection in manager.py
 
 ### Updated
-- **Smarter retries**:Added retry-after header parsing to rate_limiter.py and updated providers.py to pass headers to rate limiter
-- **Muted Neo4j**: Supressed Neo4j notifications during benchmark runs, with toggle in .env
+- **Smarter retries**: Added retry-after header parsing to rate_limiter.py and updated providers.py to pass headers to rate limiter
+- **Muted Neo4j**: Suppressed Neo4j notifications during benchmark runs, with toggle in .env
 
 ---
 

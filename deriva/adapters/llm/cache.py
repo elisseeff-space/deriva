@@ -1,18 +1,17 @@
 """
 Caching functionality for LLM responses.
-Implements both in-memory (LRU) and persistent (JSON file) caching.
+
+Extends BaseDiskCache with LLM-specific key generation and metadata.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import UTC, datetime
 from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
-from deriva.common.exceptions import CacheError
+from deriva.common.cache_utils import BaseDiskCache, dict_to_hashable, hash_inputs
 
 
 # Cache schema hashes to avoid repeated JSON serialization (improves performance)
@@ -24,46 +23,36 @@ def _hash_schema(schema_tuple: tuple) -> str:
     Uses frozen tuple representation since dicts aren't hashable.
     Cached with LRU to avoid re-hashing the same schemas.
     """
-    import json
-
     # Convert back to dict for JSON serialization
     schema_dict = dict(schema_tuple)
     return json.dumps(schema_dict, sort_keys=True)
 
 
-def _schema_to_tuple(schema: dict) -> tuple:
-    """Convert a schema dict to a hashable tuple representation."""
-    items = []
-    for k, v in sorted(schema.items()):
-        if isinstance(v, dict):
-            items.append((k, _schema_to_tuple(v)))
-        elif isinstance(v, list):
-            # Convert list items recursively
-            list_items = []
-            for item in v:
-                if isinstance(item, dict):
-                    list_items.append(_schema_to_tuple(item))
-                else:
-                    list_items.append(item)
-            items.append((k, tuple(list_items)))
-        else:
-            items.append((k, v))
-    return tuple(items)
+class CacheManager(BaseDiskCache):
+    """
+    LLM response cache with prompt/model-based key generation.
 
+    Extends BaseDiskCache with LLM-specific functionality:
+    - Cache key generation from prompt + model + schema + bench_hash
+    - Response metadata storage (usage stats, timestamps)
 
-class CacheManager:
-    """Manages caching of LLM responses with both memory and disk persistence."""
+    Example:
+        cache = CacheManager("./llm_cache")
+        key = cache.generate_cache_key(prompt, model, schema)
+        if cached := cache.get(key):
+            return cached["content"]
+        # ... call LLM ...
+        cache.set_response(key, content, prompt, model, usage)
+    """
 
-    def __init__(self, cache_dir: str = "./llm_manager/cache"):
+    def __init__(self, cache_dir: str = "workspace/cache/llm"):
         """
-        Initialize cache manager.
+        Initialize LLM cache manager.
 
         Args:
             cache_dir: Directory to store cache files
         """
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._memory_cache: dict[str, dict[str, Any]] = {}
+        super().__init__(cache_dir)
 
     @staticmethod
     def generate_cache_key(
@@ -86,82 +75,31 @@ class CacheManager:
         Returns:
             SHA256 hash as cache key
         """
-        # Combine all inputs into a single string
-        cache_input = f"{prompt}|{model}"
+        # Build cache input parts
+        parts = [prompt, model]
+
         if schema:
             # Use cached schema hashing for better performance
-            schema_tuple = _schema_to_tuple(schema)
+            schema_tuple = dict_to_hashable(schema)
             schema_str = _hash_schema(schema_tuple)
-            cache_input += f"|{schema_str}"
+            parts.append(schema_str)
+
         if bench_hash:
             # Add benchmark context for per-run cache isolation
-            cache_input += f"|bench:{bench_hash}"
+            parts.append(f"bench:{bench_hash}")
 
-        # Generate SHA256 hash
-        return hashlib.sha256(cache_input.encode()).hexdigest()
+        return hash_inputs(*parts)
 
-    def get_from_memory(self, cache_key: str) -> dict[str, Any] | None:
-        """
-        Retrieve cached response from in-memory cache.
+    # Inherited from BaseDiskCache:
+    # - get_from_memory(cache_key)
+    # - get_from_disk(cache_key)
+    # - get(cache_key)
+    # - clear_memory()
+    # - clear_disk()
+    # - clear_all()
+    # - get_stats()
 
-        Args:
-            cache_key: The cache key
-
-        Returns:
-            Cached data or None if not found
-        """
-        return self._memory_cache.get(cache_key)
-
-    def get_from_disk(self, cache_key: str) -> dict[str, Any] | None:
-        """
-        Retrieve cached response from disk.
-
-        Args:
-            cache_key: The cache key
-
-        Returns:
-            Cached data or None if not found
-
-        Raises:
-            CacheError: If cache file is corrupted
-        """
-        cache_file = self.cache_dir / f"{cache_key}.json"
-
-        if not cache_file.exists():
-            return None
-
-        try:
-            with open(cache_file, encoding="utf-8") as f:
-                return json.load(f)
-        except json.JSONDecodeError as e:
-            raise CacheError(f"Corrupted cache file: {cache_file}") from e
-        except Exception as e:
-            raise CacheError(f"Error reading cache file: {e}") from e
-
-    def get(self, cache_key: str) -> dict[str, Any] | None:
-        """
-        Retrieve cached response, checking memory first, then disk.
-
-        Args:
-            cache_key: The cache key
-
-        Returns:
-            Cached data or None if not found
-        """
-        # Check memory cache first
-        cached = self.get_from_memory(cache_key)
-        if cached:
-            return cached
-
-        # Check disk cache
-        cached = self.get_from_disk(cache_key)
-        if cached:
-            # Populate memory cache for faster future access
-            self._memory_cache[cache_key] = cached
-
-        return cached
-
-    def set(
+    def set_response(
         self,
         cache_key: str,
         content: str,
@@ -170,7 +108,10 @@ class CacheManager:
         usage: dict[str, int] | None = None,
     ) -> None:
         """
-        Store response in both memory and disk cache.
+        Store LLM response in cache with metadata.
+
+        This is the LLM-specific setter that includes response metadata.
+        Uses the base class set() method for actual storage.
 
         Args:
             cache_key: The cache key
@@ -193,56 +134,20 @@ class CacheManager:
             "usage": usage,
         }
 
-        # Store in memory
-        self._memory_cache[cache_key] = cache_data
+        # Use base class set() for storage
+        super().set(cache_key, cache_data)
 
-        # Store on disk
-        cache_file = self.cache_dir / f"{cache_key}.json"
-        try:
-            with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(cache_data, f, indent=2)
-        except Exception as e:
-            raise CacheError(f"Error writing cache file: {e}") from e
-
-    def clear_memory(self) -> None:
-        """Clear the in-memory cache."""
-        self._memory_cache.clear()
-
-    def clear_disk(self) -> None:
-        """
-        Clear all cache files from disk.
-
-        Raises:
-            CacheError: If unable to delete cache files
-        """
-        try:
-            for cache_file in self.cache_dir.glob("*.json"):
-                cache_file.unlink()
-        except Exception as e:
-            raise CacheError(f"Error clearing disk cache: {e}") from e
-
-    def clear_all(self) -> None:
-        """Clear both memory and disk caches."""
-        self.clear_memory()
-        self.clear_disk()
 
     def get_cache_stats(self) -> dict[str, Any]:
         """
         Get statistics about the cache.
 
+        Alias for get_stats() for backward compatibility.
+
         Returns:
             Dictionary with cache statistics
         """
-        disk_files = list(self.cache_dir.glob("*.json"))
-        total_size = sum(f.stat().st_size for f in disk_files)
-
-        return {
-            "memory_entries": len(self._memory_cache),
-            "disk_entries": len(disk_files),
-            "disk_size_bytes": total_size,
-            "disk_size_mb": round(total_size / (1024 * 1024), 2),
-            "cache_dir": str(self.cache_dir),
-        }
+        return self.get_stats()
 
 
 # Decorator for caching function results
@@ -272,7 +177,7 @@ def cached_llm_call(cache_manager: CacheManager):
             # Call function and cache result
             result = func(prompt, model, schema_dict)
             if result and "content" in result:
-                cache_manager.set(
+                cache_manager.set_response(
                     cache_key, result["content"], prompt, model, result.get("usage")
                 )
 

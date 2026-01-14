@@ -6,7 +6,7 @@ Used by both Marimo (visual UI) and CLI (headless) for consistent config managem
 
 Tables managed:
     - extraction_config: LLM extraction step configurations
-    - derivation_config: ArchiMate derivation configurations (enrich/generate/refine phases)
+    - derivation_config: ArchiMate derivation configurations (prep/generate/refine phases)
     - file_type_registry: File extension to type mappings
     - system_settings: Key-value system settings
 
@@ -62,7 +62,7 @@ class ExtractionConfig:
 
 
 class DerivationConfig:
-    """Unified derivation step configuration for enrich/generate/refine phases."""
+    """Unified derivation step configuration for prep/generate/refine phases."""
 
     def __init__(
         self,
@@ -82,7 +82,7 @@ class DerivationConfig:
         batch_size: int | None = None,
     ):
         self.step_name = step_name
-        self.phase = phase  # "enrich" | "generate" | "refine" | "relationship"
+        self.phase = phase  # "prep" | "generate" | "refine" | "relationship"
         self.sequence = sequence
         self.enabled = enabled
         self.llm = llm  # True = uses LLM, False = pure graph algorithm
@@ -285,7 +285,7 @@ def get_derivation_configs(
     Args:
         engine: DuckDB connection
         enabled_only: If True, only return enabled configs
-        phase: Filter by phase ("enrich", "generate", "refine", "relationship")
+        phase: Filter by phase ("prep", "generate", "refine", "relationship")
         llm_only: If True, only LLM steps; if False, only graph algorithm steps
 
     Returns:
@@ -309,10 +309,10 @@ def get_derivation_configs(
         query += " AND llm = ?"
         params.append(llm_only)
 
-    # Order by phase priority (enrich=1, generate=2, refine=3, relationship=4) then sequence
+    # Order by phase priority (prep=1, generate=2, refine=3, relationship=4) then sequence
     query += """
         ORDER BY
-            CASE phase WHEN 'enrich' THEN 1 WHEN 'generate' THEN 2 WHEN 'refine' THEN 3 WHEN 'relationship' THEN 4 END,
+            CASE phase WHEN 'prep' THEN 1 WHEN 'generate' THEN 2 WHEN 'refine' THEN 3 WHEN 'relationship' THEN 4 END,
             sequence
     """
 
@@ -596,7 +596,7 @@ def list_steps(
         engine: DuckDB connection
         step_type: 'extraction' or 'derivation'
         enabled_only: If True, only return enabled steps
-        phase: For derivation, filter by phase ("enrich", "generate", "refine")
+        phase: For derivation, filter by phase ("prep", "generate", "refine")
 
     Returns:
         List of dicts with step info
@@ -807,7 +807,7 @@ def get_active_config_versions(engine: Any) -> dict[str, dict[str, int]]:
     Get current active versions for all configs.
 
     Returns:
-        Dict with extraction and derivation (enrich/generate/refine) versions
+        Dict with extraction and derivation (prep/generate/refine) versions
     """
     versions = {"extraction": {}, "derivation": {}}
 
@@ -816,7 +816,7 @@ def get_active_config_versions(engine: Any) -> dict[str, dict[str, int]]:
     for r in rows:
         versions["extraction"][r[0]] = r[1]
 
-    # Derivation (includes all phases: enrich, generate, refine)
+    # Derivation (includes all phases: prep, generate, refine)
     rows = engine.execute("SELECT step_name, version FROM derivation_config WHERE is_active = TRUE").fetchall()
     for r in rows:
         versions["derivation"][r[0]] = r[1]
@@ -1219,3 +1219,94 @@ def get_max_candidates(engine: Any) -> int:
 def get_max_relationships_per_derivation(engine: Any) -> int:
     """Get maximum relationships created per derivation step."""
     return get_derivation_limit(engine, "max_relationships_per_derivation")
+
+
+# =============================================================================
+# Algorithm Settings Helpers
+# =============================================================================
+
+# Default algorithm settings - used when not configured in system_settings
+_DEFAULT_ALGORITHM_SETTINGS: dict[str, str] = {
+    "algorithm_pagerank_damping": "0.85",
+    "algorithm_pagerank_max_iter": "100",
+    "algorithm_pagerank_tolerance": "1e-6",
+    "algorithm_louvain_resolution": "1.0",
+}
+
+
+def get_algorithm_setting(engine: Any, key: str, default: str | None = None) -> str:
+    """
+    Get an algorithm setting from system_settings.
+
+    Args:
+        engine: DuckDB connection
+        key: Setting key (e.g., 'algorithm_pagerank_damping')
+        default: Override default value
+
+    Returns:
+        Setting value as string
+    """
+    value = get_setting(engine, key)
+    if value is not None:
+        return value
+
+    if default is not None:
+        return default
+
+    return _DEFAULT_ALGORITHM_SETTINGS.get(key, "")
+
+
+def get_algorithm_setting_float(
+    engine: Any, key: str, default: float | None = None
+) -> float:
+    """Get an algorithm setting as float."""
+    value = get_algorithm_setting(engine, key)
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default if default is not None else 0.0
+
+
+def get_algorithm_setting_int(
+    engine: Any, key: str, default: int | None = None
+) -> int:
+    """Get an algorithm setting as int."""
+    value = get_algorithm_setting(engine, key)
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default if default is not None else 0
+
+
+def get_pagerank_config(engine: Any) -> dict[str, float | int]:
+    """
+    Get PageRank algorithm configuration.
+
+    Returns:
+        Dict with 'damping', 'max_iter', 'tol' keys
+    """
+    return {
+        "damping": get_algorithm_setting_float(
+            engine, "algorithm_pagerank_damping", 0.85
+        ),
+        "max_iter": get_algorithm_setting_int(
+            engine, "algorithm_pagerank_max_iter", 100
+        ),
+        "tol": get_algorithm_setting_float(
+            engine, "algorithm_pagerank_tolerance", 1e-6
+        ),
+    }
+
+
+def get_louvain_config(engine: Any) -> dict[str, float]:
+    """
+    Get Louvain algorithm configuration.
+
+    Returns:
+        Dict with 'resolution' key
+    """
+    return {
+        "resolution": get_algorithm_setting_float(
+            engine, "algorithm_louvain_resolution", 1.0
+        ),
+    }

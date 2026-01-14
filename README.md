@@ -14,15 +14,15 @@ Deriva analyzes code repositories and transforms them into [ArchiMate](https://w
 ## How It Works
 
 1. **Clone** a Git repository
-2. **Extract** a graph representation into Neo4j:
-   - Structural nodes: directories, files (classified by type and subtype)
-   - Semantic nodes: TypeDefinitions, Methods, BusinessConcepts, Technologies, etc.
-   - Python files use fast AST extraction; other languages use LLM
-3. **Derive** ArchiMate elements using a hybrid approach:
-   - **Enrich phase**: Graph enrichment (PageRank, Louvain communities, k-core)
+2. **Extraction** - Build a graph representation in Neo4j:
+   - **Classify phase**: Categorize files by type and subtype using registry
+   - **Parse phase**: Extract semantic nodes (TypeDefinitions, Methods, BusinessConcepts, etc.)
+   - Python files use fast AST parsing; other languages use LLM
+3. **Derivation** - Generate ArchiMate elements using a hybrid approach:
+   - **Prep phase**: Graph enrichment (PageRank, Louvain communities, k-core)
    - **Generate phase**: LLM-based element derivation with graph metrics
    - **Refine phase**: Relationship derivation and quality assurance
-4. **Export** to `.archimate` XML file
+4. **Export** to `.xml` file (ArchiMate format)
 
 ## Quick Setup
 
@@ -141,12 +141,15 @@ Enable the extraction steps you need:
 If using LLM-assisted extraction, configure your provider in `.env`:
 
 ```bash
-LLM_PROVIDER=mistral  # or azure, anthropic
-LLM_MISTRAL_API_KEY=your-key-here
-LLM_MISTRAL_MODEL=devstral2
-LLM_MISTRAL_URL=https://api.mistral.ai/v1/chat/completions
-LLM_MISTRAL_STRUCTURED_OUTPUT=true
+# Set default model to use
+LLM_DEFAULT_MODEL=mistral-devstral
 
+# Configure the model (naming: LLM_{NAME}_*)
+LLM_MISTRAL_DEVSTRAL_PROVIDER=mistral
+LLM_MISTRAL_DEVSTRAL_MODEL=devstral-2512
+LLM_MISTRAL_DEVSTRAL_URL=https://api.mistral.ai/v1/chat/completions
+LLM_MISTRAL_DEVSTRAL_KEY=your-key-here
+LLM_MISTRAL_DEVSTRAL_STRUCTURED_OUTPUT=true
 ```
 
 ---
@@ -183,13 +186,13 @@ Results display in a status callout showing nodes/elements created and any error
 
 **Column 1: Configuration → ArchiMate Model**
 
-1. Set export path (default: `workspace/output/model.archimate`)
+1. Set export path (default: `workspace/output/model.xml`)
 2. Click **"Export Model"**
 3. Open the file with [Archi](https://www.archimatetool.com/)
 
 **Via CLI:**
 ```bash
-deriva export -o workspace/output/model.archimate
+deriva export -o workspace/output/model.xml
 ```
 
 ---
@@ -389,11 +392,11 @@ deriva config filetype stats
 # Run pipeline stages
 deriva run extraction --repo flask_invoice_generator -v
 deriva run derivation -v
-deriva run derivation --phase generate -v  # Run specific phase (enrich, generate, refine)
+deriva run derivation --phase generate -v  # Run specific phase (prep, generate, refine)
 deriva run all --repo myrepo
 
 # Export ArchiMate model
-deriva export -o workspace/output/model.archimate
+deriva export -o workspace/output/model.xml
 ```
 
 **CLI Options:**
@@ -401,7 +404,7 @@ deriva export -o workspace/output/model.archimate
 | Option | Description |
 |--------|-------------|
 | `--repo NAME` | Process specific repository (default: all) |
-| `--phase PHASE` | Run specific derivation phase: enrich, generate, or refine |
+| `--phase PHASE` | Run specific derivation phase: prep, generate, or refine |
 | `-v, --verbose` | Print detailed progress |
 | `--no-llm` | Skip LLM-based steps (structural extraction only) |
 | `-o, --output PATH` | Output file path for export |

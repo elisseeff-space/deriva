@@ -463,7 +463,7 @@ if RICH_AVAILABLE:
                 self._progress.remove_task(self._phase_task)
 
             self._phase_task = self._progress.add_task(
-                f"[cyan]{name.capitalize()}",
+                f"[bold cyan]{name.upper()}",
                 total=total_steps,
             )
             self._refresh_display()

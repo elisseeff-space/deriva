@@ -192,7 +192,7 @@ class LLMManager:
         self._validate_config()
 
         # Initialize cache manager
-        cache_dir = self.config.get("cache_dir", "workspace/cache")
+        cache_dir = self.config.get("cache_dir", "workspace/cache/llm")
         cache_path = Path(cache_dir)
         if not cache_path.is_absolute():
             project_root = Path(__file__).parent.parent.parent.parent
@@ -224,7 +224,7 @@ class LLMManager:
     def from_config(
         cls,
         config: BenchmarkModelConfig,
-        cache_dir: str = "workspace/cache",
+        cache_dir: str = "workspace/cache/llm",
         max_retries: int = 3,
         timeout: int = 60,
         temperature: float | None = None,
@@ -387,7 +387,7 @@ class LLMManager:
             "api_url": api_url,
             "api_key": api_key,
             "model": model,
-            "cache_dir": os.getenv("LLM_CACHE_DIR", "workspace/cache"),
+            "cache_dir": os.getenv("LLM_CACHE_DIR", "workspace/cache/llm"),
             "cache_ttl": int(os.getenv("LLM_CACHE_TTL", "0")),
             "max_retries": int(os.getenv("LLM_MAX_RETRIES", "3")),
             "timeout": int(os.getenv("LLM_TIMEOUT", "60")),
@@ -662,7 +662,7 @@ Return only the JSON object, no additional text."""
 
                                     # Cache the raw content
                                     if write_cache:
-                                        self.cache.set(
+                                        self.cache.set_response(
                                             cache_key,
                                             content,
                                             prompt,
@@ -706,7 +706,7 @@ Return only the JSON object, no additional text."""
 
                     # Success! Cache the response
                     if write_cache:
-                        self.cache.set(
+                        self.cache.set_response(
                             cache_key, content, prompt, self.model, result.usage
                         )
 

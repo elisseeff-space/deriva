@@ -38,8 +38,10 @@ deriva config update extraction BusinessConcept \
 ### Pipeline Execution
 
 ```bash
-# Run extraction
+# Run extraction (all phases or specific phase)
 deriva run extraction --repo my-repo -v
+deriva run extraction --phase classify -v  # File classification only
+deriva run extraction --phase parse -v     # Parse phase only
 
 # Run derivation (all phases or specific phase)
 deriva run derivation -v
@@ -53,7 +55,7 @@ deriva run all --repo my-repo -v
 
 ```bash
 # Export ArchiMate model to XML
-deriva export -o workspace/output/model.archimate
+deriva export -o workspace/output/model.xml
 ```
 
 ### Status & Clear
@@ -89,7 +91,7 @@ deriva benchmark analyze bench_20260101_150724
 | Option | Description |
 |--------|-------------|
 | `--repo NAME` | Process specific repository (default: all) |
-| `--phase PHASE` | Derivation phase: enrich, generate, or refine |
+| `--phase PHASE` | Derivation phase: prep, generate, or refine |
 | `-v, --verbose` | Print detailed progress |
 | `--no-llm` | Skip LLM-based steps |
 | `-o, --output PATH` | Output file path |

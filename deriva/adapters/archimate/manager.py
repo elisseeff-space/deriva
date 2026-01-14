@@ -20,7 +20,7 @@ Usage:
         elements = am.get_elements_by_type("BusinessObject")
 
         # Export to ArchiMate XML
-        am.export_to_archimate("output.archimate")
+        am.export_to_archimate("output.xml")
 """
 
 from __future__ import annotations

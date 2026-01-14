@@ -59,6 +59,11 @@ TABLES = {
         "pk": "id",
         "order_by": "step_name, pattern_type, pattern_category",
     },
+    "system_settings": {
+        "file": "system_settings.json",
+        "pk": "key",
+        "order_by": "key",
+    },
 }
 
 
