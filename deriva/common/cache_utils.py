@@ -1,9 +1,9 @@
 """
 Common caching utilities for Deriva.
 
-Provides a base class for two-tier (memory + disk) caching and utilities
-for generating cache keys. Used by LLM cache, graph cache, and other
-caching implementations.
+Provides a base class for disk caching using diskcache (SQLite-backed)
+and utilities for generating cache keys. Used by LLM cache, graph cache,
+and other caching implementations.
 
 Usage:
     from deriva.common.cache_utils import BaseDiskCache, hash_inputs
@@ -20,6 +20,8 @@ import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+
+import diskcache
 
 from deriva.common.exceptions import CacheError
 
@@ -122,16 +124,15 @@ def _hash_dict_tuple(dict_tuple: tuple[tuple[str, Any], ...]) -> str:
 
 class BaseDiskCache:
     """
-    Base class for two-tier (memory + disk) caching with JSON persistence.
+    Base class for disk caching using diskcache (SQLite-backed).
 
-    Provides a generic caching interface that stores entries in both memory
-    (for fast access) and on disk (for persistence across runs).
-
-    Subclasses should implement domain-specific key generation.
+    Provides a generic caching interface that stores entries in SQLite
+    for efficient persistence and retrieval. Includes export functionality
+    for auditing.
 
     Attributes:
-        cache_dir: Path to the directory storing cache files
-        _memory_cache: In-memory cache dictionary
+        cache_dir: Path to the directory storing cache data
+        _cache: diskcache.Cache instance
 
     Example:
         class MyCache(BaseDiskCache):
@@ -147,58 +148,50 @@ class BaseDiskCache:
                 return result
     """
 
-    def __init__(self, cache_dir: str | Path):
+    # Default size limit: 1GB
+    DEFAULT_SIZE_LIMIT = 2**30
+
+    def __init__(self, cache_dir: str | Path, size_limit: int | None = None):
         """
         Initialize cache with specified directory.
 
         Args:
             cache_dir: Directory to store cache files (created if not exists)
+            size_limit: Maximum cache size in bytes (default: 1GB)
         """
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self._memory_cache: dict[str, dict[str, Any]] = {}
 
-    def get_from_memory(self, cache_key: str) -> dict[str, Any] | None:
-        """
-        Retrieve cached data from in-memory cache.
-
-        Args:
-            cache_key: The cache key
-
-        Returns:
-            Cached data dict or None if not found
-        """
-        return self._memory_cache.get(cache_key)
-
-    def get_from_disk(self, cache_key: str) -> dict[str, Any] | None:
-        """
-        Retrieve cached data from disk.
-
-        Args:
-            cache_key: The cache key
-
-        Returns:
-            Cached data dict or None if not found
-
-        Raises:
-            CacheError: If cache file is corrupted
-        """
-        cache_file = self.cache_dir / f"{cache_key}.json"
-
-        if not cache_file.exists():
-            return None
-
-        try:
-            with open(cache_file, encoding="utf-8") as f:
-                return json.load(f)
-        except json.JSONDecodeError as e:
-            raise CacheError(f"Corrupted cache file: {cache_file}") from e
-        except Exception as e:
-            raise CacheError(f"Error reading cache file: {e}") from e
+        # Initialize diskcache
+        self._cache = diskcache.Cache(
+            str(self.cache_dir),
+            size_limit=size_limit or self.DEFAULT_SIZE_LIMIT,
+        )
 
     def get(self, cache_key: str) -> dict[str, Any] | None:
         """
-        Retrieve cached data, checking memory first, then disk.
+        Retrieve cached data.
+
+        Args:
+            cache_key: The cache key
+
+        Returns:
+            Cached data dict or None if not found
+
+        Raises:
+            CacheError: If cache is corrupted
+        """
+        try:
+            result = self._cache.get(cache_key)
+            return result
+        except Exception as e:
+            raise CacheError(f"Error reading from cache: {e}") from e
+
+    def get_from_memory(self, cache_key: str) -> dict[str, Any] | None:
+        """
+        Retrieve cached data (alias for get, kept for backward compatibility).
+
+        diskcache handles its own memory caching internally.
 
         Args:
             cache_key: The cache key
@@ -206,79 +199,72 @@ class BaseDiskCache:
         Returns:
             Cached data dict or None if not found
         """
-        # Check memory cache first
-        cached = self.get_from_memory(cache_key)
-        if cached is not None:
-            return cached
+        return self.get(cache_key)
 
-        # Check disk cache
-        cached = self.get_from_disk(cache_key)
-        if cached is not None:
-            # Populate memory cache for faster future access
-            self._memory_cache[cache_key] = cached
-
-        return cached
-
-    def set(self, cache_key: str, data: dict[str, Any]) -> None:
+    def get_from_disk(self, cache_key: str) -> dict[str, Any] | None:
         """
-        Store data in both memory and disk cache.
+        Retrieve cached data (alias for get, kept for backward compatibility).
+
+        diskcache uses SQLite, not individual files.
 
         Args:
             cache_key: The cache key
-            data: Dictionary to cache (must be JSON-serializable)
+
+        Returns:
+            Cached data dict or None if not found
+        """
+        return self.get(cache_key)
+
+    def set(self, cache_key: str, data: dict[str, Any], expire: float | None = None) -> None:
+        """
+        Store data in cache.
+
+        Args:
+            cache_key: The cache key
+            data: Dictionary to cache
+            expire: Optional TTL in seconds
 
         Raises:
-            CacheError: If unable to write to disk
+            CacheError: If unable to write to cache
         """
-        # Store in memory
-        self._memory_cache[cache_key] = data
-
-        # Store on disk
-        cache_file = self.cache_dir / f"{cache_key}.json"
         try:
-            with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(data, f, indent=2, default=str)
+            self._cache.set(cache_key, data, expire=expire)
         except Exception as e:
-            raise CacheError(f"Error writing cache file: {e}") from e
+            raise CacheError(f"Error writing to cache: {e}") from e
 
     def invalidate(self, cache_key: str) -> None:
         """
-        Remove entry from both memory and disk cache.
+        Remove entry from cache.
 
         Args:
             cache_key: The cache key to invalidate
         """
-        # Remove from memory
-        self._memory_cache.pop(cache_key, None)
-
-        # Remove from disk
-        cache_file = self.cache_dir / f"{cache_key}.json"
-        if cache_file.exists():
-            try:
-                cache_file.unlink()
-            except Exception as e:
-                raise CacheError(f"Error deleting cache file: {e}") from e
+        try:
+            self._cache.delete(cache_key)
+        except Exception as e:
+            raise CacheError(f"Error deleting cache entry: {e}") from e
 
     def clear_memory(self) -> None:
-        """Clear the in-memory cache."""
-        self._memory_cache.clear()
+        """Clear the in-memory portion of cache (triggers SQLite cleanup)."""
+        try:
+            self._cache.cull()
+        except Exception:
+            pass  # Cull is optional optimization
 
     def clear_disk(self) -> None:
         """
-        Clear all cache files from disk.
+        Clear all cache entries.
 
         Raises:
-            CacheError: If unable to delete cache files
+            CacheError: If unable to clear cache
         """
         try:
-            for cache_file in self.cache_dir.glob("*.json"):
-                cache_file.unlink()
+            self._cache.clear()
         except Exception as e:
-            raise CacheError(f"Error clearing disk cache: {e}") from e
+            raise CacheError(f"Error clearing cache: {e}") from e
 
     def clear_all(self) -> None:
-        """Clear both memory and disk caches."""
-        self.clear_memory()
+        """Clear the entire cache."""
         self.clear_disk()
 
     def get_stats(self) -> dict[str, Any]:
@@ -287,31 +273,96 @@ class BaseDiskCache:
 
         Returns:
             Dictionary with:
-                - memory_entries: Number of entries in memory
-                - disk_entries: Number of files on disk
-                - disk_size_bytes: Total size of cache files
-                - disk_size_mb: Total size in megabytes
+                - entries: Number of entries in cache
+                - size_bytes: Total size of cache
+                - size_mb: Total size in megabytes
                 - cache_dir: Path to cache directory
+                - volume: diskcache volume stats
         """
-        disk_files = list(self.cache_dir.glob("*.json"))
-        total_size = sum(f.stat().st_size for f in disk_files)
+        try:
+            volume = self._cache.volume()
+        except Exception:
+            volume = 0
+
+        entry_count = len(self._cache)
 
         return {
-            "memory_entries": len(self._memory_cache),
-            "disk_entries": len(disk_files),
-            "disk_size_bytes": total_size,
-            "disk_size_mb": round(total_size / (1024 * 1024), 2),
+            "memory_entries": entry_count,  # Kept for backward compat
+            "disk_entries": entry_count,  # Kept for backward compat
+            "entries": entry_count,
+            "disk_size_bytes": volume,
+            "disk_size_mb": round(volume / (1024 * 1024), 2),
+            "size_bytes": volume,
+            "size_mb": round(volume / (1024 * 1024), 2),
             "cache_dir": str(self.cache_dir),
         }
 
     def keys(self) -> list[str]:
         """
-        Get all cache keys (from disk).
+        Get all cache keys.
 
         Returns:
             List of cache keys
         """
-        return [f.stem for f in self.cache_dir.glob("*.json")]
+        return list(self._cache.iterkeys())
+
+    def export_to_json(self, output_path: str | Path, include_values: bool = True) -> int:
+        """
+        Export cache contents to JSON for auditing.
+
+        Args:
+            output_path: Path to write JSON file
+            include_values: If True, include cached values; if False, keys only
+
+        Returns:
+            Number of entries exported
+
+        Example:
+            cache = BaseDiskCache("./my_cache")
+            count = cache.export_to_json("./cache_audit.json")
+            print(f"Exported {count} entries")
+        """
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        entries = []
+        for key in self._cache.iterkeys():
+            entry = {"key": key}
+            if include_values:
+                try:
+                    entry["value"] = self._cache[key]
+                except KeyError:
+                    entry["value"] = None
+                    entry["error"] = "Key expired or deleted during export"
+            entries.append(entry)
+
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "cache_dir": str(self.cache_dir),
+                    "entry_count": len(entries),
+                    "entries": entries,
+                },
+                f,
+                indent=2,
+                default=str,
+            )
+
+        return len(entries)
+
+    def close(self) -> None:
+        """Close the cache connection."""
+        try:
+            self._cache.close()
+        except Exception:
+            pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
 
 
 __all__ = [

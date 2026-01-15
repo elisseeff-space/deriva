@@ -48,66 +48,61 @@ if TYPE_CHECKING:
 from deriva.adapters.graph import GraphManager
 from deriva.modules.derivation import prep
 from deriva.modules.derivation.base import derive_consolidated_relationships
+from deriva.modules.derivation.element_base import PatternBasedDerivation
 from deriva.modules.derivation.refine import run_refine_step
 from deriva.services import config
 
-# Element generation module registry
-# Maps element_type to module with generate() function
-_ELEMENT_MODULES: dict[str, Any] = {}
+# Derivation class imports
+from deriva.modules.derivation.business_object import BusinessObjectDerivation
+from deriva.modules.derivation.business_process import BusinessProcessDerivation
+from deriva.modules.derivation.business_actor import BusinessActorDerivation
+from deriva.modules.derivation.business_event import BusinessEventDerivation
+from deriva.modules.derivation.business_function import BusinessFunctionDerivation
+from deriva.modules.derivation.application_component import ApplicationComponentDerivation
+from deriva.modules.derivation.application_service import ApplicationServiceDerivation
+from deriva.modules.derivation.application_interface import ApplicationInterfaceDerivation
+from deriva.modules.derivation.data_object import DataObjectDerivation
+from deriva.modules.derivation.technology_service import TechnologyServiceDerivation
+from deriva.modules.derivation.node import NodeDerivation
+from deriva.modules.derivation.device import DeviceDerivation
+from deriva.modules.derivation.system_software import SystemSoftwareDerivation
+
+# Registry: element_type -> derivation class
+DERIVATION_REGISTRY: dict[str, type[PatternBasedDerivation]] = {
+    "BusinessObject": BusinessObjectDerivation,
+    "BusinessProcess": BusinessProcessDerivation,
+    "BusinessActor": BusinessActorDerivation,
+    "BusinessEvent": BusinessEventDerivation,
+    "BusinessFunction": BusinessFunctionDerivation,
+    "ApplicationComponent": ApplicationComponentDerivation,
+    "ApplicationService": ApplicationServiceDerivation,
+    "ApplicationInterface": ApplicationInterfaceDerivation,
+    "DataObject": DataObjectDerivation,
+    "TechnologyService": TechnologyServiceDerivation,
+    "Node": NodeDerivation,
+    "Device": DeviceDerivation,
+    "SystemSoftware": SystemSoftwareDerivation,
+}
+
+# Instance cache for reuse
+_DERIVATION_INSTANCES: dict[str, PatternBasedDerivation] = {}
 
 
-def _load_element_module(element_type: str) -> Any:
-    """Lazily load element generation module."""
-    if element_type in _ELEMENT_MODULES:
-        return _ELEMENT_MODULES[element_type]
-
-    module = None
-    # Business Layer
-    if element_type == "BusinessObject":
-        from deriva.modules.derivation import business_object as module
-    elif element_type == "BusinessProcess":
-        from deriva.modules.derivation import business_process as module
-    elif element_type == "BusinessActor":
-        from deriva.modules.derivation import business_actor as module
-    elif element_type == "BusinessEvent":
-        from deriva.modules.derivation import business_event as module
-    elif element_type == "BusinessFunction":
-        from deriva.modules.derivation import business_function as module
-    # Application Layer
-    elif element_type == "ApplicationComponent":
-        from deriva.modules.derivation import application_component as module
-    elif element_type == "ApplicationService":
-        from deriva.modules.derivation import application_service as module
-    elif element_type == "ApplicationInterface":
-        from deriva.modules.derivation import application_interface as module
-    elif element_type == "DataObject":
-        from deriva.modules.derivation import data_object as module
-    # Technology Layer
-    elif element_type == "TechnologyService":
-        from deriva.modules.derivation import technology_service as module
-    elif element_type == "Node":
-        from deriva.modules.derivation import node as module
-    elif element_type == "Device":
-        from deriva.modules.derivation import device as module
-    elif element_type == "SystemSoftware":
-        from deriva.modules.derivation import system_software as module
-
-    _ELEMENT_MODULES[element_type] = module
-    return module
+def _get_derivation(element_type: str) -> PatternBasedDerivation | None:
+    """Get or create a derivation instance for an element type."""
+    if element_type not in DERIVATION_REGISTRY:
+        return None
+    if element_type not in _DERIVATION_INSTANCES:
+        _DERIVATION_INSTANCES[element_type] = DERIVATION_REGISTRY[element_type]()
+    return _DERIVATION_INSTANCES[element_type]
 
 
 def _collect_relationship_rules() -> dict[str, tuple[list[Any], list[Any]]]:
-    """Collect relationship rules from all loaded element modules.
-
-    Returns:
-        Dict mapping element_type to (outbound_rules, inbound_rules) tuple
-    """
+    """Collect relationship rules from all derivation classes."""
     rules: dict[str, tuple[list[Any], list[Any]]] = {}
-    for element_type, module in _ELEMENT_MODULES.items():
-        if module is None:
-            continue
-        outbound = getattr(module, "OUTBOUND_RULES", [])
-        inbound = getattr(module, "INBOUND_RULES", [])
+    for element_type, cls in DERIVATION_REGISTRY.items():
+        outbound = cls.OUTBOUND_RULES
+        inbound = cls.INBOUND_RULES
         if outbound or inbound:
             rules[element_type] = (outbound, inbound)
     return rules
@@ -157,18 +152,18 @@ def generate_element(
     Returns:
         Dict with success, elements_created, relationships_created, created_elements, errors
     """
-    module = _load_element_module(element_type)
+    derivation = _get_derivation(element_type)
 
-    if module is None:
+    if derivation is None:
         return {
             "success": False,
             "elements_created": 0,
             "relationships_created": 0,
-            "errors": [f"No generation module for element type: {element_type}"],
+            "errors": [f"No derivation class for element type: {element_type}"],
         }
 
     try:
-        result = module.generate(
+        result = derivation.generate(
             graph_manager=graph_manager,
             archimate_manager=archimate_manager,
             engine=engine,

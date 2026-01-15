@@ -6,13 +6,13 @@ Individual element-specific tests are in their respective test files.
 
 from __future__ import annotations
 
-import importlib
 from unittest.mock import MagicMock
 
 import pytest
 
 import deriva.services.config as config_module
 from deriva.modules.derivation.base import clear_enrichment_cache
+from deriva.services.derivation import DERIVATION_REGISTRY
 
 
 @pytest.fixture(autouse=True)
@@ -23,70 +23,57 @@ def reset_enrichment_cache():
     clear_enrichment_cache()
 
 
-# All derivation element module names
-DERIVATION_MODULES = [
-    "application_component",
-    "application_interface",
-    "application_service",
-    "business_actor",
-    "business_event",
-    "business_function",
-    "business_object",
-    "business_process",
-    "data_object",
-    "device",
-    "node",
-    "system_software",
-    "technology_service",
-]
+# All derivation element types
+DERIVATION_ELEMENT_TYPES = list(DERIVATION_REGISTRY.keys())
 
 
-def get_module(module_name: str):
-    """Dynamically import a derivation module."""
-    return importlib.import_module(f"deriva.modules.derivation.{module_name}")
+def get_derivation(element_type: str):
+    """Get a derivation class instance for an element type."""
+    cls = DERIVATION_REGISTRY.get(element_type)
+    return cls() if cls else None
 
 
-class TestModuleExports:
-    """Tests that all derivation modules export required interface."""
+class TestDerivationClasses:
+    """Tests that all derivation classes have required interface."""
 
-    @pytest.mark.parametrize("module_name", DERIVATION_MODULES)
-    def test_exports_element_type(self, module_name):
-        """All derivation modules should export ELEMENT_TYPE constant."""
-        module = get_module(module_name)
-        assert hasattr(module, "ELEMENT_TYPE")
-        assert isinstance(module.ELEMENT_TYPE, str)
-        assert len(module.ELEMENT_TYPE) > 0
+    @pytest.mark.parametrize("element_type", DERIVATION_ELEMENT_TYPES)
+    def test_has_element_type(self, element_type):
+        """All derivation classes should have ELEMENT_TYPE attribute."""
+        derivation = get_derivation(element_type)
+        assert hasattr(derivation, "ELEMENT_TYPE")
+        assert isinstance(derivation.ELEMENT_TYPE, str)
+        assert derivation.ELEMENT_TYPE == element_type
 
-    @pytest.mark.parametrize("module_name", DERIVATION_MODULES)
-    def test_exports_generate_function(self, module_name):
-        """All derivation modules should export generate() function."""
-        module = get_module(module_name)
-        assert hasattr(module, "generate")
-        assert callable(module.generate)
+    @pytest.mark.parametrize("element_type", DERIVATION_ELEMENT_TYPES)
+    def test_has_generate_method(self, element_type):
+        """All derivation classes should have generate() method."""
+        derivation = get_derivation(element_type)
+        assert hasattr(derivation, "generate")
+        assert callable(derivation.generate)
 
-    @pytest.mark.parametrize("module_name", DERIVATION_MODULES)
-    def test_exports_filter_candidates(self, module_name):
-        """All derivation modules should export filter_candidates() function."""
-        module = get_module(module_name)
-        assert hasattr(module, "filter_candidates")
-        assert callable(module.filter_candidates)
+    @pytest.mark.parametrize("element_type", DERIVATION_ELEMENT_TYPES)
+    def test_has_filter_candidates_method(self, element_type):
+        """All derivation classes should have filter_candidates() method."""
+        derivation = get_derivation(element_type)
+        assert hasattr(derivation, "filter_candidates")
+        assert callable(derivation.filter_candidates)
 
 
-class TestGenerateFunction:
-    """Tests for generate() function across all modules."""
+class TestGenerateMethod:
+    """Tests for generate() method across all derivation classes."""
 
-    @pytest.mark.parametrize("module_name", DERIVATION_MODULES)
-    def test_returns_generation_result(self, module_name):
-        """All derivation modules should return GenerationResult from generate()."""
+    @pytest.mark.parametrize("element_type", DERIVATION_ELEMENT_TYPES)
+    def test_returns_generation_result(self, element_type):
+        """All derivation classes should return GenerationResult from generate()."""
         from deriva.modules.derivation.base import GenerationResult
 
-        module = get_module(module_name)
+        derivation = get_derivation(element_type)
 
         # Mock the graph manager to return empty results (simplest path)
         mock_manager = MagicMock()
         mock_manager.query.return_value = []
 
-        result = module.generate(
+        result = derivation.generate(
             graph_manager=mock_manager,
             archimate_manager=MagicMock(),
             engine=MagicMock(),
@@ -103,8 +90,8 @@ class TestGenerateFunction:
         assert result.success is True  # Empty results should succeed
 
     def test_handles_query_exception_application_component(self):
-        """ApplicationComponent handles query exceptions (only module with try/except around query)."""
-        module = get_module("application_component")
+        """ApplicationComponent handles query exceptions."""
+        derivation = get_derivation("ApplicationComponent")
 
         # First call (enrichments) succeeds, second call (candidates) fails
         failing_manager = MagicMock()
@@ -113,7 +100,7 @@ class TestGenerateFunction:
             Exception("DB connection error"),  # Candidate query fails
         ]
 
-        result = module.generate(
+        result = derivation.generate(
             graph_manager=failing_manager,
             archimate_manager=MagicMock(),
             engine=MagicMock(),
@@ -130,11 +117,10 @@ class TestGenerateFunction:
         assert len(result.errors) > 0
         assert any("error" in e.lower() or "failed" in e.lower() for e in result.errors)
 
-    @pytest.mark.parametrize("module_name", DERIVATION_MODULES)
-    def test_creates_elements_with_valid_llm_response(self, module_name, monkeypatch):
-        """All derivation modules should create elements when LLM returns valid response."""
-        module = get_module(module_name)
-        element_type = module.ELEMENT_TYPE
+    @pytest.mark.parametrize("element_type", DERIVATION_ELEMENT_TYPES)
+    def test_creates_elements_with_valid_llm_response(self, element_type, monkeypatch):
+        """All derivation classes should create elements when LLM returns valid response."""
+        derivation = get_derivation(element_type)
 
         # Mock config.get_derivation_patterns to return patterns matching "TestElement"
         # This ensures PatternBasedDerivation modules don't filter out all candidates
@@ -187,7 +173,7 @@ class TestGenerateFunction:
 
         mock_archimate = MagicMock()
 
-        result = module.generate(
+        result = derivation.generate(
             graph_manager=mock_manager,
             archimate_manager=mock_archimate,
             engine=MagicMock(),
@@ -205,10 +191,10 @@ class TestGenerateFunction:
         # Should call add_element on archimate manager
         assert mock_archimate.add_element.called
 
-    @pytest.mark.parametrize("module_name", DERIVATION_MODULES)
-    def test_handles_llm_exception(self, module_name, monkeypatch):
-        """All derivation modules should handle LLM exceptions gracefully."""
-        module = get_module(module_name)
+    @pytest.mark.parametrize("element_type", DERIVATION_ELEMENT_TYPES)
+    def test_handles_llm_exception(self, element_type, monkeypatch):
+        """All derivation classes should handle LLM exceptions gracefully."""
+        derivation = get_derivation(element_type)
 
         # Mock config.get_derivation_patterns to return patterns matching "Test"
         # This ensures PatternBasedDerivation modules don't filter out all candidates
@@ -242,7 +228,7 @@ class TestGenerateFunction:
         failing_llm = MagicMock()
         failing_llm.side_effect = Exception("LLM API error")
 
-        result = module.generate(
+        result = derivation.generate(
             graph_manager=mock_manager,
             archimate_manager=MagicMock(),
             engine=MagicMock(),
@@ -264,10 +250,10 @@ class TestGenerateFunction:
             assert result.success is True
             assert result.elements_created == 0
 
-    @pytest.mark.parametrize("module_name", DERIVATION_MODULES)
-    def test_handles_invalid_llm_json(self, module_name, monkeypatch):
-        """All derivation modules should handle invalid JSON from LLM."""
-        module = get_module(module_name)
+    @pytest.mark.parametrize("element_type", DERIVATION_ELEMENT_TYPES)
+    def test_handles_invalid_llm_json(self, element_type, monkeypatch):
+        """All derivation classes should handle invalid JSON from LLM."""
+        derivation = get_derivation(element_type)
 
         # Mock config.get_derivation_patterns to return patterns matching "Test"
         # This ensures PatternBasedDerivation modules don't filter out all candidates
@@ -303,7 +289,7 @@ class TestGenerateFunction:
         invalid_response.content = "this is not valid json"
         invalid_llm.return_value = invalid_response
 
-        result = module.generate(
+        result = derivation.generate(
             graph_manager=mock_manager,
             archimate_manager=MagicMock(),
             engine=MagicMock(),

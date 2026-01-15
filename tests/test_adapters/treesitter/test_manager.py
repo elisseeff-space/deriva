@@ -112,71 +112,65 @@ class TestGetSupportedLanguages:
 class TestExtractTypes:
     """Tests for extract_types method."""
 
-    def test_extracts_python_class(self):
+    def test_extracts_python_class(self, treesitter_manager):
         """Should extract Python class definitions."""
-        manager = TreeSitterManager()
         source = '''
 class MyClass:
     """A sample class."""
     pass
 '''
-        types = manager.extract_types(source, language="python")
+        types = treesitter_manager.extract_types(source, language="python")
 
         assert len(types) == 1
         assert types[0].name == "MyClass"
         assert types[0].kind == "class"
 
-    def test_extracts_python_function(self):
+    def test_extracts_python_function(self, treesitter_manager):
         """Should extract Python function definitions."""
-        manager = TreeSitterManager()
         source = '''
 def my_function():
     """A sample function."""
     pass
 '''
-        types = manager.extract_types(source, language="python")
+        types = treesitter_manager.extract_types(source, language="python")
 
         assert len(types) == 1
         assert types[0].name == "my_function"
         assert types[0].kind == "function"
 
-    def test_extracts_class_with_bases(self):
+    def test_extracts_class_with_bases(self, treesitter_manager):
         """Should extract class inheritance."""
-        manager = TreeSitterManager()
         source = """
 class Child(Parent):
     pass
 """
-        types = manager.extract_types(source, language="python")
+        types = treesitter_manager.extract_types(source, language="python")
 
         assert len(types) == 1
         assert types[0].name == "Child"
         assert "Parent" in types[0].bases
 
-    def test_returns_empty_for_unknown_language(self):
+    def test_returns_empty_for_unknown_language(self, treesitter_manager):
         """Should return empty list for unknown language."""
-        manager = TreeSitterManager()
         source = "class MyClass: pass"
 
-        types = manager.extract_types(source, language="unknown")
+        types = treesitter_manager.extract_types(source, language="unknown")
         assert types == []
 
-    def test_returns_empty_for_no_language(self):
+    def test_returns_empty_for_no_language(self, treesitter_manager):
         """Should return empty list when language cannot be determined."""
-        manager = TreeSitterManager()
         source = "class MyClass: pass"
 
-        types = manager.extract_types(source)
+        types = treesitter_manager.extract_types(source)
         assert types == []
 
-    def test_detects_language_from_path(self):
+    def test_detects_language_from_path(self, treesitter_manager):
         """Should detect language from file path."""
-        manager = TreeSitterManager()
         source = """
 class MyClass:
     pass
 """
-        types = manager.extract_types(source, file_path="test.py")
+        types = treesitter_manager.extract_types(source, file_path="test.py")
 
         assert len(types) == 1
         assert types[0].name == "MyClass"
@@ -185,78 +179,72 @@ class MyClass:
 class TestExtractMethods:
     """Tests for extract_methods method."""
 
-    def test_extracts_class_methods(self):
+    def test_extracts_class_methods(self, treesitter_manager):
         """Should extract methods from classes."""
-        manager = TreeSitterManager()
         source = """
 class MyClass:
     def my_method(self):
         pass
 """
-        methods = manager.extract_methods(source, language="python")
+        methods = treesitter_manager.extract_methods(source, language="python")
 
         assert len(methods) >= 1
         method_names = [m.name for m in methods]
         assert "my_method" in method_names
 
-    def test_extracts_standalone_functions(self):
+    def test_extracts_standalone_functions(self, treesitter_manager):
         """Should extract standalone functions."""
-        manager = TreeSitterManager()
         source = """
 def standalone():
     pass
 """
-        methods = manager.extract_methods(source, language="python")
+        methods = treesitter_manager.extract_methods(source, language="python")
 
         assert len(methods) == 1
         assert methods[0].name == "standalone"
         assert methods[0].class_name is None
 
-    def test_returns_empty_for_unknown_language(self):
+    def test_returns_empty_for_unknown_language(self, treesitter_manager):
         """Should return empty list for unknown language."""
-        manager = TreeSitterManager()
         source = "def test(): pass"
 
-        methods = manager.extract_methods(source, language="unknown")
+        methods = treesitter_manager.extract_methods(source, language="unknown")
         assert methods == []
 
 
 class TestExtractImports:
     """Tests for extract_imports method."""
 
-    def test_extracts_simple_import(self):
+    def test_extracts_simple_import(self, treesitter_manager):
         """Should extract simple import statements."""
-        manager = TreeSitterManager()
         source = """
 import os
 """
-        imports = manager.extract_imports(source, language="python")
+        imports = treesitter_manager.extract_imports(source, language="python")
 
         assert len(imports) == 1
         assert imports[0].module == "os"
 
-    def test_extracts_from_import(self):
+    def test_extracts_from_import(self, treesitter_manager):
         """Should extract from import statements."""
-        manager = TreeSitterManager()
         source = """
 from pathlib import Path
 """
-        imports = manager.extract_imports(source, language="python")
+        imports = treesitter_manager.extract_imports(source, language="python")
 
         assert len(imports) == 1
         assert imports[0].module == "pathlib"
         assert "Path" in imports[0].names
         assert imports[0].is_from_import is True
 
-    def test_extracts_multiple_imports(self):
+    def test_extracts_multiple_imports(self, treesitter_manager):
         """Should extract multiple import statements."""
-        manager = TreeSitterManager()
         source = """
 import os
 import sys
 from typing import List, Dict
 """
-        imports = manager.extract_imports(source, language="python")
+        imports = treesitter_manager.extract_imports(source, language="python")
 
         assert len(imports) == 3
         modules = [i.module for i in imports]
@@ -264,21 +252,19 @@ from typing import List, Dict
         assert "sys" in modules
         assert "typing" in modules
 
-    def test_returns_empty_for_unknown_language(self):
+    def test_returns_empty_for_unknown_language(self, treesitter_manager):
         """Should return empty list for unknown language."""
-        manager = TreeSitterManager()
         source = "import os"
 
-        imports = manager.extract_imports(source, language="unknown")
+        imports = treesitter_manager.extract_imports(source, language="unknown")
         assert imports == []
 
 
 class TestExtractAll:
     """Tests for extract_all method."""
 
-    def test_extracts_all_elements(self):
+    def test_extracts_all_elements(self, treesitter_manager):
         """Should extract types, methods, and imports."""
-        manager = TreeSitterManager()
         source = """
 import os
 
@@ -286,7 +272,7 @@ class MyClass:
     def my_method(self):
         pass
 """
-        result = manager.extract_all(source, language="python")
+        result = treesitter_manager.extract_all(source, language="python")
 
         assert "types" in result
         assert "methods" in result
@@ -295,12 +281,11 @@ class MyClass:
         assert len(result["methods"]) >= 1
         assert len(result["imports"]) == 1
 
-    def test_returns_empty_dicts_for_unknown_language(self):
+    def test_returns_empty_dicts_for_unknown_language(self, treesitter_manager):
         """Should return empty lists for unknown language."""
-        manager = TreeSitterManager()
         source = "code"
 
-        result = manager.extract_all(source, language="unknown")
+        result = treesitter_manager.extract_all(source, language="unknown")
 
         assert result["types"] == []
         assert result["methods"] == []
@@ -310,36 +295,28 @@ class MyClass:
 class TestResolveLanguage:
     """Tests for _resolve_language private method."""
 
-    def test_explicit_language_takes_precedence(self):
+    def test_explicit_language_takes_precedence(self, treesitter_manager):
         """Should use explicit language over file path."""
-        manager = TreeSitterManager()
-
         # Even though file is .js, explicit language should be used
-        lang = manager._resolve_language("test.js", "python")
+        lang = treesitter_manager._resolve_language("test.js", "python")
         assert lang == "python"
 
-    def test_uses_file_path_when_no_explicit(self):
+    def test_uses_file_path_when_no_explicit(self, treesitter_manager):
         """Should use file path when no explicit language."""
-        manager = TreeSitterManager()
-
-        lang = manager._resolve_language("test.py", None)
+        lang = treesitter_manager._resolve_language("test.py", None)
         assert lang == "python"
 
-    def test_returns_none_when_no_info(self):
+    def test_returns_none_when_no_info(self, treesitter_manager):
         """Should return None when no language info available."""
-        manager = TreeSitterManager()
-
-        lang = manager._resolve_language(None, None)
+        lang = treesitter_manager._resolve_language(None, None)
         assert lang is None
 
-    def test_typescript_maps_to_javascript(self):
+    def test_typescript_maps_to_javascript(self, treesitter_manager):
         """Should map TypeScript to JavaScript."""
-        manager = TreeSitterManager()
-
-        lang = manager._resolve_language(None, "typescript")
+        lang = treesitter_manager._resolve_language(None, "typescript")
         assert lang == "javascript"
 
-        lang = manager._resolve_language("test.ts", None)
+        lang = treesitter_manager._resolve_language("test.ts", None)
         assert lang == "javascript"
 
 
@@ -348,6 +325,7 @@ class TestParserCaching:
 
     def test_parser_is_cached(self):
         """Should cache parsers for reuse."""
+        # Need fresh instance to test caching
         manager = TreeSitterManager()
         source = "class Test: pass"
 

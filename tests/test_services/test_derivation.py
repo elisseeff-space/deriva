@@ -4,38 +4,71 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from deriva.modules.derivation.prep import EnrichmentResult
 from deriva.services import derivation
 
 
-class TestLoadElementModule:
-    """Tests for _load_element_module function."""
+# =============================================================================
+# FIXTURES
+# =============================================================================
 
-    def test_loads_application_component_module(self):
-        """Should load ApplicationComponent module."""
-        module = derivation._load_element_module("ApplicationComponent")
-        assert module is not None
-        assert hasattr(module, "generate")
 
-    def test_loads_business_object_module(self):
-        """Should load BusinessObject module."""
-        module = derivation._load_element_module("BusinessObject")
-        assert module is not None
+@pytest.fixture
+def clean_instance_cache():
+    """Fixture that clears and restores the instance cache for isolated testing."""
+    original_cache = derivation._DERIVATION_INSTANCES.copy()
+    derivation._DERIVATION_INSTANCES.clear()
+    yield
+    derivation._DERIVATION_INSTANCES.clear()
+    derivation._DERIVATION_INSTANCES.update(original_cache)
 
-    def test_caches_loaded_modules(self):
-        """Should cache loaded modules."""
-        # Clear cache first
-        derivation._ELEMENT_MODULES.clear()
 
-        module1 = derivation._load_element_module("Node")
-        module2 = derivation._load_element_module("Node")
+# =============================================================================
+# ELEMENT MODULE LOADING TESTS
+# =============================================================================
 
-        assert module1 is module2
+# All known element types that should have generation modules
+ELEMENT_TYPES_WITH_MODULES = [
+    "ApplicationComponent",
+    "ApplicationInterface",
+    "ApplicationService",
+    "BusinessActor",
+    "BusinessEvent",
+    "BusinessFunction",
+    "BusinessObject",
+    "BusinessProcess",
+    "DataObject",
+    "Device",
+    "Node",
+    "SystemSoftware",
+    "TechnologyService",
+]
+
+
+class TestDerivationRegistry:
+    """Tests for derivation registry and _get_derivation function."""
+
+    @pytest.mark.parametrize("element_type", ELEMENT_TYPES_WITH_MODULES)
+    def test_gets_derivation_instance(self, element_type):
+        """Should get derivation instance with generate method."""
+        instance = derivation._get_derivation(element_type)
+        assert instance is not None, f"Derivation for {element_type} should exist"
+        assert hasattr(instance, "generate"), f"Derivation for {element_type} should have generate method"
+
+    def test_caches_derivation_instances(self, clean_instance_cache):
+        """Should cache derivation instances."""
+        instance1 = derivation._get_derivation("Node")
+        instance2 = derivation._get_derivation("Node")
+
+        assert instance1 is instance2
+        assert "Node" in derivation._DERIVATION_INSTANCES
 
     def test_returns_none_for_unknown_type(self):
         """Should return None for unknown element type."""
-        module = derivation._load_element_module("UnknownType")
-        assert module is None
+        instance = derivation._get_derivation("UnknownType")
+        assert instance is None
 
 
 class TestGetGraphEdges:
@@ -191,9 +224,9 @@ class TestGenerateElement:
         archimate_manager = MagicMock()
         engine = MagicMock()
 
-        with patch.object(derivation, "_load_element_module") as mock_load:
-            mock_module = MagicMock()
-            mock_module.generate.return_value = GenerationResult(
+        with patch.object(derivation, "_get_derivation") as mock_get:
+            mock_derivation = MagicMock()
+            mock_derivation.generate.return_value = GenerationResult(
                 success=True,
                 elements_created=3,
                 relationships_created=5,
@@ -201,7 +234,7 @@ class TestGenerateElement:
                 created_relationships=[{"id": "r1"}],
                 errors=[],
             )
-            mock_load.return_value = mock_module
+            mock_get.return_value = mock_derivation
 
             result = derivation.generate_element(
                 graph_manager=graph_manager,
@@ -223,7 +256,7 @@ class TestGenerateElement:
         assert result["relationships_created"] == 5
 
     def test_returns_error_for_unknown_element_type(self):
-        """Should return error when module not found."""
+        """Should return error when derivation not found."""
         result = derivation.generate_element(
             graph_manager=MagicMock(),
             archimate_manager=MagicMock(),
@@ -238,14 +271,14 @@ class TestGenerateElement:
         )
 
         assert result["success"] is False
-        assert "No generation module" in result["errors"][0]
+        assert "No derivation class" in result["errors"][0]
 
     def test_handles_generation_exception(self):
         """Should handle exception during generation."""
-        with patch.object(derivation, "_load_element_module") as mock_load:
-            mock_module = MagicMock()
-            mock_module.generate.side_effect = Exception("LLM failed")
-            mock_load.return_value = mock_module
+        with patch.object(derivation, "_get_derivation") as mock_get:
+            mock_derivation = MagicMock()
+            mock_derivation.generate.side_effect = Exception("LLM failed")
+            mock_get.return_value = mock_derivation
 
             result = derivation.generate_element(
                 graph_manager=MagicMock(),
@@ -272,61 +305,6 @@ class TestEnrichmentAlgorithms:
         assert "pagerank" in derivation.ENRICHMENT_ALGORITHMS
         assert "louvain_communities" in derivation.ENRICHMENT_ALGORITHMS
         assert "k_core_filter" in derivation.ENRICHMENT_ALGORITHMS
-
-
-class TestLoadAllElementModules:
-    """Tests for loading all element type modules."""
-
-    def test_loads_business_process(self):
-        """Should load BusinessProcess module."""
-        module = derivation._load_element_module("BusinessProcess")
-        assert module is not None
-        assert hasattr(module, "generate")
-
-    def test_loads_business_actor(self):
-        """Should load BusinessActor module."""
-        module = derivation._load_element_module("BusinessActor")
-        assert module is not None
-
-    def test_loads_business_event(self):
-        """Should load BusinessEvent module."""
-        module = derivation._load_element_module("BusinessEvent")
-        assert module is not None
-
-    def test_loads_business_function(self):
-        """Should load BusinessFunction module."""
-        module = derivation._load_element_module("BusinessFunction")
-        assert module is not None
-
-    def test_loads_application_service(self):
-        """Should load ApplicationService module."""
-        module = derivation._load_element_module("ApplicationService")
-        assert module is not None
-
-    def test_loads_application_interface(self):
-        """Should load ApplicationInterface module."""
-        module = derivation._load_element_module("ApplicationInterface")
-        assert module is not None
-
-    def test_loads_data_object(self):
-        """Should load DataObject module."""
-        module = derivation._load_element_module("DataObject")
-        assert module is not None
-
-    def test_loads_technology_service(self):
-        """Should load TechnologyService module."""
-        module = derivation._load_element_module("TechnologyService")
-        assert module is not None
-
-    def test_loads_device(self):
-        """Should load Device module."""
-        module = derivation._load_element_module("Device")
-        assert module is not None
-
-    def test_loads_system_software(self):
-        """Should load SystemSoftware module."""
-        module = derivation._load_element_module("SystemSoftware")
-        assert module is not None
 
 
 class TestRunDerivationWithConfigs:

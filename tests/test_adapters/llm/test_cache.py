@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from deriva.adapters.llm.cache import CacheManager
-from deriva.adapters.llm.models import CacheError
 
 
 class TestCacheManager:
@@ -50,84 +49,74 @@ class TestCacheManager:
         key2 = CacheManager.generate_cache_key("test", "gpt-4", None)
         assert key1 != key2
 
-    def test_set_and_get_from_memory(self, cache_manager):
-        """Should store and retrieve from memory cache."""
+    def test_generate_cache_key_with_bench_hash(self):
+        """Should include bench_hash in cache key generation."""
+        key1 = CacheManager.generate_cache_key("test", "gpt-4", bench_hash="repo:model:1")
+        key2 = CacheManager.generate_cache_key("test", "gpt-4", bench_hash="repo:model:2")
+        key3 = CacheManager.generate_cache_key("test", "gpt-4", bench_hash=None)
+        assert key1 != key2
+        assert key1 != key3
+
+    def test_set_and_get(self, cache_manager):
+        """Should store and retrieve from cache."""
+        cache_key = CacheManager.generate_cache_key("test", "gpt-4")
+        cache_manager.set_response(cache_key, "response content", "test", "gpt-4")
+
+        cached = cache_manager.get(cache_key)
+        assert cached is not None
+        assert cached["content"] == "response content"
+        assert cached["model"] == "gpt-4"
+
+    def test_get_from_memory_alias(self, cache_manager):
+        """get_from_memory should work as alias for get (backward compat)."""
         cache_key = CacheManager.generate_cache_key("test", "gpt-4")
         cache_manager.set_response(cache_key, "response content", "test", "gpt-4")
 
         cached = cache_manager.get_from_memory(cache_key)
         assert cached is not None
         assert cached["content"] == "response content"
-        assert cached["model"] == "gpt-4"
 
-    def test_set_and_get_from_disk(self, cache_manager):
-        """Should store and retrieve from disk cache."""
+    def test_get_from_disk_alias(self, cache_manager):
+        """get_from_disk should work as alias for get (backward compat)."""
         cache_key = CacheManager.generate_cache_key("test", "gpt-4")
         cache_manager.set_response(cache_key, "disk content", "test", "gpt-4")
-
-        # Clear memory to force disk read
-        cache_manager.clear_memory()
 
         cached = cache_manager.get_from_disk(cache_key)
         assert cached is not None
         assert cached["content"] == "disk content"
-
-    def test_get_checks_memory_first_then_disk(self, cache_manager):
-        """Should check memory cache first, then disk."""
-        cache_key = CacheManager.generate_cache_key("test", "gpt-4")
-        cache_manager.set_response(cache_key, "original content", "test", "gpt-4")
-
-        # Clear memory
-        cache_manager.clear_memory()
-        assert cache_manager.get_from_memory(cache_key) is None
-
-        # get() should load from disk and populate memory
-        cached = cache_manager.get(cache_key)
-        assert cached is not None
-        assert cached["content"] == "original content"
-
-        # Now it should be in memory
-        assert cache_manager.get_from_memory(cache_key) is not None
 
     def test_get_returns_none_for_missing_key(self, cache_manager):
         """Should return None for non-existent cache key."""
         cached = cache_manager.get("nonexistent_key")
         assert cached is None
 
-    def test_clear_memory(self, cache_manager):
-        """Should clear memory cache."""
+    def test_clear_all(self, cache_manager):
+        """Should clear all cache entries."""
         cache_key = CacheManager.generate_cache_key("test", "gpt-4")
         cache_manager.set_response(cache_key, "content", "test", "gpt-4")
 
-        assert cache_manager.get_from_memory(cache_key) is not None
-
-        cache_manager.clear_memory()
-        assert cache_manager.get_from_memory(cache_key) is None
-
-    def test_clear_disk(self, cache_manager, temp_cache_dir):
-        """Should clear disk cache."""
-        cache_key = CacheManager.generate_cache_key("test", "gpt-4")
-        cache_manager.set_response(cache_key, "content", "test", "gpt-4")
-
-        # Verify file exists
-        cache_files = list(Path(temp_cache_dir).glob("*.json"))
-        assert len(cache_files) == 1
-
-        cache_manager.clear_disk()
-
-        # Verify file is deleted
-        cache_files = list(Path(temp_cache_dir).glob("*.json"))
-        assert len(cache_files) == 0
-
-    def test_clear_all(self, cache_manager, temp_cache_dir):
-        """Should clear both memory and disk cache."""
-        cache_key = CacheManager.generate_cache_key("test", "gpt-4")
-        cache_manager.set_response(cache_key, "content", "test", "gpt-4")
+        # Verify entry exists
+        assert cache_manager.get(cache_key) is not None
 
         cache_manager.clear_all()
 
-        assert cache_manager.get_from_memory(cache_key) is None
-        assert len(list(Path(temp_cache_dir).glob("*.json"))) == 0
+        # Entry should be gone
+        assert cache_manager.get(cache_key) is None
+
+    def test_clear_disk(self, cache_manager):
+        """Should clear all disk cache entries."""
+        cache_key = CacheManager.generate_cache_key("test", "gpt-4")
+        cache_manager.set_response(cache_key, "content", "test", "gpt-4")
+
+        # Verify entry exists
+        stats_before = cache_manager.get_cache_stats()
+        assert stats_before["entries"] >= 1
+
+        cache_manager.clear_disk()
+
+        # All entries should be gone
+        stats_after = cache_manager.get_cache_stats()
+        assert stats_after["entries"] == 0
 
     def test_get_cache_stats(self, cache_manager, temp_cache_dir):
         """Should return accurate cache statistics."""
@@ -138,9 +127,10 @@ class TestCacheManager:
 
         stats = cache_manager.get_cache_stats()
 
-        assert stats["memory_entries"] == 3
-        assert stats["disk_entries"] == 3
-        assert stats["disk_size_bytes"] > 0
+        assert stats["entries"] == 3
+        assert stats["memory_entries"] == 3  # Backward compat
+        assert stats["disk_entries"] == 3  # Backward compat
+        assert stats["size_bytes"] > 0
         assert stats["cache_dir"] == temp_cache_dir
 
     def test_cache_with_usage_data(self, cache_manager):
@@ -162,9 +152,36 @@ class TestCacheManager:
         assert "cached_at" in cached
         assert cached["cached_at"] is not None
 
+    def test_invalidate(self, cache_manager):
+        """Should remove specific cache entry."""
+        cache_key = CacheManager.generate_cache_key("test", "gpt-4")
+        cache_manager.set_response(cache_key, "content", "test", "gpt-4")
 
-class TestCacheManagerCorruptedCache:
-    """Tests for handling corrupted cache files."""
+        # Verify it exists
+        assert cache_manager.get(cache_key) is not None
+
+        # Invalidate
+        cache_manager.invalidate(cache_key)
+
+        # Should be gone
+        assert cache_manager.get(cache_key) is None
+
+    def test_keys(self, cache_manager):
+        """Should return all cache keys."""
+        keys_to_add = []
+        for i in range(3):
+            key = CacheManager.generate_cache_key(f"test{i}", "gpt-4")
+            keys_to_add.append(key)
+            cache_manager.set_response(key, f"content {i}", f"test{i}", "gpt-4")
+
+        stored_keys = cache_manager.keys()
+        assert len(stored_keys) == 3
+        for key in keys_to_add:
+            assert key in stored_keys
+
+
+class TestCacheManagerExport:
+    """Tests for cache export functionality."""
 
     @pytest.fixture
     def temp_cache_dir(self):
@@ -173,77 +190,48 @@ class TestCacheManagerCorruptedCache:
         yield temp_dir
         shutil.rmtree(temp_dir, ignore_errors=True)
 
-    def test_corrupted_cache_file_raises_error(self, temp_cache_dir):
-        """Should raise CacheError for corrupted cache file."""
-        cache_manager = CacheManager(temp_cache_dir)
-
-        # Create corrupted cache file
-        cache_key = "corrupted_key"
-        cache_file = Path(temp_cache_dir) / f"{cache_key}.json"
-        cache_file.write_text("not valid json {{{")
-
-        with pytest.raises(CacheError) as exc_info:
-            cache_manager.get_from_disk(cache_key)
-
-        assert "Corrupted cache file" in str(exc_info.value)
-
-
-class TestCacheManagerErrors:
-    """Tests for error handling in CacheManager."""
-
-    @pytest.fixture
-    def temp_cache_dir(self):
-        """Create a temporary cache directory."""
-        temp_dir = tempfile.mkdtemp()
-        yield temp_dir
-        shutil.rmtree(temp_dir, ignore_errors=True)
-
-    def test_get_from_disk_generic_error(self, temp_cache_dir):
-        """Should raise CacheError for generic read errors."""
-        from unittest.mock import patch
+    def test_export_to_json(self, temp_cache_dir):
+        """Should export cache contents to JSON."""
+        import json
 
         cache_manager = CacheManager(temp_cache_dir)
 
-        # Create a valid cache file first
-        cache_key = "test_key"
-        cache_file = Path(temp_cache_dir) / f"{cache_key}.json"
-        cache_file.write_text('{"content": "test"}')
+        # Add some entries
+        for i in range(3):
+            key = CacheManager.generate_cache_key(f"test{i}", "gpt-4")
+            cache_manager.set_response(key, f"content {i}", f"test{i}", "gpt-4")
 
-        # Mock open to raise a generic exception
-        with patch("builtins.open", side_effect=PermissionError("Access denied")):
-            with pytest.raises(CacheError) as exc_info:
-                cache_manager.get_from_disk(cache_key)
+        # Export
+        export_path = Path(temp_cache_dir) / "export.json"
+        count = cache_manager.export_to_json(export_path)
 
-            assert "Error reading cache file" in str(exc_info.value)
+        assert count == 3
+        assert export_path.exists()
 
-    def test_set_write_error(self, temp_cache_dir):
-        """Should raise CacheError when write fails."""
-        from unittest.mock import patch
+        # Verify JSON contents
+        with open(export_path) as f:
+            data = json.load(f)
 
-        cache_manager = CacheManager(temp_cache_dir)
+        assert data["entry_count"] == 3
+        assert len(data["entries"]) == 3
+        assert all("key" in entry for entry in data["entries"])
+        assert all("value" in entry for entry in data["entries"])
 
-        # Mock open to raise exception during write
-        with patch("builtins.open", side_effect=PermissionError("Access denied")):
-            with pytest.raises(CacheError) as exc_info:
-                cache_manager.set_response("key", "content", "prompt", "model")
-
-            assert "Error writing cache file" in str(exc_info.value)
-
-    def test_clear_disk_error(self, temp_cache_dir):
-        """Should raise CacheError when delete fails."""
-        from unittest.mock import patch
+    def test_export_keys_only(self, temp_cache_dir):
+        """Should export only keys when include_values=False."""
+        import json
 
         cache_manager = CacheManager(temp_cache_dir)
+        key = CacheManager.generate_cache_key("test", "gpt-4")
+        cache_manager.set_response(key, "content", "test", "gpt-4")
 
-        # Add a cache entry
-        cache_manager.set_response("key", "content", "prompt", "model")
+        export_path = Path(temp_cache_dir) / "keys_only.json"
+        cache_manager.export_to_json(export_path, include_values=False)
 
-        # Mock unlink to fail
-        with patch.object(Path, "unlink", side_effect=PermissionError("Access denied")):
-            with pytest.raises(CacheError) as exc_info:
-                cache_manager.clear_disk()
+        with open(export_path) as f:
+            data = json.load(f)
 
-            assert "Error clearing disk cache" in str(exc_info.value)
+        assert "value" not in data["entries"][0]
 
 
 class TestCachedLLMCallDecorator:

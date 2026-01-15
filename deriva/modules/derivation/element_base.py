@@ -429,7 +429,48 @@ class PatternBasedDerivation(ElementDerivationBase):
 
     Modules using this base class receive include_patterns and
     exclude_patterns as kwargs to their filter_candidates() method.
+
+    Subclasses can override PATTERN_MATCH_DEFAULT to control the default
+    return value when no patterns match (default is False).
     """
+
+    # Override in subclass to change default behavior when no patterns match
+    PATTERN_MATCH_DEFAULT: bool = False
+
+    def matches_patterns(
+        self, name: str, include_patterns: set[str], exclude_patterns: set[str]
+    ) -> bool:
+        """
+        Check if name matches include patterns and not exclude patterns.
+
+        This is a common utility method that consolidates the pattern matching
+        logic previously duplicated across all element modules.
+
+        Args:
+            name: The name to check
+            include_patterns: Patterns that indicate a match
+            exclude_patterns: Patterns that indicate exclusion
+
+        Returns:
+            True if name matches include patterns and not exclude patterns,
+            otherwise returns PATTERN_MATCH_DEFAULT
+        """
+        if not name:
+            return False
+
+        name_lower = name.lower()
+
+        # Check exclusion patterns first
+        for pattern in exclude_patterns:
+            if pattern in name_lower:
+                return False
+
+        # Check for include patterns
+        for pattern in include_patterns:
+            if pattern in name_lower:
+                return True
+
+        return self.PATTERN_MATCH_DEFAULT
 
     def get_filter_kwargs(self, engine: Any) -> dict[str, Any]:
         """

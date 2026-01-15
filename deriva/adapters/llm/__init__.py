@@ -48,6 +48,7 @@ from .models import (
     ValidationError,
 )
 from .rate_limiter import RateLimitConfig, RateLimiter, get_default_rate_limit
+from .retry import create_retry_decorator, retry_on_rate_limit
 
 __all__ = [
     # Main service
@@ -70,6 +71,9 @@ __all__ = [
     "RateLimitConfig",
     "RateLimiter",
     "get_default_rate_limit",
+    # Retry
+    "create_retry_decorator",
+    "retry_on_rate_limit",
     # Exceptions
     "LLMError",
     "ConfigurationError",

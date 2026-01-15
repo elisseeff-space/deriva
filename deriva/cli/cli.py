@@ -2,371 +2,135 @@
 CLI entry point for Deriva.
 
 Provides headless command-line interface for pipeline operations.
-Uses PipelineSession from the services layer.
+Uses Typer for modern CLI with auto-completion and help generation.
 
 Usage:
-    python -m deriva.cli.cli repo clone <url>
-    python -m deriva.cli.cli repo list --detailed
-    python -m deriva.cli.cli repo delete <name> --force
-    python -m deriva.cli.cli repo info <name>
-    python -m deriva.cli.cli config list extraction
-    python -m deriva.cli.cli config list derivation --phase generate
-    python -m deriva.cli.cli config enable extraction BusinessConcept
-    python -m deriva.cli.cli run extraction
-    python -m deriva.cli.cli run derivation --phase generate
-    python -m deriva.cli.cli run all --repo flask_invoice_generator
-    python -m deriva.cli.cli clear graph
-    python -m deriva.cli.cli clear model
-    python -m deriva.cli.cli status
+    deriva repo clone <url>
+    deriva repo list --detailed
+    deriva repo delete <name> --force
+    deriva repo info <name>
+    deriva config list extraction
+    deriva config list derivation --phase generate
+    deriva config enable extraction BusinessConcept
+    deriva run extraction
+    deriva run derivation --phase generate
+    deriva run all --repo flask_invoice_generator
+    deriva clear graph
+    deriva clear model
+    deriva status
 """
 
 from __future__ import annotations
 
-import argparse
 import sys
-from typing import Any
+from typing import Annotated
 
-from deriva.cli.progress import (
-    create_benchmark_progress_reporter,
-    create_progress_reporter,
+import typer
+
+from deriva.cli.commands.benchmark import app as benchmark_app
+from deriva.cli.commands.config import app as config_app
+from deriva.cli.commands.repo import app as repo_app
+from deriva.cli.commands.run import (
+    _print_derivation_result,
+    _print_extraction_result,
+    _print_pipeline_result,
 )
-from deriva.services import config
+from deriva.cli.progress import create_progress_reporter
 from deriva.services.session import PipelineSession
 
+# Create main app
+app = typer.Typer(
+    name="deriva",
+    help="Deriva CLI - Generate ArchiMate models from code repositories",
+    no_args_is_help=True,
+)
 
-# =============================================================================
-# Config Commands
-# =============================================================================
-
-
-def cmd_config_list(args: argparse.Namespace) -> int:
-    """List configurations for a step type."""
-    with PipelineSession() as session:
-        step_type = args.step_type
-        enabled_only = args.enabled
-
-        steps = session.list_steps(step_type, enabled_only=enabled_only)
-
-        if not steps:
-            print(f"No {step_type} configurations found.")
-            return 0
-
-        print(f"\n{step_type.upper()} CONFIGURATIONS")
-        print("-" * 60)
-
-        for step in steps:
-            status = "enabled" if step["enabled"] else "disabled"
-            name = step["name"]
-            seq = step["sequence"]
-            print(f"  [{seq}] {name:<30} ({status})")
-
-        print()
-    return 0
-
-
-def cmd_config_show(args: argparse.Namespace) -> int:
-    """Show detailed configuration for a specific step."""
-    with PipelineSession() as session:
-        step_type = args.step_type
-        name = args.name
-
-        if step_type == "extraction":
-            cfg = config.get_extraction_config(session._engine, name)
-            if not cfg:
-                print(f"Extraction config '{name}' not found.")
-                return 1
-            print(f"\nEXTRACTION CONFIG: {cfg.node_type}")
-            print("-" * 60)
-            print(f"  Sequence: {cfg.sequence}")
-            print(f"  Enabled:  {cfg.enabled}")
-            print(f"  Sources:  {cfg.input_sources or 'None'}")
-            print(f"  Instruction: {(cfg.instruction or '')[:100]}...")
-            print(f"  Example: {(cfg.example or '')[:100]}...")
-
-        elif step_type == "derivation":
-            cfg = config.get_derivation_config(session._engine, name)
-            if not cfg:
-                print(f"Derivation config '{name}' not found.")
-                return 1
-            print(f"\nDERIVATION CONFIG: {cfg.element_type}")
-            print("-" * 60)
-            print(f"  Sequence: {cfg.sequence}")
-            print(f"  Enabled:  {cfg.enabled}")
-            print(f"  Query:    {(cfg.input_graph_query or '')[:100]}...")
-            print(f"  Instruction: {(cfg.instruction or '')[:100]}...")
-
-        else:
-            print(f"Unknown step type: {step_type}")
-            return 1
-
-        print()
-    return 0
-
-
-def cmd_config_enable(args: argparse.Namespace) -> int:
-    """Enable a configuration step."""
-    with PipelineSession() as session:
-        if session.enable_step(args.step_type, args.name):
-            print(f"Enabled {args.step_type} step: {args.name}")
-            return 0
-        else:
-            print(f"Step not found: {args.step_type}/{args.name}")
-            return 1
-
-
-def cmd_config_disable(args: argparse.Namespace) -> int:
-    """Disable a configuration step."""
-    with PipelineSession() as session:
-        if session.disable_step(args.step_type, args.name):
-            print(f"Disabled {args.step_type} step: {args.name}")
-            return 0
-        else:
-            print(f"Step not found: {args.step_type}/{args.name}")
-            return 1
-
-
-def cmd_config_update(args: argparse.Namespace) -> int:
-    """Update a configuration with versioning."""
-    import json
-
-    with PipelineSession() as session:
-        step_type = args.step_type
-        name = args.name
-        instruction = args.instruction
-        example = args.example
-        params = getattr(args, "params", None)
-
-        # Read instruction from file if provided
-        if args.instruction_file:
-            try:
-                with open(args.instruction_file, encoding="utf-8") as f:
-                    instruction = f.read()
-            except Exception as e:
-                print(f"Error reading instruction file: {e}")
-                return 1
-
-        # Read example from file if provided
-        if args.example_file:
-            try:
-                with open(args.example_file, encoding="utf-8") as f:
-                    example = f.read()
-            except Exception as e:
-                print(f"Error reading example file: {e}")
-                return 1
-
-        # Read params from file if provided
-        params_file = getattr(args, "params_file", None)
-        if params_file:
-            try:
-                with open(params_file, encoding="utf-8") as f:
-                    params = f.read()
-            except Exception as e:
-                print(f"Error reading params file: {e}")
-                return 1
-
-        # Validate params is valid JSON if provided
-        if params:
-            try:
-                json.loads(params)
-            except json.JSONDecodeError as e:
-                print(f"Error: params must be valid JSON: {e}")
-                return 1
-
-        if step_type == "derivation":
-            result = config.create_derivation_config_version(
-                session._engine,
-                name,
-                instruction=instruction,
-                example=example,
-                input_graph_query=args.query,
-                params=params,
-            )
-        elif step_type == "extraction":
-            result = config.create_extraction_config_version(
-                session._engine,
-                name,
-                instruction=instruction,
-                example=example,
-                input_sources=args.sources,
-            )
-        else:
-            print(f"Versioned updates not yet supported for: {step_type}")
-            return 1
-
-        if result.get("success"):
-            print(f"Updated {step_type} config: {name}")
-            print(f"  Version: {result['old_version']} -> {result['new_version']}")
-            if params:
-                print("  Params: updated")
-            return 0
-        else:
-            print(f"Error: {result.get('error', 'Unknown error')}")
-            return 1
-
-
-def cmd_config_versions(args: argparse.Namespace) -> int:
-    """Show active config versions."""
-    with PipelineSession() as session:
-        versions = config.get_active_config_versions(session._engine)
-
-        print("\nACTIVE CONFIG VERSIONS")
-        print("=" * 60)
-
-        for step_type in ["extraction", "derivation"]:
-            if versions.get(step_type):
-                print(f"\n{step_type.upper()}:")
-                for name, version in sorted(versions[step_type].items()):
-                    print(f"  {name:<30} v{version}")
-
-        print()
-    return 0
+# Add subcommand groups
+app.add_typer(config_app, name="config")
+app.add_typer(repo_app, name="repo")
+app.add_typer(benchmark_app, name="benchmark")
 
 
 # =============================================================================
-# File Type Commands
+# Run Command (standalone, not a subgroup)
 # =============================================================================
 
 
-def cmd_filetype_list(args: argparse.Namespace) -> int:
-    """List all registered file types."""
-    with PipelineSession() as session:
-        file_types = session.get_file_types()
-
-        if not file_types:
-            print("No file types registered.")
-            return 0
-
-        # Group by file_type
-        by_type: dict[str, list] = {}
-        for ft in file_types:
-            ft_type = ft.get("file_type", "unknown")
-            if ft_type not in by_type:
-                by_type[ft_type] = []
-            by_type[ft_type].append(ft)
-
-        print(f"\n{'=' * 60}")
-        print("FILE TYPE REGISTRY")
-        print(f"{'=' * 60}")
-        print(f"Total: {len(file_types)} registered\n")
-
-        for ft_type in sorted(by_type.keys()):
-            entries = by_type[ft_type]
-            print(f"{ft_type.upper()} ({len(entries)}):")
-            for ft in sorted(entries, key=lambda x: x.get("extension", "")):
-                ext = ft.get("extension", "")
-                subtype = ft.get("subtype", "")
-                print(f"  {ext:<25} -> {subtype}")
-            print()
-
-    return 0
-
-
-def cmd_filetype_add(args: argparse.Namespace) -> int:
-    """Add a new file type."""
-    extension = args.extension
-    file_type = args.file_type
-    subtype = args.subtype
-
-    with PipelineSession() as session:
-        success = session.add_file_type(extension, file_type, subtype)
-
-        if success:
-            print(f"Added file type: {extension} -> {file_type}/{subtype}")
-            return 0
-        else:
-            print(f"Failed to add file type (may already exist): {extension}")
-            return 1
-
-
-def cmd_filetype_delete(args: argparse.Namespace) -> int:
-    """Delete a file type."""
-    extension = args.extension
-
-    with PipelineSession() as session:
-        success = session.delete_file_type(extension)
-
-        if success:
-            print(f"Deleted file type: {extension}")
-            return 0
-        else:
-            print(f"File type not found: {extension}")
-            return 1
-
-
-def cmd_filetype_stats(args: argparse.Namespace) -> int:
-    """Show file type statistics."""
-    with PipelineSession() as session:
-        stats = session.get_file_type_stats()
-
-        print(f"\n{'=' * 60}")
-        print("FILE TYPE STATISTICS")
-        print(f"{'=' * 60}\n")
-
-        for ft_type, count in sorted(stats.items(), key=lambda x: -x[1]):
-            print(f"  {ft_type:<20} {count}")
-
-        print(f"\n  {'Total':<20} {sum(stats.values())}")
-
-    return 0
-
-
-# =============================================================================
-# Run Commands
-# =============================================================================
-
-
-def cmd_run(args: argparse.Namespace) -> int:
+@app.command("run")
+def run_stage(
+    stage: Annotated[
+        str, typer.Argument(help="Pipeline stage to run (extraction, derivation, all)")
+    ],
+    repo: Annotated[
+        str | None, typer.Option("--repo", help="Specific repository to process")
+    ] = None,
+    phase: Annotated[
+        str | None, typer.Option("--phase", help="Run specific phase")
+    ] = None,
+    verbose: Annotated[
+        bool, typer.Option("-v", "--verbose", help="Print detailed progress")
+    ] = False,
+    quiet: Annotated[
+        bool, typer.Option("-q", "--quiet", help="Disable progress bar")
+    ] = False,
+    no_llm: Annotated[
+        bool, typer.Option("--no-llm", help="Skip LLM-based steps")
+    ] = False,
+) -> None:
     """Run pipeline stages."""
-    stage = args.stage
-    repo_name = getattr(args, "repo", None)
-    verbose = getattr(args, "verbose", False)
-    no_llm = getattr(args, "no_llm", False)
-    phase = getattr(args, "phase", None)
-    quiet = getattr(args, "quiet", False)
+    if stage not in ("extraction", "derivation", "all"):
+        typer.echo(
+            f"Error: stage must be 'extraction', 'derivation', or 'all', got '{stage}'",
+            err=True,
+        )
+        raise typer.Exit(1)
 
     # Validate phase is appropriate for stage
     extraction_phases = {"classify", "parse"}
     derivation_phases = {"prep", "generate", "refine"}
     if phase:
         if stage == "extraction" and phase not in extraction_phases:
-            print(f"Error: Phase '{phase}' is not valid for extraction.")
-            print(f"Valid extraction phases: {', '.join(sorted(extraction_phases))}")
-            return 1
+            typer.echo(f"Error: Phase '{phase}' is not valid for extraction.", err=True)
+            typer.echo(
+                f"Valid extraction phases: {', '.join(sorted(extraction_phases))}"
+            )
+            raise typer.Exit(1)
         if stage == "derivation" and phase not in derivation_phases:
-            print(f"Error: Phase '{phase}' is not valid for derivation.")
-            print(f"Valid derivation phases: {', '.join(sorted(derivation_phases))}")
-            return 1
+            typer.echo(f"Error: Phase '{phase}' is not valid for derivation.", err=True)
+            typer.echo(
+                f"Valid derivation phases: {', '.join(sorted(derivation_phases))}"
+            )
+            raise typer.Exit(1)
 
-    print(f"\n{'=' * 60}")
-    print(f"DERIVA - Running {stage.upper()} pipeline")
-    print(f"{'=' * 60}")
+    typer.echo(f"\n{'=' * 60}")
+    typer.echo(f"DERIVA - Running {stage.upper()} pipeline")
+    typer.echo(f"{'=' * 60}")
 
-    if repo_name:
-        print(f"Repository: {repo_name}")
+    if repo:
+        typer.echo(f"Repository: {repo}")
     if phase:
-        print(f"Phase: {phase}")
+        typer.echo(f"Phase: {phase}")
 
     with PipelineSession() as session:
-        print("Connected to Neo4j")
+        typer.echo("Connected to Neo4j")
 
         # Show LLM status
         llm_info = session.llm_info
         if llm_info and not no_llm:
-            print(f"LLM configured: {llm_info['provider']}/{llm_info['model']}")
+            typer.echo(f"LLM configured: {llm_info['provider']}/{llm_info['model']}")
         elif no_llm:
-            print("LLM disabled (--no-llm)")
+            typer.echo("LLM disabled (--no-llm)")
         else:
-            print("Warning: LLM not configured. LLM-based steps will be skipped.")
+            typer.echo("Warning: LLM not configured. LLM-based steps will be skipped.")
 
-        # Create progress reporter (Rich-based if available, quiet if --quiet)
+        # Create progress reporter
         progress_reporter = create_progress_reporter(quiet=quiet or verbose)
 
         if stage == "extraction":
-            # Convert phase to phases list for extraction
             phases = [phase] if phase else None
             with progress_reporter:
                 result = session.run_extraction(
-                    repo_name=repo_name,
+                    repo_name=repo,
                     verbose=verbose,
                     no_llm=no_llm,
                     progress=progress_reporter,
@@ -376,8 +140,11 @@ def cmd_run(args: argparse.Namespace) -> int:
 
         elif stage == "derivation":
             if not llm_info:
-                print("Error: Derivation requires LLM. Configure LLM in .env file.")
-                return 1
+                typer.echo(
+                    "Error: Derivation requires LLM. Configure LLM in .env file.",
+                    err=True,
+                )
+                raise typer.Exit(1)
             phases = [phase] if phase else None
             with progress_reporter:
                 result = session.run_derivation(
@@ -390,188 +157,116 @@ def cmd_run(args: argparse.Namespace) -> int:
         elif stage == "all":
             with progress_reporter:
                 result = session.run_pipeline(
-                    repo_name=repo_name,
+                    repo_name=repo,
                     verbose=verbose,
                     progress=progress_reporter,
                 )
             _print_pipeline_result(result)
 
-        else:
-            print(f"Unknown stage: {stage}")
-            return 1
-
-    return 0 if result.get("success") else 1
-
-
-def _print_extraction_result(result: dict) -> None:
-    """Print extraction results."""
-    print(f"\n{'-' * 60}")
-    print("EXTRACTION RESULTS")
-    print(f"{'-' * 60}")
-    stats = result.get("stats", {})
-    print(f"  Repos processed:  {stats.get('repos_processed', 0)}")
-    print(f"  Nodes created:    {stats.get('nodes_created', 0)}")
-    print(f"  Edges created:    {stats.get('edges_created', 0)}")
-    print(f"  Steps completed:  {stats.get('steps_completed', 0)}")
-    print(f"  Steps skipped:    {stats.get('steps_skipped', 0)}")
-
-    if result.get("warnings"):
-        print(f"\nWarnings ({len(result['warnings'])}):")
-        for warn in result["warnings"][:5]:
-            print(f"  - {warn}")
-        if len(result["warnings"]) > 5:
-            print(f"  ... and {len(result['warnings']) - 5} more")
-
-    if result.get("errors"):
-        print(f"\nErrors ({len(result['errors'])}):")
-        for err in result["errors"][:5]:
-            print(f"  - {err}")
-        if len(result["errors"]) > 5:
-            print(f"  ... and {len(result['errors']) - 5} more")
-
-
-def _print_derivation_result(result: dict) -> None:
-    """Print derivation results."""
-    print(f"\n{'-' * 60}")
-    print("DERIVATION RESULTS")
-    print(f"{'-' * 60}")
-    stats = result.get("stats", {})
-    print(f"  Elements created:      {stats.get('elements_created', 0)}")
-    print(f"  Relationships created: {stats.get('relationships_created', 0)}")
-    print(f"  Elements validated:    {stats.get('elements_validated', 0)}")
-    print(f"  Issues found:          {stats.get('issues_found', 0)}")
-    print(f"  Steps completed:       {stats.get('steps_completed', 0)}")
-
-    issues = result.get("issues", [])
-    if issues:
-        print(f"\nIssues ({len(issues)}):")
-        for issue in issues[:10]:
-            severity = issue.get("severity", "warning")
-            msg = issue.get("message", "")
-            print(f"  [{severity.upper()}] {msg}")
-        if len(issues) > 10:
-            print(f"  ... and {len(issues) - 10} more")
-
-    if result.get("errors"):
-        print(f"\nErrors ({len(result['errors'])}):")
-        for err in result["errors"][:5]:
-            print(f"  - {err}")
-
-
-def _print_pipeline_result(result: dict) -> None:
-    """Print full pipeline results."""
-    print(f"\n{'=' * 60}")
-    print("PIPELINE COMPLETE")
-    print(f"{'=' * 60}")
-
-    results = result.get("results", {})
-
-    if results.get("classification"):
-        stats = results["classification"].get("stats", {})
-        print("\nClassification:")
-        print(f"  Files classified: {stats.get('files_classified', 0)}")
-        print(f"  Files undefined:  {stats.get('files_undefined', 0)}")
-
-    if results.get("extraction"):
-        stats = results["extraction"].get("stats", {})
-        print("\nExtraction:")
-        print(f"  Nodes created: {stats.get('nodes_created', 0)}")
-
-    if results.get("derivation"):
-        stats = results["derivation"].get("stats", {})
-        print("\nDerivation:")
-        print(f"  Elements created: {stats.get('elements_created', 0)}")
-        print(f"  Issues found: {stats.get('issues_found', 0)}")
-
-    if result.get("errors"):
-        print(f"\nTotal errors: {len(result['errors'])}")
+        if not result.get("success"):
+            raise typer.Exit(1)
 
 
 # =============================================================================
-# Status Commands
+# Status Command
 # =============================================================================
 
 
-def cmd_status(args: argparse.Namespace) -> int:
+@app.command("status")
+def status() -> None:
     """Show current pipeline status."""
     with PipelineSession() as session:
-        print("\nDERIVA STATUS")
-        print("=" * 60)
+        typer.echo("\nDERIVA STATUS")
+        typer.echo("=" * 60)
 
         # Count enabled steps per type
         for step_type in ["extraction", "derivation"]:
             all_steps = session.list_steps(step_type)
             enabled = [s for s in all_steps if s["enabled"]]
-            print(
+            typer.echo(
                 f"  {step_type.capitalize()}: {len(enabled)}/{len(all_steps)} steps enabled"
             )
 
         # File types
         file_types = session.get_file_types()
-        print(f"  File Types: {len(file_types)} registered")
+        typer.echo(f"  File Types: {len(file_types)} registered")
 
         # Graph stats
         try:
             graph_stats = session.get_graph_stats()
-            print(f"  Graph Nodes: {graph_stats['total_nodes']}")
+            typer.echo(f"  Graph Nodes: {graph_stats['total_nodes']}")
         except Exception:
-            print("  Graph Nodes: (not connected)")
+            typer.echo("  Graph Nodes: (not connected)")
 
         # ArchiMate stats
         try:
             archimate_stats = session.get_archimate_stats()
-            print(f"  ArchiMate Elements: {archimate_stats['total_elements']}")
+            typer.echo(f"  ArchiMate Elements: {archimate_stats['total_elements']}")
         except Exception:
-            print("  ArchiMate Elements: (not connected)")
+            typer.echo("  ArchiMate Elements: (not connected)")
 
-        print()
-    return 0
+        typer.echo("")
 
 
 # =============================================================================
-# Export Commands
+# Export Command
 # =============================================================================
 
 
-def cmd_export(args: argparse.Namespace) -> int:
+@app.command("export")
+def export(
+    output: Annotated[
+        str, typer.Option("-o", "--output", help="Output file path")
+    ] = "workspace/output/model.xml",
+    name: Annotated[str | None, typer.Option("-n", "--name", help="Model name")] = None,
+    verbose: Annotated[
+        bool, typer.Option("-v", "--verbose", help="Print detailed progress")
+    ] = False,
+) -> None:
     """Export ArchiMate model to file."""
-    output_path = args.output
-    model_name = args.name or "Deriva Model"
-    verbose = getattr(args, "verbose", False)
+    model_name = name or "Deriva Model"
 
-    print(f"\n{'=' * 60}")
-    print("DERIVA - Exporting ArchiMate Model")
-    print(f"{'=' * 60}")
+    typer.echo(f"\n{'=' * 60}")
+    typer.echo("DERIVA - Exporting ArchiMate Model")
+    typer.echo(f"{'=' * 60}")
 
     with PipelineSession() as session:
         if verbose:
-            print("Connected to Neo4j")
+            typer.echo("Connected to Neo4j")
 
-        result = session.export_model(output_path=output_path, model_name=model_name)
+        result = session.export_model(output_path=output, model_name=model_name)
 
         if result["success"]:
-            print(f"  Elements exported: {result['elements_exported']}")
-            print(f"  Relationships exported: {result['relationships_exported']}")
-            print(f"\nExported to: {result['output_path']}")
-            print("Model can be opened with Archi or other ArchiMate-compatible tools.")
-            return 0
+            typer.echo(f"  Elements exported: {result['elements_exported']}")
+            typer.echo(f"  Relationships exported: {result['relationships_exported']}")
+            typer.echo(f"\nExported to: {result['output_path']}")
+            typer.echo(
+                "Model can be opened with Archi or other ArchiMate-compatible tools."
+            )
         else:
-            print(f"Error: {result.get('error', 'Unknown error')}")
-            return 1
+            typer.echo(f"Error: {result.get('error', 'Unknown error')}", err=True)
+            raise typer.Exit(1)
 
 
 # =============================================================================
-# Clear Commands
+# Clear Command
 # =============================================================================
 
 
-def cmd_clear(args: argparse.Namespace) -> int:
+@app.command("clear")
+def clear(
+    target: Annotated[str, typer.Argument(help="Data layer to clear (graph, model)")],
+) -> None:
     """Clear graph or model data."""
-    target = args.target
+    if target not in ("graph", "model"):
+        typer.echo(
+            f"Error: target must be 'graph' or 'model', got '{target}'", err=True
+        )
+        raise typer.Exit(1)
 
-    print(f"\n{'=' * 60}")
-    print(f"DERIVA - Clearing {target.upper()}")
-    print(f"{'=' * 60}")
+    typer.echo(f"\n{'=' * 60}")
+    typer.echo(f"DERIVA - Clearing {target.upper()}")
+    typer.echo(f"{'=' * 60}")
 
     with PipelineSession() as session:
         if target == "graph":
@@ -579,590 +274,14 @@ def cmd_clear(args: argparse.Namespace) -> int:
         elif target == "model":
             result = session.clear_model()
         else:
-            print(f"Unknown clear target: {target}")
-            return 1
+            typer.echo(f"Unknown clear target: {target}", err=True)
+            raise typer.Exit(1)
 
     if result.get("success"):
-        print(result.get("message", "Done"))
-        return 0
+        typer.echo(result.get("message", "Done"))
     else:
-        print(f"Error: {result.get('error', 'Unknown error')}")
-        return 1
-
-
-# =============================================================================
-# Repository Commands
-# =============================================================================
-
-
-def cmd_repo_clone(args: argparse.Namespace) -> int:
-    """Clone a repository."""
-    url = args.url
-    name = getattr(args, "name", None)
-    branch = getattr(args, "branch", None)
-    overwrite = getattr(args, "overwrite", False)
-
-    print(f"\n{'=' * 60}")
-    print("DERIVA - Cloning Repository")
-    print(f"{'=' * 60}")
-    print(f"URL: {url}")
-    if name:
-        print(f"Name: {name}")
-    if branch:
-        print(f"Branch: {branch}")
-
-    with PipelineSession() as session:
-        result = session.clone_repository(
-            url=url, name=name, branch=branch, overwrite=overwrite
-        )
-        if result.get("success"):
-            print("\nRepository cloned successfully!")
-            print(f"  Name: {result.get('name', 'N/A')}")
-            print(f"  Path: {result.get('path', 'N/A')}")
-            print(f"  URL:  {result.get('url', url)}")
-            return 0
-        else:
-            print(f"\nError: {result.get('error', 'Unknown error')}")
-            return 1
-
-
-def cmd_repo_list(args: argparse.Namespace) -> int:
-    """List all repositories."""
-    detailed = getattr(args, "detailed", False)
-
-    with PipelineSession() as session:
-        repos = session.get_repositories(detailed=detailed)
-
-        if not repos:
-            print("\nNo repositories found.")
-            print(f"Workspace: {session.workspace_dir}")
-            print("\nClone a repository with:")
-            print("  deriva repo clone <url>")
-            return 0
-
-        print(f"\n{'=' * 60}")
-        print("REPOSITORIES")
-        print(f"{'=' * 60}")
-        print(f"Workspace: {session.workspace_dir}\n")
-
-        for repo in repos:
-            if detailed:
-                dirty = " (dirty)" if repo.get("is_dirty") else ""
-                print(f"  {repo['name']}{dirty}")
-                print(f"    URL:    {repo.get('url', 'N/A')}")
-                print(f"    Branch: {repo.get('branch', 'N/A')}")
-                print(f"    Size:   {repo.get('size_mb', 0):.2f} MB")
-                print(f"    Cloned: {repo.get('cloned_at', 'N/A')}")
-                print()
-            else:
-                print(f"  {repo['name']}")
-
-        print(f"\nTotal: {len(repos)} repositories")
-    return 0
-
-
-def cmd_repo_delete(args: argparse.Namespace) -> int:
-    """Delete a repository."""
-    name = args.name
-    force = getattr(args, "force", False)
-
-    print(f"\n{'=' * 60}")
-    print("DERIVA - Deleting Repository")
-    print(f"{'=' * 60}")
-    print(f"Repository: {name}")
-
-    with PipelineSession() as session:
-        try:
-            result = session.delete_repository(name=name, force=force)
-            if result.get("success"):
-                print(f"\nRepository '{name}' deleted successfully.")
-                return 0
-            else:
-                print(f"\nError: {result.get('error', 'Unknown error')}")
-                return 1
-        except Exception as e:
-            print(f"\nError: {e}")
-            if "uncommitted changes" in str(e).lower():
-                print("Use --force to delete anyway.")
-            return 1
-
-
-def cmd_repo_info(args: argparse.Namespace) -> int:
-    """Show repository details."""
-    name = args.name
-
-    with PipelineSession() as session:
-        try:
-            info = session.get_repository_info(name)
-
-            if not info:
-                print(f"\nRepository '{name}' not found.")
-                return 1
-
-            print(f"\n{'=' * 60}")
-            print(f"REPOSITORY: {info['name']}")
-            print(f"{'=' * 60}")
-            print(f"  Path:        {info.get('path', 'N/A')}")
-            print(f"  URL:         {info.get('url', 'N/A')}")
-            print(f"  Branch:      {info.get('branch', 'N/A')}")
-            print(f"  Last Commit: {info.get('last_commit', 'N/A')}")
-            print(f"  Dirty:       {info.get('is_dirty', False)}")
-            print(f"  Size:        {info.get('size_mb', 0):.2f} MB")
-            print(f"  Cloned At:   {info.get('cloned_at', 'N/A')}")
-            print()
-            return 0
-        except Exception as e:
-            print(f"\nError: {e}")
-            return 1
-
-
-# =============================================================================
-# Consistency Commands
-# =============================================================================
-
-
-# =============================================================================
-# Benchmark Commands
-# =============================================================================
-
-
-def cmd_benchmark_run(args: argparse.Namespace) -> int:
-    """Run benchmark matrix."""
-    repos = [r.strip() for r in args.repos.split(",")]
-    models = [m.strip() for m in args.models.split(",")]
-    runs = getattr(args, "runs", 3)
-    stages = [s.strip() for s in args.stages.split(",")] if args.stages else None
-    description = getattr(args, "description", "")
-    verbose = getattr(args, "verbose", False)
-    quiet = getattr(args, "quiet", False)
-    use_cache = not getattr(args, "no_cache", False)
-    export_models = not getattr(args, "no_export_models", False)
-    clear_between_runs = not getattr(args, "no_clear", False)
-    bench_hash = getattr(args, "bench_hash", False)
-    defer_relationships = getattr(args, "defer_relationships", False)
-    per_repo = getattr(args, "per_repo", False)
-    nocache_configs_str = getattr(args, "nocache_configs", None)
-    nocache_configs = (
-        [c.strip() for c in nocache_configs_str.split(",")]
-        if nocache_configs_str
-        else None
-    )
-
-    # Calculate total runs based on mode
-    if per_repo:
-        total_runs = len(repos) * len(models) * runs
-    else:
-        total_runs = len(models) * runs
-
-    print(f"\n{'=' * 60}")
-    print("DERIVA - Multi-Model Benchmark")
-    print(f"{'=' * 60}")
-    print(f"Repositories: {repos}")
-    print(f"Models: {models}")
-    print(f"Runs per combination: {runs}")
-    print(f"Mode: {'per-repo' if per_repo else 'combined'}")
-    print(f"Total runs: {total_runs}")
-    if stages:
-        print(f"Stages: {stages}")
-    print(f"Cache: {'enabled' if use_cache else 'disabled'}")
-    print(f"Export models: {'enabled' if export_models else 'disabled'}")
-    print(f"Clear between runs: {'yes' if clear_between_runs else 'no'}")
-    if bench_hash:
-        print("Bench hash: enabled (per-run cache isolation)")
-    if defer_relationships:
-        print("Defer relationships: enabled (two-phase derivation)")
-    if nocache_configs:
-        print(f"No-cache configs: {nocache_configs}")
-    print(f"{'=' * 60}\n")
-
-    with PipelineSession() as session:
-        print("Connected to Neo4j")
-
-        # Create benchmark progress reporter (Rich-based if available)
-        progress_reporter = create_benchmark_progress_reporter(quiet=quiet or verbose)
-
-        with progress_reporter:
-            result = session.run_benchmark(
-                repositories=repos,
-                models=models,
-                runs=runs,
-                stages=stages,
-                description=description,
-                verbose=verbose,
-                use_cache=use_cache,
-                nocache_configs=nocache_configs,
-                progress=progress_reporter,
-                export_models=export_models,
-                clear_between_runs=clear_between_runs,
-                bench_hash=bench_hash,
-                defer_relationships=defer_relationships,
-                per_repo=per_repo,
-            )
-
-        print(f"\n{'=' * 60}")
-        print("BENCHMARK COMPLETE")
-        print(f"{'=' * 60}")
-        print(f"Session ID: {result.session_id}")
-        print(f"Runs completed: {result.runs_completed}")
-        print(f"Runs failed: {result.runs_failed}")
-        print(f"Duration: {result.duration_seconds:.1f}s")
-        print(f"OCEL log: {result.ocel_path}")
-        if export_models:
-            print(f"Model files: workspace/benchmarks/{result.session_id}/models/")
-
-        if result.errors:
-            print(f"\nErrors ({len(result.errors)}):")
-            for err in result.errors[:5]:
-                print(f"  - {err}")
-            if len(result.errors) > 5:
-                print(f"  ... and {len(result.errors) - 5} more")
-
-        print("\nTo analyze results:")
-        print(f"  deriva benchmark analyze {result.session_id}")
-
-    return 0 if result.success else 1
-
-
-def cmd_benchmark_list(args: argparse.Namespace) -> int:
-    """List benchmark sessions."""
-    limit = getattr(args, "limit", 10)
-
-    with PipelineSession() as session:
-        sessions = session.list_benchmarks(limit=limit)
-
-        if not sessions:
-            print("No benchmark sessions found.")
-            return 0
-
-        print(f"\n{'=' * 60}")
-        print("BENCHMARK SESSIONS")
-        print(f"{'=' * 60}")
-
-        for s in sessions:
-            status_icon = (
-                ""
-                if s["status"] == "completed"
-                else ""
-                if s["status"] == "failed"
-                else ""
-            )
-            print(f"\n{status_icon} {s['session_id']}")
-            print(f"    Status: {s['status']}")
-            print(f"    Started: {s['started_at']}")
-            if s.get("description"):
-                print(f"    Description: {s['description']}")
-
-        print()
-    return 0
-
-
-def _get_run_stats_from_ocel(analyzer: Any) -> dict[str, list[tuple[int, int]]]:
-    """Extract node/edge counts per run from OCEL CompleteRun events."""
-    result: dict[str, list[tuple[int, int]]] = {}
-
-    for event in analyzer.ocel_log.events:
-        if event.activity != "CompleteRun":
-            continue
-
-        model = event.objects.get("Model", [None])[0]
-        if not model:
-            continue
-
-        stats = event.attributes.get("stats", {})
-        extraction = stats.get("extraction", {})
-        nodes = extraction.get("nodes_created", 0)
-        edges = extraction.get("edges_created", 0)
-
-        if model not in result:
-            result[model] = []
-        result[model].append((nodes, edges))
-
-    return result
-
-
-def cmd_benchmark_analyze(args: argparse.Namespace) -> int:
-    """Analyze benchmark results."""
-    session_id = args.session_id
-    output = getattr(args, "output", None)
-    fmt = getattr(args, "format", "json")
-
-    print(f"\n{'=' * 60}")
-    print(f"ANALYZING BENCHMARK: {session_id}")
-    print(f"{'=' * 60}\n")
-
-    with PipelineSession() as session:
-        try:
-            analyzer = session.analyze_benchmark(session_id)
-        except ValueError as e:
-            print(f"Error: {e}")
-            return 1
-
-        # Compute and display summary
-        summary = analyzer.compute_full_analysis()
-
-        # Get raw node/edge counts per run from OCEL
-        run_stats = _get_run_stats_from_ocel(analyzer)
-
-        # Show extraction stats per model (from run stats)
-        if run_stats:
-            print("INTRA-MODEL CONSISTENCY (stability across runs)")
-            print("-" * 75)
-            print(f"  {'Model':<22} {'Nodes':<25} {'Edges':<25}")
-            print(
-                f"  {'':<22} {'Min-Max (Stable/Var)':<25} {'Min-Max (Stable/Var)':<25}"
-            )
-            print("-" * 75)
-            for model, runs in sorted(run_stats.items()):
-                node_vals = [n for n, e in runs]
-                edge_vals = [e for n, e in runs]
-                node_min, node_max = min(node_vals), max(node_vals)
-                edge_min, edge_max = min(edge_vals), max(edge_vals)
-                node_var = node_max - node_min
-                edge_var = edge_max - edge_min
-                # Stable = minimum (guaranteed in all runs), Unstable = variance
-                node_str = f"{node_min}-{node_max} ({node_min}/{node_var})"
-                edge_str = f"{edge_min}-{edge_max} ({edge_min}/{edge_var})"
-                print(f"  {model:<22} {node_str:<25} {edge_str:<25}")
-            print()
-
-        # Intra-model consistency (structural edges from OCEL)
-        if summary.intra_model:
-            print("STRUCTURAL EDGE CONSISTENCY (OCEL tracked)")
-            print("-" * 70)
-            print(f"  {'Model':<22} {'Stable':<10} {'Unstable':<10} {'%':<8}")
-            print("-" * 70)
-            for m in summary.intra_model:
-                stable_edges = len(m.stable_edges)
-                unstable_edges = len(m.unstable_edges)
-                total_edges = stable_edges + unstable_edges
-                edge_pct = (
-                    (stable_edges / total_edges * 100) if total_edges > 0 else 100
-                )
-                print(
-                    f"  {m.model:<22} {stable_edges:<10} {unstable_edges:<10} {edge_pct:.0f}%"
-                )
-            print()
-
-        # Inter-model consistency
-        if summary.inter_model:
-            print("INTER-MODEL CONSISTENCY (agreement across models)")
-            print("-" * 70)
-            for im in summary.inter_model:
-                edges_sets = [set(e) for e in im.edges_by_model.values()]
-                total_edges = len(set().union(*edges_sets)) if edges_sets else 0
-                overlap_edges = len(im.edge_overlap)
-                pct = im.edge_jaccard * 100
-                print(f"  {im.repository}:")
-                print(
-                    f"    Structural edges: {overlap_edges}/{total_edges} stable ({pct:.0f}%)"
-                )
-            print()
-
-        # Hotspots
-        if summary.localization.hotspots:
-            print("INCONSISTENCY HOTSPOTS")
-            print("-" * 50)
-            for h in summary.localization.hotspots:
-                print(
-                    f"  [{h['severity'].upper()}] {h['type']}: {h['name']} ({h['consistency']:.1f}%)"
-                )
-            print()
-
-        # Export
-        output_path = analyzer.export_summary(output, format=fmt)
-        print(f"Analysis exported to: {output_path}")
-
-        # Save to DB
-        analyzer.save_metrics_to_db()
-        print("Metrics saved to database.")
-
-    return 0
-
-
-def cmd_benchmark_models(args: argparse.Namespace) -> int:
-    """List available model configurations."""
-    with PipelineSession() as session:
-        models = session.list_benchmark_models()
-
-    if not models:
-        print("\nNo benchmark model configurations found.")
-        print("\nConfigure models in .env with pattern:")
-        print("  LLM_BENCH_{NAME}_PROVIDER=azure|openai|anthropic|ollama")
-        print("  LLM_BENCH_{NAME}_MODEL=model-id")
-        print("  LLM_BENCH_{NAME}_URL=api-url (optional)")
-        print("  LLM_BENCH_{NAME}_KEY=api-key (optional)")
-        return 0
-
-    print(f"\n{'=' * 60}")
-    print("AVAILABLE BENCHMARK MODELS")
-    print(f"{'=' * 60}\n")
-
-    for name, cfg in sorted(models.items()):
-        print(f"  {name}")
-        print(f"    Provider: {cfg.provider}")
-        print(f"    Model: {cfg.model}")
-        if cfg.api_url:
-            print(f"    URL: {cfg.api_url[:50]}...")
-        print()
-
-    return 0
-
-
-def cmd_benchmark_deviations(args: argparse.Namespace) -> int:
-    """Analyze config deviations for a benchmark session."""
-    session_id = args.session_id
-    output = getattr(args, "output", None)
-    sort_by = getattr(args, "sort_by", "deviation_count")
-
-    print(f"\n{'=' * 60}")
-    print(f"CONFIG DEVIATION ANALYSIS: {session_id}")
-    print(f"{'=' * 60}\n")
-
-    with PipelineSession() as session:
-        try:
-            analyzer = session.analyze_config_deviations(session_id)
-        except ValueError as e:
-            print(f"Error: {e}")
-            return 1
-
-        # Run analysis
-        report = analyzer.analyze()
-
-        # Display summary
-        print(f"Total runs analyzed: {report.total_runs}")
-        print(f"Total deviations: {report.total_deviations}")
-        print(f"Overall consistency: {report.overall_consistency:.1%}\n")
-
-        if report.config_deviations:
-            print("CONFIG DEVIATIONS (sorted by deviation count)")
-            print("-" * 60)
-
-            for cd in report.config_deviations:
-                status = (
-                    "LOW"
-                    if cd.consistency_score >= 0.8
-                    else "MEDIUM"
-                    if cd.consistency_score >= 0.5
-                    else "HIGH"
-                )
-                print(f"  [{status}] {cd.config_type}: {cd.config_id}")
-                print(f"        Consistency: {cd.consistency_score:.1%}")
-                print(f"        Deviations: {cd.deviation_count}/{cd.total_objects}")
-                if cd.deviating_objects[:3]:
-                    print(f"        Sample: {', '.join(cd.deviating_objects[:3])}")
-                print()
-
-            # Get recommendations
-            from deriva.modules.analysis import generate_recommendations
-
-            recommendations = generate_recommendations(report.config_deviations)
-            if recommendations:
-                print("RECOMMENDATIONS")
-                print("-" * 60)
-                for rec in recommendations:
-                    print(f"  • {rec}")
-                print()
-
-        # Export
-        if sort_by != "deviation_count":
-            output_path = analyzer.export_sorted_json(output, sort_by=sort_by)
-        else:
-            output_path = analyzer.export_json(output)
-
-        print(f"Report exported to: {output_path}")
-
-    return 0
-
-
-def cmd_benchmark_comprehensive(args: argparse.Namespace) -> int:
-    """Run comprehensive benchmark analysis."""
-    session_ids = args.session_ids
-    output = getattr(args, "output", "workspace/analysis")
-    format_type = getattr(args, "format", "both")
-    _include_semantic = not getattr(
-        args, "no_semantic", False
-    )  # Reserved for future use
-
-    print(f"\n{'=' * 60}")
-    print("BENCHMARK ANALYSIS")
-    print(f"{'=' * 60}\n")
-    print(f"Sessions: {', '.join(session_ids)}")
-
-    from deriva.services.analysis import BenchmarkAnalyzer
-
-    with PipelineSession() as session:
-        try:
-            analyzer = BenchmarkAnalyzer(
-                session_ids=list(session_ids),
-                engine=session._engine,
-            )
-        except ValueError as e:
-            print(f"Error: {e}")
-            return 1
-
-        # Generate report
-        print("\nRunning analysis...")
-        report = analyzer.generate_report()
-
-        # Display summary
-        print(f"\nRepositories: {', '.join(report.repositories)}")
-        print(f"Models: {', '.join(report.models)}")
-        print("\nOVERALL METRICS")
-        print("-" * 40)
-        print(f"  Consistency: {report.overall_consistency:.1%}")
-        print(f"  Precision:   {report.overall_precision:.1%}")
-        print(f"  Recall:      {report.overall_recall:.1%}")
-
-        # Show per-repo summary
-        if report.stability_reports:
-            print("\nPER-REPOSITORY STABILITY")
-            print("-" * 40)
-            for repo, phases in report.stability_reports.items():
-                if "derivation" in phases:
-                    print(
-                        f"  {repo}: {phases['derivation'].overall_consistency:.1%} derivation consistency"
-                    )
-
-        # Show semantic match summary
-        if report.semantic_reports:
-            print("\nSEMANTIC MATCH SUMMARY")
-            print("-" * 40)
-            for repo, sr in report.semantic_reports.items():
-                print(
-                    f"  {repo}: P={sr.element_precision:.1%} R={sr.element_recall:.1%} F1={sr.element_f1:.2f}"
-                )
-
-        # Show best/worst types from cross-repo
-        if report.cross_repo:
-            if report.cross_repo.best_element_types:
-                print("\nBEST ELEMENT TYPES (highest consistency)")
-                print("-" * 40)
-                for t, score in report.cross_repo.best_element_types[:5]:
-                    print(f"  {t}: {score:.1%}")
-
-            if report.cross_repo.worst_element_types:
-                print("\nWORST ELEMENT TYPES (lowest consistency)")
-                print("-" * 40)
-                for t, score in report.cross_repo.worst_element_types[:5]:
-                    print(f"  {t}: {score:.1%}")
-
-        # Show recommendations
-        if report.recommendations:
-            print("\nRECOMMENDATIONS")
-            print("-" * 40)
-            for rec in report.recommendations[:10]:
-                print(f"  • {rec}")
-
-        # Export
-        print(f"\nExporting to: {output}")
-        paths = analyzer.export_all(output)
-
-        if format_type in ("json", "both"):
-            print(f"  JSON: {paths.get('json', 'N/A')}")
-        if format_type in ("markdown", "both"):
-            print(f"  Markdown: {paths.get('markdown', 'N/A')}")
-
-    return 0
+        typer.echo(f"Error: {result.get('error', 'Unknown error')}", err=True)
+        raise typer.Exit(1)
 
 
 # =============================================================================
@@ -1170,563 +289,13 @@ def cmd_benchmark_comprehensive(args: argparse.Namespace) -> int:
 # =============================================================================
 
 
-def create_parser() -> argparse.ArgumentParser:
-    """Create the argument parser."""
-    parser = argparse.ArgumentParser(
-        prog="deriva",
-        description="Deriva CLI - Generate ArchiMate models from code repositories",
-    )
-
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
-
-    # -------------------------------------------------------------------------
-    # config command
-    # -------------------------------------------------------------------------
-    config_parser = subparsers.add_parser(
-        "config", help="Manage pipeline configurations"
-    )
-    config_subparsers = config_parser.add_subparsers(
-        dest="config_action", help="Config actions"
-    )
-
-    # config list
-    config_list = config_subparsers.add_parser("list", help="List configurations")
-    config_list.add_argument(
-        "step_type",
-        choices=["extraction", "derivation"],
-        help="Type of configuration to list",
-    )
-    config_list.add_argument(
-        "--enabled",
-        action="store_true",
-        help="Only show enabled configurations",
-    )
-    config_list.add_argument(
-        "--phase",
-        choices=["prep", "generate", "refine"],
-        help="Filter derivation by phase",
-    )
-    config_list.set_defaults(func=cmd_config_list)
-
-    # config show
-    config_show = config_subparsers.add_parser(
-        "show", help="Show configuration details"
-    )
-    config_show.add_argument(
-        "step_type",
-        choices=["extraction", "derivation"],
-        help="Type of configuration",
-    )
-    config_show.add_argument(
-        "name", help="Name of the configuration (node_type or step_name)"
-    )
-    config_show.set_defaults(func=cmd_config_show)
-
-    # config enable
-    config_enable = config_subparsers.add_parser(
-        "enable", help="Enable a configuration"
-    )
-    config_enable.add_argument(
-        "step_type",
-        choices=["extraction", "derivation"],
-        help="Type of configuration",
-    )
-    config_enable.add_argument("name", help="Name to enable")
-    config_enable.set_defaults(func=cmd_config_enable)
-
-    # config disable
-    config_disable = config_subparsers.add_parser(
-        "disable", help="Disable a configuration"
-    )
-    config_disable.add_argument(
-        "step_type",
-        choices=["extraction", "derivation"],
-        help="Type of configuration",
-    )
-    config_disable.add_argument("name", help="Name to disable")
-    config_disable.set_defaults(func=cmd_config_disable)
-
-    # config update (versioned)
-    config_update = config_subparsers.add_parser(
-        "update", help="Update configuration (creates new version)"
-    )
-    config_update.add_argument(
-        "step_type",
-        choices=["extraction", "derivation"],
-        help="Type of configuration to update",
-    )
-    config_update.add_argument("name", help="Name of the configuration to update")
-    config_update.add_argument(
-        "-i",
-        "--instruction",
-        type=str,
-        default=None,
-        help="New instruction text",
-    )
-    config_update.add_argument(
-        "-e",
-        "--example",
-        type=str,
-        default=None,
-        help="New example text",
-    )
-    config_update.add_argument(
-        "--instruction-file",
-        type=str,
-        default=None,
-        help="Read instruction from file",
-    )
-    config_update.add_argument(
-        "--example-file",
-        type=str,
-        default=None,
-        help="Read example from file",
-    )
-    config_update.add_argument(
-        "-q",
-        "--query",
-        type=str,
-        default=None,
-        help="New input_graph_query (derivation only)",
-    )
-    config_update.add_argument(
-        "-s",
-        "--sources",
-        type=str,
-        default=None,
-        help="New input_sources (extraction only)",
-    )
-    config_update.add_argument(
-        "-p",
-        "--params",
-        type=str,
-        default=None,
-        help="New params JSON (derivation only)",
-    )
-    config_update.add_argument(
-        "--params-file",
-        type=str,
-        default=None,
-        help="Read params JSON from file (derivation only)",
-    )
-    config_update.set_defaults(func=cmd_config_update)
-
-    # config versions
-    config_versions = config_subparsers.add_parser(
-        "versions", help="Show active config versions"
-    )
-    config_versions.set_defaults(func=cmd_config_versions)
-
-    # config filetype (sub-subparser)
-    config_filetype = config_subparsers.add_parser(
-        "filetype", help="Manage file type registry"
-    )
-    filetype_subparsers = config_filetype.add_subparsers(
-        dest="filetype_action", help="File type actions"
-    )
-
-    # filetype list
-    filetype_list = filetype_subparsers.add_parser(
-        "list", help="List registered file types"
-    )
-    filetype_list.set_defaults(func=cmd_filetype_list)
-
-    # filetype add
-    filetype_add = filetype_subparsers.add_parser("add", help="Add a file type")
-    filetype_add.add_argument(
-        "extension", help="File extension (e.g., '.py', 'Dockerfile', '*.test.js')"
-    )
-    filetype_add.add_argument(
-        "file_type",
-        help="File type category (source, config, docs, data, dependency, test, template, unknown)",
-    )
-    filetype_add.add_argument("subtype", help="Subtype (e.g., 'python', 'javascript')")
-    filetype_add.set_defaults(func=cmd_filetype_add)
-
-    # filetype delete
-    filetype_delete = filetype_subparsers.add_parser(
-        "delete", help="Delete a file type"
-    )
-    filetype_delete.add_argument("extension", help="Extension to delete")
-    filetype_delete.set_defaults(func=cmd_filetype_delete)
-
-    # filetype stats
-    filetype_stats = filetype_subparsers.add_parser(
-        "stats", help="Show file type statistics"
-    )
-    filetype_stats.set_defaults(func=cmd_filetype_stats)
-
-    # -------------------------------------------------------------------------
-    # run command
-    # -------------------------------------------------------------------------
-    run_parser = subparsers.add_parser("run", help="Run pipeline stages")
-    run_parser.add_argument(
-        "stage",
-        choices=["extraction", "derivation", "all"],
-        help="Pipeline stage to run",
-    )
-    run_parser.add_argument(
-        "--repo",
-        type=str,
-        default=None,
-        help="Specific repository to process (default: all repos)",
-    )
-    run_parser.add_argument(
-        "--phase",
-        choices=["classify", "parse", "prep", "generate", "refine"],
-        help="Run specific phase: extraction (classify, parse) or derivation (prep, generate, refine)",
-    )
-    run_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Print detailed progress (disables progress bar)",
-    )
-    run_parser.add_argument(
-        "-q",
-        "--quiet",
-        action="store_true",
-        help="Disable progress bar display",
-    )
-    run_parser.add_argument(
-        "--no-llm",
-        action="store_true",
-        help="Skip LLM-based steps (structural extraction only)",
-    )
-    run_parser.set_defaults(func=cmd_run)
-
-    # -------------------------------------------------------------------------
-    # status command
-    # -------------------------------------------------------------------------
-    status_parser = subparsers.add_parser("status", help="Show pipeline status")
-    status_parser.set_defaults(func=cmd_status)
-
-    # -------------------------------------------------------------------------
-    # export command
-    # -------------------------------------------------------------------------
-    export_parser = subparsers.add_parser(
-        "export", help="Export ArchiMate model to file"
-    )
-    export_parser.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        default="workspace/output/model.xml",
-        help="Output file path (default: workspace/output/model.xml)",
-    )
-    export_parser.add_argument(
-        "-n",
-        "--name",
-        type=str,
-        default=None,
-        help="Model name (default: Deriva Model)",
-    )
-    export_parser.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Print detailed progress",
-    )
-    export_parser.set_defaults(func=cmd_export)
-
-    # -------------------------------------------------------------------------
-    # clear command
-    # -------------------------------------------------------------------------
-    clear_parser = subparsers.add_parser("clear", help="Clear graph or model data")
-    clear_parser.add_argument(
-        "target",
-        choices=["graph", "model"],
-        help="Data layer to clear",
-    )
-    clear_parser.set_defaults(func=cmd_clear)
-
-    # -------------------------------------------------------------------------
-    # repo command
-    # -------------------------------------------------------------------------
-    repo_parser = subparsers.add_parser("repo", help="Manage repositories")
-    repo_subparsers = repo_parser.add_subparsers(
-        dest="repo_action", help="Repository actions"
-    )
-
-    # repo clone
-    repo_clone = repo_subparsers.add_parser("clone", help="Clone a repository")
-    repo_clone.add_argument("url", help="Repository URL to clone")
-    repo_clone.add_argument(
-        "-n",
-        "--name",
-        type=str,
-        default=None,
-        help="Custom name for the repository (default: derived from URL)",
-    )
-    repo_clone.add_argument(
-        "-b",
-        "--branch",
-        type=str,
-        default=None,
-        help="Branch to clone (default: default branch)",
-    )
-    repo_clone.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Overwrite existing repository if it exists",
-    )
-    repo_clone.set_defaults(func=cmd_repo_clone)
-
-    # repo list
-    repo_list = repo_subparsers.add_parser("list", help="List all repositories")
-    repo_list.add_argument(
-        "-d",
-        "--detailed",
-        action="store_true",
-        help="Show detailed information",
-    )
-    repo_list.set_defaults(func=cmd_repo_list)
-
-    # repo delete
-    repo_delete = repo_subparsers.add_parser("delete", help="Delete a repository")
-    repo_delete.add_argument("name", help="Repository name to delete")
-    repo_delete.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Force delete even with uncommitted changes",
-    )
-    repo_delete.set_defaults(func=cmd_repo_delete)
-
-    # repo info
-    repo_info = repo_subparsers.add_parser("info", help="Show repository details")
-    repo_info.add_argument("name", help="Repository name")
-    repo_info.set_defaults(func=cmd_repo_info)
-
-    # -------------------------------------------------------------------------
-    # benchmark command
-    # -------------------------------------------------------------------------
-    benchmark_parser = subparsers.add_parser(
-        "benchmark", help="Multi-model benchmarking"
-    )
-    benchmark_subparsers = benchmark_parser.add_subparsers(
-        dest="benchmark_action", help="Benchmark actions"
-    )
-
-    # benchmark run
-    benchmark_run = benchmark_subparsers.add_parser("run", help="Run benchmark matrix")
-    benchmark_run.add_argument(
-        "--repos",
-        type=str,
-        required=True,
-        help="Comma-separated list of repository names",
-    )
-    benchmark_run.add_argument(
-        "--models",
-        type=str,
-        required=True,
-        help="Comma-separated list of model config names (from LLM_BENCH_* env vars)",
-    )
-    benchmark_run.add_argument(
-        "-n",
-        "--runs",
-        type=int,
-        default=3,
-        help="Number of runs per (repo, model) combination (default: 3)",
-    )
-    benchmark_run.add_argument(
-        "--stages",
-        type=str,
-        default=None,
-        help="Comma-separated list of stages (default: all)",
-    )
-    benchmark_run.add_argument(
-        "-d",
-        "--description",
-        type=str,
-        default="",
-        help="Optional description for the benchmark session",
-    )
-    benchmark_run.add_argument(
-        "-v",
-        "--verbose",
-        action="store_true",
-        help="Print detailed progress (disables progress bar)",
-    )
-    benchmark_run.add_argument(
-        "-q",
-        "--quiet",
-        action="store_true",
-        help="Disable progress bar display",
-    )
-    benchmark_run.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Disable LLM response caching globally",
-    )
-    benchmark_run.add_argument(
-        "--nocache-configs",
-        type=str,
-        default=None,
-        help="Comma-separated list of config names to skip cache for (e.g., 'ApplicationComponent,DataObject')",
-    )
-    benchmark_run.add_argument(
-        "--no-export-models",
-        action="store_true",
-        help="Disable exporting ArchiMate model files after each run",
-    )
-    benchmark_run.add_argument(
-        "--no-clear",
-        action="store_true",
-        help="Don't clear graph/model between runs (keep existing data)",
-    )
-    benchmark_run.add_argument(
-        "--bench-hash",
-        action="store_true",
-        help="Include repo/model/run in cache key for per-run isolation. Allows resuming failed runs with cache on.",
-    )
-    benchmark_run.add_argument(
-        "--defer-relationships",
-        action="store_true",
-        help="Two-phase derivation: create all elements first, then derive relationships in one pass",
-    )
-    benchmark_run.add_argument(
-        "--per-repo",
-        action="store_true",
-        help="Run each repository as a separate benchmark (default: combine all repos into one model)",
-    )
-    benchmark_run.set_defaults(func=cmd_benchmark_run)
-
-    # benchmark list
-    benchmark_list = benchmark_subparsers.add_parser(
-        "list", help="List benchmark sessions"
-    )
-    benchmark_list.add_argument(
-        "-l",
-        "--limit",
-        type=int,
-        default=10,
-        help="Number of sessions to show (default: 10)",
-    )
-    benchmark_list.set_defaults(func=cmd_benchmark_list)
-
-    # benchmark analyze
-    benchmark_analyze = benchmark_subparsers.add_parser(
-        "analyze", help="Analyze benchmark results"
-    )
-    benchmark_analyze.add_argument(
-        "session_id",
-        help="Benchmark session ID to analyze",
-    )
-    benchmark_analyze.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        default=None,
-        help="Output file for analysis (default: workspace/benchmarks/{session}/analysis/summary.json)",
-    )
-    benchmark_analyze.add_argument(
-        "-f",
-        "--format",
-        choices=["json", "markdown"],
-        default="json",
-        help="Output format (default: json)",
-    )
-    benchmark_analyze.set_defaults(func=cmd_benchmark_analyze)
-
-    # benchmark models
-    benchmark_models = benchmark_subparsers.add_parser(
-        "models", help="List available model configs"
-    )
-    benchmark_models.set_defaults(func=cmd_benchmark_models)
-
-    # benchmark deviations
-    benchmark_deviations = benchmark_subparsers.add_parser(
-        "deviations", help="Analyze config deviations for a session"
-    )
-    benchmark_deviations.add_argument(
-        "session_id",
-        help="Benchmark session ID to analyze",
-    )
-    benchmark_deviations.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        default=None,
-        help="Output file for deviation report (default: workspace/benchmarks/{session}/config_deviations.json)",
-    )
-    benchmark_deviations.add_argument(
-        "-s",
-        "--sort-by",
-        choices=["deviation_count", "consistency_score", "total_objects"],
-        default="deviation_count",
-        help="Sort configs by this metric (default: deviation_count)",
-    )
-    benchmark_deviations.set_defaults(func=cmd_benchmark_deviations)
-
-    # benchmark comprehensive-analysis
-    benchmark_comprehensive = benchmark_subparsers.add_parser(
-        "comprehensive-analysis",
-        help="Run comprehensive analysis across multiple sessions",
-    )
-    benchmark_comprehensive.add_argument(
-        "session_ids",
-        nargs="+",
-        help="Benchmark session IDs to analyze (one or more)",
-    )
-    benchmark_comprehensive.add_argument(
-        "-o",
-        "--output",
-        type=str,
-        default="workspace/analysis",
-        help="Output directory for analysis files (default: workspace/analysis)",
-    )
-    benchmark_comprehensive.add_argument(
-        "-f",
-        "--format",
-        choices=["json", "markdown", "both"],
-        default="both",
-        help="Output format (default: both)",
-    )
-    benchmark_comprehensive.add_argument(
-        "--no-semantic",
-        action="store_true",
-        help="Skip semantic matching against reference models",
-    )
-    benchmark_comprehensive.set_defaults(func=cmd_benchmark_comprehensive)
-
-    return parser
-
-
 def main() -> int:
     """Main entry point."""
-    parser = create_parser()
-    args = parser.parse_args()
-
-    if not args.command:
-        parser.print_help()
+    try:
+        app()
         return 0
-
-    if args.command == "config" and not args.config_action:
-        parser.parse_args(["config", "--help"])
-        return 0
-
-    if (
-        args.command == "config"
-        and args.config_action == "filetype"
-        and not getattr(args, "filetype_action", None)
-    ):
-        parser.parse_args(["config", "filetype", "--help"])
-        return 0
-
-    if args.command == "benchmark" and not getattr(args, "benchmark_action", None):
-        parser.parse_args(["benchmark", "--help"])
-        return 0
-
-    if args.command == "repo" and not getattr(args, "repo_action", None):
-        parser.parse_args(["repo", "--help"])
-        return 0
-
-    if hasattr(args, "func"):
-        return args.func(args)
-
-    parser.print_help()
-    return 0
+    except SystemExit as e:
+        return e.code if isinstance(e.code, int) else 1
 
 
 if __name__ == "__main__":

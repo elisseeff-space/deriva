@@ -98,12 +98,12 @@ class ApplicationServiceDerivation(PatternBasedDerivation):
         likely_services = [
             c
             for c in filtered
-            if self._is_likely_service(c.name, include_patterns, exclude_patterns)
+            if self.matches_patterns(c.name, include_patterns, exclude_patterns)
         ]
         others = [
             c
             for c in filtered
-            if not self._is_likely_service(c.name, include_patterns, exclude_patterns)
+            if not self.matches_patterns(c.name, include_patterns, exclude_patterns)
         ]
 
         # Sort by PageRank
@@ -121,95 +121,3 @@ class ApplicationServiceDerivation(PatternBasedDerivation):
         )
 
         return likely_services[:max_candidates]
-
-    def _is_likely_service(
-        self, name: str, include_patterns: set[str], exclude_patterns: set[str]
-    ) -> bool:
-        """Check if a method name suggests an application service."""
-        if not name:
-            return False
-
-        name_lower = name.lower()
-
-        # Check exclusion patterns first
-        for pattern in exclude_patterns:
-            if name_lower.startswith(pattern) or pattern in name_lower:
-                return False
-
-        # Check for service patterns
-        for pattern in include_patterns:
-            if pattern in name_lower:
-                return True
-
-        return False
-
-
-# =============================================================================
-# Backward Compatibility - Module-level exports
-# =============================================================================
-
-_instance = ApplicationServiceDerivation()
-
-ELEMENT_TYPE = _instance.ELEMENT_TYPE
-OUTBOUND_RULES = _instance.OUTBOUND_RULES
-INBOUND_RULES = _instance.INBOUND_RULES
-
-
-def filter_candidates(
-    candidates: list[Candidate],
-    enrichments: dict[str, dict[str, Any]],
-    include_patterns: set[str],
-    exclude_patterns: set[str],
-    max_candidates: int,
-) -> list[Candidate]:
-    """Backward-compatible filter_candidates function."""
-    return _instance.filter_candidates(
-        candidates,
-        enrichments,
-        max_candidates,
-        include_patterns=include_patterns,
-        exclude_patterns=exclude_patterns,
-    )
-
-
-def generate(
-    graph_manager,
-    archimate_manager,
-    engine,
-    llm_query_fn,
-    query,
-    instruction,
-    example,
-    max_candidates,
-    batch_size,
-    existing_elements,
-    temperature=None,
-    max_tokens=None,
-    defer_relationships=False,
-):
-    """Backward-compatible generate function."""
-    return _instance.generate(
-        graph_manager=graph_manager,
-        archimate_manager=archimate_manager,
-        engine=engine,
-        llm_query_fn=llm_query_fn,
-        query=query,
-        instruction=instruction,
-        example=example,
-        max_candidates=max_candidates,
-        batch_size=batch_size,
-        existing_elements=existing_elements,
-        temperature=temperature,
-        max_tokens=max_tokens,
-        defer_relationships=defer_relationships,
-    )
-
-
-__all__ = [
-    "ELEMENT_TYPE",
-    "OUTBOUND_RULES",
-    "INBOUND_RULES",
-    "filter_candidates",
-    "generate",
-    "ApplicationServiceDerivation",
-]

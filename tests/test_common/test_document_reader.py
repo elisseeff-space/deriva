@@ -3,29 +3,21 @@
 from __future__ import annotations
 
 import tempfile
-
-# Check if optional dependencies are available
-from importlib.util import find_spec
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-HAS_DOCX = find_spec("docx") is not None
-HAS_PYPDF = find_spec("pypdf") is not None
-
 
 class TestLibraryAvailability:
     """Tests for library availability checks."""
 
-    @pytest.mark.skipif(not HAS_DOCX, reason="python-docx not installed")
     def test_is_docx_available_returns_true(self):
         """Should return True when python-docx is installed."""
         from deriva.common.document_reader import is_docx_available
 
         assert is_docx_available() is True
 
-    @pytest.mark.skipif(not HAS_PYPDF, reason="pypdf not installed")
     def test_is_pdf_available_returns_true(self):
         """Should return True when pypdf is installed."""
         from deriva.common.document_reader import is_pdf_available
@@ -94,7 +86,6 @@ class TestReadDocx:
             result = read_docx(Path("nonexistent.docx"))
             assert result is None
 
-    @pytest.mark.skipif(not HAS_DOCX, reason="python-docx not installed")
     def test_extracts_paragraphs(self):
         """Should extract paragraph text."""
         import docx

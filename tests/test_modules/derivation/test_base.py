@@ -1804,8 +1804,8 @@ class TestDeriveElementRelationships:
 class TestSharedGenerateBehavior:
     """Tests for shared generate() behavior across all element modules.
 
-    These tests verify common behavior using application_component as the
-    reference implementation. All element modules should behave identically
+    These tests verify common behavior using ApplicationComponentDerivation as the
+    reference implementation. All element derivation classes should behave identically
     for these scenarios.
     """
 
@@ -1813,11 +1813,12 @@ class TestSharedGenerateBehavior:
         """generate() should return 0 elements when no candidates found."""
         from unittest.mock import MagicMock, Mock, patch
 
-        from deriva.modules.derivation.application_component import generate
+        from deriva.modules.derivation.application_component import ApplicationComponentDerivation
 
+        derivation = ApplicationComponentDerivation()
         with patch("deriva.modules.derivation.element_base.get_enrichments_from_neo4j", return_value={}):
             with patch("deriva.modules.derivation.element_base.query_candidates", return_value=[]):
-                result = generate(
+                result = derivation.generate(
                     graph_manager=MagicMock(),
                     archimate_manager=MagicMock(),
                     engine=MagicMock(),
@@ -1837,11 +1838,12 @@ class TestSharedGenerateBehavior:
         """generate() should handle query exceptions gracefully."""
         from unittest.mock import MagicMock, Mock, patch
 
-        from deriva.modules.derivation.application_component import generate
+        from deriva.modules.derivation.application_component import ApplicationComponentDerivation
 
+        derivation = ApplicationComponentDerivation()
         with patch("deriva.modules.derivation.element_base.get_enrichments_from_neo4j", return_value={}):
             with patch("deriva.modules.derivation.element_base.query_candidates", side_effect=Exception("DB error")):
-                result = generate(
+                result = derivation.generate(
                     graph_manager=MagicMock(),
                     archimate_manager=MagicMock(),
                     engine=MagicMock(),
@@ -1861,12 +1863,13 @@ class TestSharedGenerateBehavior:
         """generate() should return GenerationResult type."""
         from unittest.mock import MagicMock, Mock, patch
 
-        from deriva.modules.derivation.application_component import generate
+        from deriva.modules.derivation.application_component import ApplicationComponentDerivation
         from deriva.modules.derivation.base import GenerationResult
 
+        derivation = ApplicationComponentDerivation()
         with patch("deriva.modules.derivation.element_base.get_enrichments_from_neo4j", return_value={}):
             with patch("deriva.modules.derivation.element_base.query_candidates", return_value=[]):
-                result = generate(
+                result = derivation.generate(
                     graph_manager=MagicMock(),
                     archimate_manager=MagicMock(),
                     engine=MagicMock(),
