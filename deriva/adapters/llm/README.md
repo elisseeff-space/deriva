@@ -1,12 +1,12 @@
 # LLM Adapter
 
-Multi-provider LLM abstraction with caching and structured output support.
+Multi-provider LLM abstraction using pydantic-ai with caching and structured output support.
 
-**Version:** 1.0.0
+**Version:** 2.0.0
 
 ## Purpose
 
-The LLM adapter provides a unified interface for querying multiple LLM providers (Azure OpenAI, OpenAI, Anthropic, Ollama, LM Studio) with automatic caching and Pydantic-based structured output parsing.
+The LLM adapter provides a unified interface for querying multiple LLM providers (Azure OpenAI, OpenAI, Anthropic, Mistral, Ollama, LM Studio) using **pydantic-ai** for agent-based interactions with automatic retries and Pydantic-based structured output parsing.
 
 ## Key Exports
 
@@ -56,7 +56,9 @@ if response.response_type == "live":
     print(response.content)
 ```
 
-## Structured Output with Pydantic
+## Structured Output with pydantic-ai
+
+Uses pydantic-ai agents for type-safe, validated responses:
 
 ```python
 from pydantic import BaseModel, Field
@@ -72,7 +74,7 @@ result = llm.query(
     prompt="Extract the main business concept from this code...",
     response_model=BusinessConcept
 )
-# result is a validated BusinessConcept instance
+# result is a validated BusinessConcept instance (via pydantic-ai agent)
 print(result.name)
 ```
 
@@ -111,13 +113,16 @@ LLM_LMSTUDIO_LOCAL_URL=http://localhost:1234/v1/chat/completions
 
 ## Providers
 
-| Provider | Class | Description |
-|----------|-------|-------------|
-| Azure OpenAI | `AzureOpenAIProvider` | Azure-hosted OpenAI models |
-| OpenAI | `OpenAIProvider` | OpenAI API direct |
-| Anthropic | `AnthropicProvider` | Claude models |
-| Ollama | `OllamaProvider` | Local Ollama models |
-| LM Studio | `LMStudioProvider` | Local LM Studio (OpenAI-compatible) |
+All providers are implemented via pydantic-ai's model abstraction:
+
+| Provider     | pydantic-ai Model  | Description                         |
+|--------------|--------------------| ------------------------------------|
+| Azure OpenAI | `AzureOpenAIModel` | Azure-hosted OpenAI models          |
+| OpenAI       | `OpenAIModel`      | OpenAI API direct                   |
+| Anthropic    | `AnthropicModel`   | Claude models                       |
+| Mistral      | `MistralModel`     | Mistral AI models                   |
+| Ollama       | `OllamaModel`      | Local Ollama models                 |
+| LM Studio    | `OpenAIModel`      | Local LM Studio (OpenAI-compatible) |
 
 ## Response Types
 
