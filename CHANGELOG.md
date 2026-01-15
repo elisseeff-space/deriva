@@ -6,7 +6,21 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
-## v0.6.7 - (January 15 2026)
+## v0.6.8 - PydanticAI Migration (Unreleased)
+
+### LLM Adapter Rewrite
+- **PydanticAI Integration**: Replaced custom REST provider implementations with PydanticAI library
+- **Code Reduction**: Same (or better) llm adapter with way less code, deleted entire `providers.py` 
+- **Native Structured Output**: PydanticAI handles validation and retry automatically
+- **Removed ClaudeCode Provider**: Use `anthropic` provider directly instead (CLI subprocess no longer supported)
+
+### Configuration
+- **Standard API Keys**: Added PydanticAI standard env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `AZURE_OPENAI_*`)
+- **Updated .env.example**: Removed `claudecode` provider, added Anthropic direct API configs
+
+---
+
+## v0.6.7 - Gotta save some Tokens (January 15 2026)
 
 ### Caching & Performance
 - **Graph Cache**: New `cache.py` in graph adapter with hash-based cache for expensive graph queries

@@ -11,7 +11,6 @@ from deriva.adapters.llm.models import (
     LiveResponse,
     LLMResponse,
     ResponseType,
-    StructuredOutputMixin,
 )
 
 
@@ -138,85 +137,6 @@ class TestLLMResponseTypeAlias:
         assert isinstance(response, BaseResponse)
 
 
-class TestStructuredOutputMixin:
-    """Tests for StructuredOutputMixin."""
-
-    def test_to_prompt_schema(self):
-        """Should generate prompt-friendly schema."""
-
-        class TestModel(StructuredOutputMixin):
-            name: str = Field(description="The name")
-            count: int = Field(description="The count")
-
-        schema = TestModel.to_prompt_schema()
-
-        assert '"name"' in schema
-        assert '"count"' in schema
-        assert "The name" in schema
-        assert "The count" in schema
-
-    def test_model_json_schema(self):
-        """Should generate valid JSON schema."""
-
-        class TestModel(StructuredOutputMixin):
-            name: str
-            value: int
-
-        schema = TestModel.model_json_schema()
-
-        assert schema["type"] == "object"
-        assert "name" in schema["properties"]
-        assert "value" in schema["properties"]
-        assert schema["properties"]["name"]["type"] == "string"
-        assert schema["properties"]["value"]["type"] == "integer"
-
-    def test_extra_forbid(self):
-        """Should reject extra fields."""
-
-        class StrictModel(StructuredOutputMixin):
-            name: str
-
-        with pytest.raises(Exception):  # Pydantic ValidationError
-            StrictModel.model_validate({"name": "test", "extra_field": "not allowed"})
-
-    def test_nested_objects_in_schema(self):
-        """Should handle nested objects in schema."""
-
-        class Inner(BaseModel):
-            value: str
-
-        class Outer(StructuredOutputMixin):
-            inner: Inner = Field(description="Nested object")
-
-        schema = Outer.to_prompt_schema()
-        # Should not crash and should include the field
-        assert '"inner"' in schema
-
-    def test_array_type_in_schema(self):
-        """Should handle array types in schema."""
-
-        class WithArray(StructuredOutputMixin):
-            items: list[str] = Field(description="List of items")
-
-        schema = WithArray.to_prompt_schema()
-        assert '"items"' in schema
-        assert "List of items" in schema
-
-    def test_enum_type_in_schema(self):
-        """Should handle enum types in schema."""
-        from enum import Enum
-
-        class Status(str, Enum):
-            ACTIVE = "active"
-            INACTIVE = "inactive"
-
-        class WithEnum(StructuredOutputMixin):
-            status: Status = Field(description="Current status")
-
-        schema = WithEnum.to_prompt_schema()
-        assert '"status"' in schema
-
-
 class TestBenchmarkModelConfig:
     """Tests for BenchmarkModelConfig dataclass."""
 
@@ -257,6 +177,24 @@ class TestBenchmarkModelConfig:
             model="llama2",
         )
         assert config.provider == "ollama"
+
+    def test_creates_with_mistral_provider(self):
+        """Should accept mistral provider."""
+        config = BenchmarkModelConfig(
+            name="test-mistral",
+            provider="mistral",
+            model="mistral-large",
+        )
+        assert config.provider == "mistral"
+
+    def test_creates_with_lmstudio_provider(self):
+        """Should accept lmstudio provider."""
+        config = BenchmarkModelConfig(
+            name="test-lmstudio",
+            provider="lmstudio",
+            model="local-model",
+        )
+        assert config.provider == "lmstudio"
 
     def test_rejects_invalid_provider(self):
         """Should raise ValueError for invalid provider."""
@@ -347,6 +285,15 @@ class TestBenchmarkModelConfig:
             model="llama2",
         )
         assert "localhost:11434" in config.get_api_url()
+
+    def test_get_api_url_mistral_default(self):
+        """Should return Mistral default URL."""
+        config = BenchmarkModelConfig(
+            name="test",
+            provider="mistral",
+            model="mistral-large",
+        )
+        assert "mistral.ai" in config.get_api_url()
 
     def test_get_api_url_azure_no_default(self):
         """Azure has no default URL (requires custom endpoint)."""

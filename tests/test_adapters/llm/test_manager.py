@@ -1,8 +1,7 @@
-"""Tests for LLM Manager."""
+"""Tests for LLM Manager with PydanticAI."""
 
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -18,8 +17,8 @@ from deriva.adapters.llm.models import (
     ConfigurationError,
     FailedResponse,
     LiveResponse,
-    ValidationError,
 )
+
 
 # =============================================================================
 # load_benchmark_models() Tests
@@ -134,40 +133,6 @@ class TestLoadBenchmarkModels:
 
         assert "my-custom-model" in result
 
-    def test_loads_structured_output_flag(self, monkeypatch):
-        """Should load STRUCTURED_OUTPUT flag from env vars."""
-        env_vars = {
-            "LLM_AZURE_GPT4_PROVIDER": "azure",
-            "LLM_AZURE_GPT4_MODEL": "gpt-4",
-            "LLM_AZURE_GPT4_URL": "https://example.azure.com",
-            "LLM_AZURE_GPT4_KEY": "sk-test-key",
-            "LLM_AZURE_GPT4_STRUCTURED_OUTPUT": "true",
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                result = load_benchmark_models()
-
-        assert "azure-gpt4" in result
-        assert result["azure-gpt4"].structured_output is True
-
-    def test_structured_output_defaults_to_false(self, monkeypatch):
-        """Should default structured_output to False when not set."""
-        env_vars = {
-            "LLM_AZURE_GPT4_PROVIDER": "azure",
-            "LLM_AZURE_GPT4_MODEL": "gpt-4",
-            "LLM_AZURE_GPT4_URL": "https://example.azure.com",
-            "LLM_AZURE_GPT4_KEY": "sk-test-key",
-            # No STRUCTURED_OUTPUT set
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                result = load_benchmark_models()
-
-        assert "azure-gpt4" in result
-        assert result["azure-gpt4"].structured_output is False
-
 
 # =============================================================================
 # LLMManager.__init__ Tests
@@ -207,8 +172,8 @@ class TestLLMManagerInit:
 
         assert manager.cache is not None
 
-    def test_init_creates_provider(self, tmp_path, monkeypatch):
-        """Should create the appropriate provider."""
+    def test_init_creates_pydantic_model(self, tmp_path, monkeypatch):
+        """Should create PydanticAI model."""
         env_vars = {
             "LLM_PROVIDER": "ollama",
             "LLM_OLLAMA_MODEL": "llama3",
@@ -219,8 +184,7 @@ class TestLLMManagerInit:
             with patch.dict("os.environ", env_vars, clear=True):
                 manager = LLMManager()
 
-        assert manager.provider is not None
-        assert manager.provider.name == "ollama"
+        assert manager._pydantic_model is not None
 
     def test_init_sets_default_values(self, tmp_path, monkeypatch):
         """Should set default values for optional config."""
@@ -337,23 +301,6 @@ class TestLLMManagerFromConfig:
                 with pytest.raises(ConfigurationError):
                     LLMManager.from_config(config, cache_dir=str(tmp_path / "cache"))
 
-    def test_from_config_passes_structured_output_flag(self, tmp_path, monkeypatch):
-        """Should pass structured_output flag from config to manager."""
-        config = BenchmarkModelConfig(
-            name="test-model",
-            provider="ollama",
-            model="llama3",
-            api_url="http://localhost:11434/api/chat",
-            structured_output=True,
-        )
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", {}, clear=True):
-                manager = LLMManager.from_config(config, cache_dir=str(tmp_path / "cache"))
-
-        assert manager.structured_output is True
-        assert manager.config["structured_output"] is True
-
 
 # =============================================================================
 # LLMManager._load_config_from_env Tests
@@ -443,6 +390,22 @@ class TestLoadConfigFromEnv:
         assert manager.config["provider"] == "lmstudio"
         assert "localhost:1234" in manager.config["api_url"]
 
+    def test_loads_mistral_provider_config(self, tmp_path, monkeypatch):
+        """Should load Mistral provider configuration."""
+        env_vars = {
+            "LLM_PROVIDER": "mistral",
+            "LLM_MISTRAL_API_KEY": "test-key",
+            "LLM_MISTRAL_MODEL": "mistral-large",
+            "LLM_CACHE_DIR": str(tmp_path / "cache"),
+        }
+
+        with patch("deriva.adapters.llm.manager.load_dotenv"):
+            with patch.dict("os.environ", env_vars, clear=True):
+                manager = LLMManager()
+
+        assert manager.config["provider"] == "mistral"
+        assert "mistral.ai" in manager.config["api_url"]
+
     def test_raises_for_unknown_provider(self, tmp_path, monkeypatch):
         """Should raise ConfigurationError for unknown provider."""
         env_vars = {
@@ -516,226 +479,7 @@ class TestLoadConfigFromEnv:
 
 
 # =============================================================================
-# LLMManager._validate_config Tests
-# =============================================================================
-
-
-class TestValidateConfig:
-    """Tests for _validate_config method."""
-
-    def test_passes_for_valid_config(self, tmp_path, monkeypatch):
-        """Should not raise for valid configuration."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                # Should not raise
-                manager = LLMManager()
-                assert manager is not None
-
-    def test_raises_for_missing_api_url(self, tmp_path, monkeypatch):
-        """Should raise ConfigurationError when api_url is missing."""
-        env_vars = {
-            "LLM_PROVIDER": "azure",
-            "LLM_AZURE_API_KEY": "test-key",
-            "LLM_AZURE_MODEL": "gpt-4",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                with pytest.raises(ConfigurationError, match="api_url"):
-                    LLMManager()
-
-
-# =============================================================================
-# LLMManager._validate_prompt Tests
-# =============================================================================
-
-
-class TestValidatePrompt:
-    """Tests for _validate_prompt method."""
-
-    def test_raises_for_empty_prompt(self, tmp_path, monkeypatch):
-        """Should raise ValidationError for empty prompt."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-
-        with pytest.raises(ValidationError):
-            manager._validate_prompt("")
-
-    def test_raises_for_whitespace_only_prompt(self, tmp_path, monkeypatch):
-        """Should raise ValidationError for whitespace-only prompt."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-
-        with pytest.raises(ValidationError):
-            manager._validate_prompt("   ")
-
-    def test_raises_for_none_prompt(self, tmp_path, monkeypatch):
-        """Should raise ValidationError for None prompt."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-
-        with pytest.raises(ValidationError):
-            manager._validate_prompt(None)  # type: ignore[arg-type]
-
-    def test_passes_for_valid_prompt(self, tmp_path, monkeypatch):
-        """Should not raise for valid prompt."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-
-        # Should not raise
-        manager._validate_prompt("Hello, world!")
-
-
-# =============================================================================
-# LLMManager._build_messages Tests
-# =============================================================================
-
-
-class TestBuildMessages:
-    """Tests for _build_messages method."""
-
-    def test_builds_user_message_only(self, tmp_path, monkeypatch):
-        """Should build message list with user message only."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-
-        messages = manager._build_messages("Hello")
-
-        assert len(messages) == 1
-        assert messages[0]["role"] == "user"
-        assert messages[0]["content"] == "Hello"
-
-    def test_builds_messages_with_system_prompt(self, tmp_path, monkeypatch):
-        """Should include system message when provided."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-
-        messages = manager._build_messages("Hello", system_prompt="You are helpful")
-
-        assert len(messages) == 2
-        assert messages[0]["role"] == "system"
-        assert messages[0]["content"] == "You are helpful"
-        assert messages[1]["role"] == "user"
-
-
-# =============================================================================
-# LLMManager._augment_prompt_for_schema Tests
-# =============================================================================
-
-
-class TestAugmentPromptForSchema:
-    """Tests for _augment_prompt_for_schema method."""
-
-    def test_returns_original_prompt_when_no_schema(self, tmp_path, monkeypatch):
-        """Should return original prompt when no schema provided."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-
-        result = manager._augment_prompt_for_schema("Hello")
-
-        assert result == "Hello"
-
-    def test_augments_with_raw_schema(self, tmp_path, monkeypatch):
-        """Should augment prompt with raw JSON schema."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-
-        schema = {"type": "object", "properties": {"name": {"type": "string"}}}
-        result = manager._augment_prompt_for_schema("Hello", schema=schema)
-
-        assert "Hello" in result
-        assert "JSON" in result
-        assert '"type": "object"' in result
-
-    def test_augments_with_response_model(self, tmp_path, monkeypatch):
-        """Should augment prompt with Pydantic model schema."""
-
-        class TestModel(BaseModel):
-            name: str
-            value: int
-
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-
-        result = manager._augment_prompt_for_schema("Hello", response_model=TestModel)
-
-        assert "Hello" in result
-        assert "JSON" in result
-        assert "name" in result
-
-
-# =============================================================================
-# LLMManager.query Tests
+# LLMManager.query Tests (with PydanticAI mocking)
 # =============================================================================
 
 
@@ -752,16 +496,15 @@ class TestQuery:
         }
 
         mock_result = MagicMock()
-        mock_result.content = "Hello back!"
-        mock_result.usage = {"total_tokens": 10}
-        mock_result.finish_reason = "stop"
+        mock_result.output = "Hello back!"
+        mock_result.usage = None
 
         with patch("deriva.adapters.llm.manager.load_dotenv"):
             with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-                manager.provider.complete = MagicMock(return_value=mock_result)  # type: ignore[method-assign]
-
-                response = manager.query("Hello")
+                with patch("deriva.adapters.llm.manager.Agent") as mock_agent_class:
+                    mock_agent_class.return_value.run_sync.return_value = mock_result
+                    manager = LLMManager()
+                    response = manager.query("Hello")
 
         assert isinstance(response, LiveResponse)
         assert response.content == "Hello back!"
@@ -785,7 +528,7 @@ class TestQuery:
         with patch("deriva.adapters.llm.manager.load_dotenv"):
             with patch.dict("os.environ", env_vars, clear=True):
                 manager = LLMManager()
-                manager.cache.get = MagicMock(return_value=cached_data)  # type: ignore[method-assign]
+                manager.cache.get = MagicMock(return_value=cached_data)
 
                 response = manager.query("Hello")
 
@@ -803,7 +546,6 @@ class TestQuery:
         with patch("deriva.adapters.llm.manager.load_dotenv"):
             with patch.dict("os.environ", env_vars, clear=True):
                 manager = LLMManager()
-
                 response = manager.query("")
 
         assert isinstance(response, FailedResponse)
@@ -823,73 +565,18 @@ class TestQuery:
         }
 
         mock_result = MagicMock()
-        mock_result.content = '{"message": "Hello!"}'
-        mock_result.usage = {"total_tokens": 10}
-        mock_result.finish_reason = "stop"
+        mock_result.output = ResponseModel(message="Hello!")
+        mock_result.usage = None
 
         with patch("deriva.adapters.llm.manager.load_dotenv"):
             with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-                manager.provider.complete = MagicMock(return_value=mock_result)  # type: ignore[method-assign]
-
-                response = manager.query("Hello", response_model=ResponseModel)
+                with patch("deriva.adapters.llm.manager.Agent") as mock_agent_class:
+                    mock_agent_class.return_value.run_sync.return_value = mock_result
+                    manager = LLMManager()
+                    response = manager.query("Hello", response_model=ResponseModel)
 
         assert isinstance(response, ResponseModel)
         assert response.message == "Hello!"
-
-    def test_query_retries_on_json_error(self, tmp_path, monkeypatch):
-        """Should retry when JSON parsing fails."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-            "LLM_NOCACHE": "true",
-            "LLM_MAX_RETRIES": "2",
-        }
-
-        mock_result_bad = MagicMock()
-        mock_result_bad.content = "not valid json"
-        mock_result_bad.usage = {"total_tokens": 10}
-        mock_result_bad.finish_reason = "stop"
-
-        mock_result_good = MagicMock()
-        mock_result_good.content = '{"key": "value"}'
-        mock_result_good.usage = {"total_tokens": 10}
-        mock_result_good.finish_reason = "stop"
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-                manager.provider.complete = MagicMock(side_effect=[mock_result_bad, mock_result_good])  # type: ignore[method-assign]
-
-                response = manager.query("Hello", schema={"type": "object"})
-
-        assert isinstance(response, LiveResponse)
-        assert '"key"' in response.content
-
-    def test_query_uses_custom_temperature(self, tmp_path, monkeypatch):
-        """Should use provided temperature override."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-            "LLM_NOCACHE": "true",
-        }
-
-        mock_result = MagicMock()
-        mock_result.content = "Response"
-        mock_result.usage = {"total_tokens": 10}
-        mock_result.finish_reason = "stop"
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-                manager.provider.complete = MagicMock(return_value=mock_result)  # type: ignore[method-assign]
-
-                manager.query("Hello", temperature=0.1)
-
-        call_args = manager.provider.complete.call_args
-        assert call_args.kwargs["temperature"] == 0.1
 
     def test_query_caches_successful_response(self, tmp_path, monkeypatch):
         """Should cache successful responses when caching enabled."""
@@ -900,56 +587,20 @@ class TestQuery:
         }
 
         mock_result = MagicMock()
-        mock_result.content = "Response"
-        mock_result.usage = {"total_tokens": 10}
-        mock_result.finish_reason = "stop"
+        mock_result.output = "Response"
+        mock_result.usage = None
 
         with patch("deriva.adapters.llm.manager.load_dotenv"):
             with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-                manager.cache.get = MagicMock(return_value=None)  # type: ignore[method-assign]
-                manager.cache.set_response = MagicMock()  # type: ignore[method-assign]
-                manager.provider.complete = MagicMock(return_value=mock_result)  # type: ignore[method-assign]
+                with patch("deriva.adapters.llm.manager.Agent") as mock_agent_class:
+                    mock_agent_class.return_value.run_sync.return_value = mock_result
+                    manager = LLMManager()
+                    manager.cache.get = MagicMock(return_value=None)
+                    manager.cache.set_response = MagicMock()
 
-                manager.query("Hello")
+                    manager.query("Hello")
 
         manager.cache.set_response.assert_called_once()
-
-    def test_query_skips_cached_error_and_retries(self, tmp_path, monkeypatch):
-        """Should skip cached errors and retry API call instead."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-            "LLM_NOCACHE": "true",
-        }
-
-        cached_error = {
-            "prompt": "Hello",
-            "model": "llama3",
-            "error": "Previous error",
-            "error_type": "APIError",
-            "is_error": True,
-        }
-
-        mock_result = MagicMock()
-        mock_result.content = "Fresh response"
-        mock_result.usage = {"total_tokens": 10}
-        mock_result.finish_reason = "stop"
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-                # Cache returns an error, but we should skip it and call API
-                manager.cache.get = MagicMock(return_value=cached_error)  # type: ignore[method-assign]
-                manager.provider.complete = MagicMock(return_value=mock_result)  # type: ignore[method-assign]
-
-                response = manager.query("Hello")
-
-        # Should have made a fresh API call instead of returning cached error
-        assert isinstance(response, LiveResponse)
-        assert response.content == "Fresh response"
-        manager.provider.complete.assert_called_once()
 
 
 # =============================================================================
@@ -985,7 +636,7 @@ class TestUtilityMethods:
         with patch("deriva.adapters.llm.manager.load_dotenv"):
             with patch.dict("os.environ", env_vars, clear=True):
                 manager = LLMManager()
-                manager.cache.clear_all = MagicMock()  # type: ignore[method-assign]
+                manager.cache.clear_all = MagicMock()
 
                 manager.clear_cache()
 
@@ -1004,7 +655,7 @@ class TestUtilityMethods:
         with patch("deriva.adapters.llm.manager.load_dotenv"):
             with patch.dict("os.environ", env_vars, clear=True):
                 manager = LLMManager()
-                manager.cache.get_cache_stats = MagicMock(return_value=mock_stats)  # type: ignore[method-assign]
+                manager.cache.get_cache_stats = MagicMock(return_value=mock_stats)
 
                 stats = manager.get_cache_stats()
 
@@ -1027,67 +678,3 @@ class TestUtilityMethods:
         assert "LLMManager" in repr_str
         assert "ollama" in repr_str
         assert "llama3" in repr_str
-
-
-# =============================================================================
-# LLMManager._cache_error Tests
-# =============================================================================
-
-
-class TestCacheError:
-    """Tests for _cache_error method."""
-
-    def test_cache_error_writes_file(self, tmp_path, monkeypatch):
-        """Should write error to cache file."""
-        cache_dir = tmp_path / "cache"
-        cache_dir.mkdir()
-
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(cache_dir),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-
-                manager._cache_error(
-                    cache_key="test-error-key",
-                    prompt="Test prompt",
-                    error="Test error",
-                    error_type="TestError",
-                )
-
-        cache_file = cache_dir / "test-error-key.json"
-        assert cache_file.exists()
-
-        with open(cache_file, encoding="utf-8") as f:
-            data = json.load(f)
-
-        assert data["is_error"] is True
-        assert data["error"] == "Test error"
-        assert data["error_type"] == "TestError"
-
-    def test_cache_error_handles_write_failure(self, tmp_path, monkeypatch, caplog):
-        """Should log warning when cache write fails."""
-        env_vars = {
-            "LLM_PROVIDER": "ollama",
-            "LLM_OLLAMA_MODEL": "llama3",
-            "LLM_CACHE_DIR": str(tmp_path / "cache"),
-        }
-
-        with patch("deriva.adapters.llm.manager.load_dotenv"):
-            with patch.dict("os.environ", env_vars, clear=True):
-                manager = LLMManager()
-                # Make cache_dir a file instead of directory to cause write error
-                manager.cache.cache_dir = tmp_path / "not_a_dir"
-                (tmp_path / "not_a_dir").write_text("fake file")
-
-                # Should not raise, just log warning
-                manager._cache_error(
-                    cache_key="test-key",
-                    prompt="Test",
-                    error="Error",
-                    error_type="TestError",
-                )

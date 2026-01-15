@@ -1,11 +1,15 @@
 """
 LLM Manager - A multi-provider LLM abstraction with caching and structured output.
 
+Uses PydanticAI for model-agnostic LLM interactions.
+
 Supports:
 - Azure OpenAI
 - OpenAI
 - Anthropic
 - Ollama
+- Mistral
+- LM Studio
 
 Example:
     from deriva.adapters.llm import LLMManager
@@ -27,9 +31,12 @@ Example:
 from __future__ import annotations
 
 from .cache import CacheManager, cached_llm_call
+from .manager import LLMManager
+from .model_registry import VALID_PROVIDERS, get_pydantic_ai_model
 from .models import (
     APIError,
     BaseResponse,
+    BenchmarkModelConfig,
     CachedResponse,
     CacheError,
     ConfigurationError,
@@ -38,24 +45,9 @@ from .models import (
     LLMError,
     LLMResponse,
     ResponseType,
-    StructuredOutputMixin,
     ValidationError,
 )
-from .providers import (
-    AnthropicProvider,
-    AzureOpenAIProvider,
-    BaseProvider,
-    CompletionResult,
-    LLMProvider,
-    LMStudioProvider,
-    OllamaProvider,
-    OpenAIProvider,
-    ProviderConfig,
-    ProviderError,
-    create_provider,
-)
 from .rate_limiter import RateLimitConfig, RateLimiter, get_default_rate_limit
-from .manager import LLMManager
 
 __all__ = [
     # Main service
@@ -67,20 +59,10 @@ __all__ = [
     "CachedResponse",
     "FailedResponse",
     "LLMResponse",
-    # Structured output
-    "StructuredOutputMixin",
-    # Providers
-    "LLMProvider",
-    "BaseProvider",
-    "AzureOpenAIProvider",
-    "OpenAIProvider",
-    "AnthropicProvider",
-    "OllamaProvider",
-    "LMStudioProvider",
-    "ProviderConfig",
-    "CompletionResult",
-    "ProviderError",
-    "create_provider",
+    # Configuration
+    "BenchmarkModelConfig",
+    "VALID_PROVIDERS",
+    "get_pydantic_ai_model",
     # Cache
     "CacheManager",
     "cached_llm_call",
@@ -96,4 +78,4 @@ __all__ = [
     "ValidationError",
 ]
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
