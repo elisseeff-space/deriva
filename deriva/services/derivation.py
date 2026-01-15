@@ -60,7 +60,7 @@ from deriva.modules.derivation.business_object import BusinessObjectDerivation
 from deriva.modules.derivation.business_process import BusinessProcessDerivation
 from deriva.modules.derivation.data_object import DataObjectDerivation
 from deriva.modules.derivation.device import DeviceDerivation
-from deriva.modules.derivation.element_base import PatternBasedDerivation
+from deriva.modules.derivation.element_base import ElementDerivationBase
 from deriva.modules.derivation.node import NodeDerivation
 from deriva.modules.derivation.refine import run_refine_step
 from deriva.modules.derivation.system_software import SystemSoftwareDerivation
@@ -68,7 +68,7 @@ from deriva.modules.derivation.technology_service import TechnologyServiceDeriva
 from deriva.services import config
 
 # Registry: element_type -> derivation class
-DERIVATION_REGISTRY: dict[str, type[PatternBasedDerivation]] = {
+DERIVATION_REGISTRY: dict[str, type[ElementDerivationBase]] = {
     "BusinessObject": BusinessObjectDerivation,
     "BusinessProcess": BusinessProcessDerivation,
     "BusinessActor": BusinessActorDerivation,
@@ -85,10 +85,10 @@ DERIVATION_REGISTRY: dict[str, type[PatternBasedDerivation]] = {
 }
 
 # Instance cache for reuse
-_DERIVATION_INSTANCES: dict[str, PatternBasedDerivation] = {}
+_DERIVATION_INSTANCES: dict[str, ElementDerivationBase] = {}
 
 
-def _get_derivation(element_type: str) -> PatternBasedDerivation | None:
+def _get_derivation(element_type: str) -> ElementDerivationBase | None:
     """Get or create a derivation instance for an element type."""
     if element_type not in DERIVATION_REGISTRY:
         return None

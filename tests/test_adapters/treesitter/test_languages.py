@@ -136,6 +136,7 @@ class TestTypeExtraction:
         sample = SAMPLES[language].get("class_inheritance")
         if not sample:
             pytest.skip(f"No inheritance sample for {language}")
+        assert sample is not None  # For type checker after pytest.skip
 
         source, name = sample[0], sample[1]
         types = manager.extract_types(source, language=language)

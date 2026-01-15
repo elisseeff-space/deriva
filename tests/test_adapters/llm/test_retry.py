@@ -44,15 +44,19 @@ class TestOnBackoff:
         def dummy_func():
             pass
 
-        details: Details = {
-            "target": dummy_func,
-            "args": (),
-            "kwargs": {},
-            "tries": 2,
-            "elapsed": 0.0,
-            "wait": 2.5,
-            "exception": ConnectionError("Connection refused"),
-        }
+        # Cast to Any because backoff adds 'exception' at runtime but it's not in the TypedDict
+        details = cast(
+            Details,
+            {
+                "target": dummy_func,
+                "args": (),
+                "kwargs": {},
+                "tries": 2,
+                "elapsed": 0.0,
+                "wait": 2.5,
+                "exception": ConnectionError("Connection refused"),
+            },
+        )
 
         on_backoff(details)
 
@@ -66,7 +70,7 @@ class TestOnBackoff:
 
         caplog.set_level(logging.WARNING)
 
-        on_backoff({})
+        on_backoff(cast(Any, {}))
 
         # Should still log without crashing
         assert "Retry 0" in caplog.text
@@ -84,11 +88,18 @@ class TestOnGiveup:
         def dummy_func():
             pass
 
-        details = {
-            "tries": 5,
-            "target": dummy_func,
-            "exception": TimeoutError("Request timed out"),
-        }
+        # Cast to Details because backoff adds 'exception' at runtime but it's not in the TypedDict
+        details = cast(
+            Details,
+            {
+                "target": dummy_func,
+                "args": (),
+                "kwargs": {},
+                "tries": 5,
+                "elapsed": 0.0,
+                "exception": TimeoutError("Request timed out"),
+            },
+        )
 
         on_giveup(details)
 
@@ -102,7 +113,7 @@ class TestOnGiveup:
 
         caplog.set_level(logging.ERROR)
 
-        on_giveup({})
+        on_giveup(cast(Any, {}))
 
         # Should still log without crashing
         assert "Giving up" in caplog.text

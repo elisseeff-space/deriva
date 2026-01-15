@@ -1,5 +1,7 @@
 """Tests for config_models module (pydantic-settings integration)."""
 
+from typing import Any
+
 import pytest
 from pydantic import ValidationError
 
@@ -17,13 +19,18 @@ from deriva.services.config_models import (
     PageRankConfig,
 )
 
+# Type alias to help with BaseSettings._env_file parameter which isn't in the type signature
+_Neo4jSettings: Any = Neo4jSettings
+_LLMSettings: Any = LLMSettings
+_DerivaSettings: Any = DerivaSettings
+
 
 class TestNeo4jSettings:
     """Tests for Neo4jSettings."""
 
     def test_default_values(self):
         """Should have sensible defaults."""
-        settings = Neo4jSettings(_env_file=None)
+        settings = _Neo4jSettings(_env_file=None)
         assert settings.uri == "bolt://localhost:7687"
         assert settings.database == "neo4j"
         assert settings.encrypted is False
@@ -33,7 +40,7 @@ class TestNeo4jSettings:
         """Should load values from environment."""
         monkeypatch.setenv("NEO4J_URI", "bolt://custom:7687")
         monkeypatch.setenv("NEO4J_DATABASE", "test_db")
-        settings = Neo4jSettings(_env_file=None)
+        settings = _Neo4jSettings(_env_file=None)
         assert settings.uri == "bolt://custom:7687"
         assert settings.database == "test_db"
 
@@ -43,7 +50,7 @@ class TestLLMSettings:
 
     def test_default_values(self):
         """Should have sensible defaults."""
-        settings = LLMSettings(_env_file=None)
+        settings = _LLMSettings(_env_file=None)
         assert settings.temperature == 0.6
         assert settings.max_retries == 3
         assert settings.timeout == 60
@@ -52,14 +59,14 @@ class TestLLMSettings:
     def test_temperature_validation(self, monkeypatch):
         """Should validate temperature range."""
         monkeypatch.setenv("LLM_TEMPERATURE", "1.5")
-        settings = LLMSettings(_env_file=None)
+        settings = _LLMSettings(_env_file=None)
         assert settings.temperature == 1.5
 
     def test_loads_from_env(self, monkeypatch):
         """Should load values from environment."""
         monkeypatch.setenv("LLM_DEFAULT_MODEL", "test-model")
         monkeypatch.setenv("LLM_TEMPERATURE", "0.3")
-        settings = LLMSettings(_env_file=None)
+        settings = _LLMSettings(_env_file=None)
         assert settings.default_model == "test-model"
         assert settings.temperature == 0.3
 
@@ -69,12 +76,12 @@ class TestDerivaSettings:
 
     def test_default_values(self):
         """Should have sensible defaults."""
-        settings = DerivaSettings(_env_file=None)
+        settings = _DerivaSettings(_env_file=None)
         assert settings.repository_workspace_dir == "workspace/repositories"
 
     def test_nested_settings(self):
         """Should provide access to nested settings."""
-        settings = DerivaSettings(_env_file=None)
+        settings = _DerivaSettings(_env_file=None)
         assert settings.neo4j.uri == "bolt://localhost:7687"
         assert settings.llm.temperature == 0.6
         assert settings.graph.namespace == "Graph"
@@ -106,7 +113,7 @@ class TestExtractionConfigModel:
         assert config.extraction_method == "ast"
 
         with pytest.raises(ValidationError):
-            ExtractionConfigModel(node_type="Test", extraction_method="invalid")
+            ExtractionConfigModel(node_type="Test", extraction_method="invalid")  # type: ignore[arg-type]
 
 
 class TestDerivationConfigModel:
@@ -127,7 +134,7 @@ class TestDerivationConfigModel:
     def test_validates_phase(self):
         """Should validate phase values."""
         with pytest.raises(ValidationError):
-            DerivationConfigModel(step_name="Test", phase="invalid_phase")
+            DerivationConfigModel(step_name="Test", phase="invalid_phase")  # type: ignore[arg-type]
 
 
 class TestFileTypeModel:
@@ -217,7 +224,7 @@ class TestBenchmarkModelConfigModel:
         with pytest.raises(ValidationError):
             BenchmarkModelConfigModel(
                 name="test",
-                provider="invalid_provider",
+                provider="invalid_provider",  # type: ignore[arg-type]
                 model="model",
             )
 
@@ -225,7 +232,7 @@ class TestBenchmarkModelConfigModel:
         """Should normalize provider to lowercase."""
         config = BenchmarkModelConfigModel(
             name="test",
-            provider="OpenAI",
+            provider="OpenAI",  # type: ignore[arg-type]  # Tests case normalization
             model="gpt-4",
         )
         assert config.provider == "openai"

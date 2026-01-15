@@ -29,18 +29,18 @@ class TestMethodSchema:
 
     def test_schema_has_methods_array(self):
         """Should define methods array in schema."""
-        assert "properties" in METHOD_SCHEMA["schema"]
-        assert "methods" in METHOD_SCHEMA["schema"]["properties"]
+        assert "properties" in METHOD_SCHEMA["schema"]  # type: ignore[operator]
+        assert "methods" in METHOD_SCHEMA["schema"]["properties"]  # type: ignore[operator]
 
     def test_methods_item_has_required_fields(self):
         """Method items should have required fields."""
-        method_schema = METHOD_SCHEMA["schema"]["properties"]["methods"]["items"]
-        required = method_schema["required"]
+        method_schema = METHOD_SCHEMA["schema"]["properties"]["methods"]["items"]  # type: ignore[index]
+        required = method_schema["required"]  # type: ignore[index]
 
-        assert "methodName" in required
-        assert "returnType" in required
-        assert "visibility" in required
-        assert "parameters" in required
+        assert "methodName" in required  # type: ignore[operator]
+        assert "returnType" in required  # type: ignore[operator]
+        assert "visibility" in required  # type: ignore[operator]
+        assert "parameters" in required  # type: ignore[operator]
 
 
 class TestBuildExtractionPrompt:

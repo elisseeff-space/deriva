@@ -695,7 +695,7 @@ class TestPipelineSessionExport:
         connected_session._mock_archimate.get_relationships.return_value = [mock_rel]
 
         output_path = str(tmp_path / "model.xml")
-        with patch("deriva.services.session.ArchiMateXMLExporter") as mock_exporter:
+        with patch("deriva.services.session.ArchiMateXMLExporter"):
             result = connected_session.export_model(output_path=output_path)
 
         assert result["success"] is True
@@ -726,8 +726,8 @@ class TestPipelineSessionConfigMethods:
             patch("deriva.services.session.config") as mock_config,
         ):
             session = PipelineSession(auto_connect=True)
-            session._mock_engine = mock_db.return_value
-            session._mock_config = mock_config
+            session._mock_engine = mock_db.return_value  # type: ignore[attr-defined]
+            session._mock_config = mock_config  # type: ignore[attr-defined]
             yield session
 
     def test_list_steps_delegates_to_config(self, connected_session):

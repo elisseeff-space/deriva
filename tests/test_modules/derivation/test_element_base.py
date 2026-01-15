@@ -225,7 +225,7 @@ class TestPatternBasedDerivation:
         derivation = ConcretePatternDerivation()
 
         result = derivation.matches_patterns(
-            name=None,
+            name=None,  # type: ignore[arg-type]  # Testing None handling
             include_patterns={"service"},
             exclude_patterns=set(),
         )
