@@ -232,7 +232,7 @@ def assert_error_contains(result, message):
         from tests.conftest import assert_error_contains
         assert_error_contains(result, "Missing required")
     """
-    assert result["success"] is False, f"Expected failure, got success"
+    assert result["success"] is False, "Expected failure, got success"
     errors = result.get("errors", [])
     assert any(message in err for err in errors), f"Expected '{message}' in errors: {errors}"
 

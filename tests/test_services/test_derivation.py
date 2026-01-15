@@ -9,7 +9,6 @@ import pytest
 from deriva.modules.derivation.prep import EnrichmentResult
 from deriva.services import derivation
 
-
 # =============================================================================
 # FIXTURES
 # =============================================================================

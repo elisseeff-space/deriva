@@ -153,9 +153,7 @@ class TestGenerateMethod:
             },
         ]
         # Order: stats (cache lookup) -> enrichments -> stats (cache store) -> candidates
-        mock_manager.query.side_effect = [
-            stats_results, enrichment_results, stats_results, candidate_results
-        ]
+        mock_manager.query.side_effect = [stats_results, enrichment_results, stats_results, candidate_results]
 
         # Setup LLM response with valid element
         mock_llm = MagicMock()
@@ -220,9 +218,7 @@ class TestGenerateMethod:
         ]
         candidate_results = [{"id": "n1", "name": "Test", "labels": [], "properties": {}}]
         # Order: stats (cache lookup) -> enrichments -> stats (cache store) -> candidates
-        mock_manager.query.side_effect = [
-            stats_results, enrichment_results, stats_results, candidate_results
-        ]
+        mock_manager.query.side_effect = [stats_results, enrichment_results, stats_results, candidate_results]
 
         # LLM throws exception
         failing_llm = MagicMock()
@@ -279,9 +275,7 @@ class TestGenerateMethod:
         ]
         candidate_results = [{"id": "n1", "name": "Test", "labels": [], "properties": {}}]
         # Order: stats (cache lookup) -> enrichments -> stats (cache store) -> candidates
-        mock_manager.query.side_effect = [
-            stats_results, enrichment_results, stats_results, candidate_results
-        ]
+        mock_manager.query.side_effect = [stats_results, enrichment_results, stats_results, candidate_results]
 
         # LLM returns invalid JSON
         invalid_llm = MagicMock()

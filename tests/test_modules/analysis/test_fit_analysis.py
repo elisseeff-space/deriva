@@ -236,11 +236,7 @@ class TestFindSimilarNames:
         pairs = _find_similar_names(names, threshold=0.8)
 
         assert len(pairs) >= 1
-        assert any(
-            ("UserService" in p and "user_service" in p)
-            or ("user_service" in p and "UserService" in p)
-            for p in pairs
-        )
+        assert any(("UserService" in p and "user_service" in p) or ("user_service" in p and "UserService" in p) for p in pairs)
 
     def test_ignores_exact_duplicates(self):
         """Should skip exact case-insensitive duplicates."""
@@ -296,9 +292,7 @@ class TestCreateFitAnalysis:
         """Should produce 'GOOD FIT' message when well calibrated."""
         # Create a scenario with good fit (similar element counts, good precision/recall)
         derived = [{"type": "ApplicationComponent", "name": f"Svc{i}"} for i in range(5)]
-        reference = [
-            make_reference(f"ref{i}", f"Ref{i}", "ApplicationComponent") for i in range(5)
-        ]
+        reference = [make_reference(f"ref{i}", f"Ref{i}", "ApplicationComponent") for i in range(5)]
         semantic = make_semantic_report(precision=0.9, recall=0.9)
 
         result = create_fit_analysis(

@@ -47,25 +47,25 @@ if TYPE_CHECKING:
     from deriva.common.types import ProgressReporter, RunLoggerProtocol
 from deriva.adapters.graph import GraphManager
 from deriva.modules.derivation import prep
+from deriva.modules.derivation.application_component import ApplicationComponentDerivation
+from deriva.modules.derivation.application_interface import ApplicationInterfaceDerivation
+from deriva.modules.derivation.application_service import ApplicationServiceDerivation
 from deriva.modules.derivation.base import derive_consolidated_relationships
-from deriva.modules.derivation.element_base import PatternBasedDerivation
-from deriva.modules.derivation.refine import run_refine_step
-from deriva.services import config
+from deriva.modules.derivation.business_actor import BusinessActorDerivation
+from deriva.modules.derivation.business_event import BusinessEventDerivation
+from deriva.modules.derivation.business_function import BusinessFunctionDerivation
 
 # Derivation class imports
 from deriva.modules.derivation.business_object import BusinessObjectDerivation
 from deriva.modules.derivation.business_process import BusinessProcessDerivation
-from deriva.modules.derivation.business_actor import BusinessActorDerivation
-from deriva.modules.derivation.business_event import BusinessEventDerivation
-from deriva.modules.derivation.business_function import BusinessFunctionDerivation
-from deriva.modules.derivation.application_component import ApplicationComponentDerivation
-from deriva.modules.derivation.application_service import ApplicationServiceDerivation
-from deriva.modules.derivation.application_interface import ApplicationInterfaceDerivation
 from deriva.modules.derivation.data_object import DataObjectDerivation
-from deriva.modules.derivation.technology_service import TechnologyServiceDerivation
-from deriva.modules.derivation.node import NodeDerivation
 from deriva.modules.derivation.device import DeviceDerivation
+from deriva.modules.derivation.element_base import PatternBasedDerivation
+from deriva.modules.derivation.node import NodeDerivation
+from deriva.modules.derivation.refine import run_refine_step
 from deriva.modules.derivation.system_software import SystemSoftwareDerivation
+from deriva.modules.derivation.technology_service import TechnologyServiceDerivation
+from deriva.services import config
 
 # Registry: element_type -> derivation class
 DERIVATION_REGISTRY: dict[str, type[PatternBasedDerivation]] = {

@@ -67,7 +67,9 @@ class BenchmarkModelConfig:
     def __post_init__(self):
         """Validate provider."""
         if self.provider not in VALID_PROVIDERS:
-            raise ValueError(f"Invalid provider: {self.provider}. Must be one of {VALID_PROVIDERS}")
+            raise ValueError(
+                f"Invalid provider: {self.provider}. Must be one of {VALID_PROVIDERS}"
+            )
 
     def get_api_key(self) -> str | None:
         """Get API key from direct value or environment variable."""

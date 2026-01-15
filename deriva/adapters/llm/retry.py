@@ -129,7 +129,10 @@ def retry_on_rate_limit(
 
         # Add PydanticAI rate limit exception if available
         if hasattr(pai_exceptions, "RateLimitError"):
-            rate_limit_exceptions = (*rate_limit_exceptions, pai_exceptions.RateLimitError)
+            rate_limit_exceptions = (
+                *rate_limit_exceptions,
+                pai_exceptions.RateLimitError,
+            )
     except ImportError:
         rate_limit_exceptions = (ConnectionError, TimeoutError)
 

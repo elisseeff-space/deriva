@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 
 @lru_cache
-def get_settings() -> "DerivaSettings":
+def get_settings() -> DerivaSettings:
     """
     Get cached application settings from environment.
 
@@ -56,6 +56,7 @@ def get_settings() -> "DerivaSettings":
     from deriva.services.config_models import DerivaSettings
 
     return DerivaSettings()
+
 
 # =============================================================================
 # Type Definitions

@@ -4,15 +4,13 @@ import pytest
 from pydantic import ValidationError
 
 from deriva.services.config_models import (
-    ArchimateSettings,
     BenchmarkModelConfigModel,
     ConfidenceThresholds,
+    DerivaSettings,
     DerivationConfigModel,
     DerivationLimits,
-    DerivaSettings,
     ExtractionConfigModel,
     FileTypeModel,
-    GraphSettings,
     LLMSettings,
     LouvainConfig,
     Neo4jSettings,
