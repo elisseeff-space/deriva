@@ -291,7 +291,12 @@ class TestOpenAIProvider:
         call_args = mock_post.call_args
         body = call_args.kwargs["json"]
         assert body["response_format"]["type"] == "json_schema"
-        assert body["response_format"]["json_schema"] == test_schema
+        # OpenAI provider normalizes schema: adds strict=True and additionalProperties=false
+        json_schema = body["response_format"]["json_schema"]
+        assert json_schema["name"] == "test_response"
+        assert json_schema["strict"] is True
+        assert json_schema["schema"]["type"] == "object"
+        assert json_schema["schema"]["additionalProperties"] is False
 
 
 class TestAnthropicProvider:

@@ -33,6 +33,55 @@ VALID_PROVIDERS = frozenset(
     {"azure", "openai", "anthropic", "ollama", "claudecode", "mistral", "lmstudio"}
 )
 
+
+def _add_additional_properties_false(schema: dict[str, Any]) -> dict[str, Any]:
+    """
+    Recursively add additionalProperties: false to all object types in a JSON schema.
+
+    Anthropic's structured output API requires this for all object types.
+
+    Args:
+        schema: JSON schema dict
+
+    Returns:
+        Modified schema with additionalProperties: false on all objects
+    """
+    if not isinstance(schema, dict):
+        return schema
+
+    result = schema.copy()
+
+    # If this is an object type, add additionalProperties: false
+    if result.get("type") == "object":
+        result["additionalProperties"] = False
+
+    # Recursively process properties
+    if "properties" in result:
+        result["properties"] = {
+            k: _add_additional_properties_false(v)
+            for k, v in result["properties"].items()
+        }
+
+    # Recursively process items (for arrays)
+    if "items" in result:
+        result["items"] = _add_additional_properties_false(result["items"])
+
+    # Recursively process $defs (Pydantic puts nested models here)
+    if "$defs" in result:
+        result["$defs"] = {
+            k: _add_additional_properties_false(v) for k, v in result["$defs"].items()
+        }
+
+    # Recursively process anyOf, oneOf, allOf
+    for key in ("anyOf", "oneOf", "allOf"):
+        if key in result:
+            result[key] = [
+                _add_additional_properties_false(item) for item in result[key]
+            ]
+
+    return result
+
+
 __all__ = [
     "VALID_PROVIDERS",
     "ProviderConfig",
@@ -314,9 +363,17 @@ class OpenAIProvider(BaseProvider):
 
         if json_schema:
             # Use structured output with strict schema enforcement
+            # Handle both wrapped format (with name/schema) and raw JSON schema
+            raw_schema = json_schema.get("schema", json_schema)
+            # OpenAI requires additionalProperties: false on all object types
+            fixed_schema = _add_additional_properties_false(raw_schema)
             body["response_format"] = {
                 "type": "json_schema",
-                "json_schema": json_schema,
+                "json_schema": {
+                    "name": json_schema.get("name", "response"),
+                    "strict": json_schema.get("strict", True),
+                    "schema": fixed_schema,
+                },
             }
         elif json_mode:
             body["response_format"] = {"type": "json_object"}
@@ -386,9 +443,13 @@ class AnthropicProvider(BaseProvider):
 
         # Anthropic uses output_format (not response_format)
         if json_schema:
+            # Extract raw schema (handle both wrapped and raw formats)
+            raw_schema = json_schema.get("schema", json_schema)
+            # Anthropic requires additionalProperties: false on all object types
+            fixed_schema = _add_additional_properties_false(raw_schema)
             body["output_format"] = {
                 "type": "json_schema",
-                "schema": json_schema.get("schema", json_schema),
+                "schema": fixed_schema,
             }
 
         response = self._make_request(headers, body)

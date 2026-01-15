@@ -1428,3 +1428,346 @@ class TestCmdRun:
         assert result == 0
         output = capsys.readouterr().out
         assert "LLM disabled" in output
+
+
+# =============================================================================
+# Benchmark Commands
+# =============================================================================
+
+from deriva.cli.cli import (
+    cmd_benchmark_analyze,
+    cmd_benchmark_deviations,
+    cmd_benchmark_list,
+    cmd_benchmark_models,
+    cmd_benchmark_run,
+)
+
+
+class TestCmdBenchmarkRun:
+    """Tests for cmd_benchmark_run command."""
+
+    @patch("deriva.cli.cli.create_benchmark_progress_reporter")
+    @patch("deriva.cli.cli.PipelineSession")
+    def test_benchmark_run_success(self, mock_session_class, mock_progress, capsys):
+        """Should run benchmark successfully."""
+        mock_session = MagicMock()
+        mock_result = MagicMock()
+        mock_result.session_id = "bench_123"
+        mock_result.runs_completed = 3
+        mock_result.runs_failed = 0
+        mock_result.duration_seconds = 120.5
+        mock_result.ocel_path = "workspace/benchmarks/bench_123/ocel.json"
+        mock_result.success = True
+        mock_result.errors = []
+        mock_session.run_benchmark.return_value = mock_result
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_reporter = MagicMock()
+        mock_progress.return_value = mock_reporter
+        mock_reporter.__enter__ = MagicMock(return_value=mock_reporter)
+        mock_reporter.__exit__ = MagicMock(return_value=False)
+
+        args = argparse.Namespace(
+            repos="repo1,repo2",
+            models="gpt4,claude",
+            runs=3,
+            stages=None,
+            description="Test benchmark",
+            verbose=False,
+            quiet=False,
+            no_cache=False,
+            no_export_models=False,
+            no_clear=False,
+            bench_hash=False,
+            defer_relationships=False,
+            per_repo=False,
+            nocache_configs=None,
+        )
+        result = cmd_benchmark_run(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "BENCHMARK COMPLETE" in output
+        assert "bench_123" in output
+        mock_session.run_benchmark.assert_called_once()
+
+    @patch("deriva.cli.cli.create_benchmark_progress_reporter")
+    @patch("deriva.cli.cli.PipelineSession")
+    def test_benchmark_run_with_errors(self, mock_session_class, mock_progress, capsys):
+        """Should return error code when benchmark has failures."""
+        mock_session = MagicMock()
+        mock_result = MagicMock()
+        mock_result.session_id = "bench_fail"
+        mock_result.runs_completed = 2
+        mock_result.runs_failed = 1
+        mock_result.duration_seconds = 60.0
+        mock_result.ocel_path = "workspace/benchmarks/bench_fail/ocel.json"
+        mock_result.success = False
+        mock_result.errors = ["Run 3 failed: timeout"]
+        mock_session.run_benchmark.return_value = mock_result
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_reporter = MagicMock()
+        mock_progress.return_value = mock_reporter
+        mock_reporter.__enter__ = MagicMock(return_value=mock_reporter)
+        mock_reporter.__exit__ = MagicMock(return_value=False)
+
+        args = argparse.Namespace(
+            repos="repo1",
+            models="gpt4",
+            runs=3,
+            stages=None,
+            description="",
+            verbose=False,
+            quiet=False,
+            no_cache=False,
+            no_export_models=False,
+            no_clear=False,
+            bench_hash=False,
+            defer_relationships=False,
+            per_repo=False,
+            nocache_configs=None,
+        )
+        result = cmd_benchmark_run(args)
+
+        assert result == 1
+        output = capsys.readouterr().out
+        assert "Errors" in output
+        assert "timeout" in output
+
+    @patch("deriva.cli.cli.create_benchmark_progress_reporter")
+    @patch("deriva.cli.cli.PipelineSession")
+    def test_benchmark_run_per_repo_mode(self, mock_session_class, mock_progress, capsys):
+        """Should show per-repo mode in output."""
+        mock_session = MagicMock()
+        mock_result = MagicMock()
+        mock_result.session_id = "bench_per_repo"
+        mock_result.runs_completed = 6
+        mock_result.runs_failed = 0
+        mock_result.duration_seconds = 200.0
+        mock_result.ocel_path = "path/ocel.json"
+        mock_result.success = True
+        mock_result.errors = []
+        mock_session.run_benchmark.return_value = mock_result
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_reporter = MagicMock()
+        mock_progress.return_value = mock_reporter
+        mock_reporter.__enter__ = MagicMock(return_value=mock_reporter)
+        mock_reporter.__exit__ = MagicMock(return_value=False)
+
+        args = argparse.Namespace(
+            repos="repo1,repo2",
+            models="gpt4",
+            runs=3,
+            stages=None,
+            description="",
+            verbose=False,
+            quiet=False,
+            no_cache=False,
+            no_export_models=False,
+            no_clear=False,
+            bench_hash=False,
+            defer_relationships=False,
+            per_repo=True,
+            nocache_configs=None,
+        )
+        result = cmd_benchmark_run(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "per-repo" in output
+        assert "Total runs: 6" in output
+
+
+class TestCmdBenchmarkList:
+    """Tests for cmd_benchmark_list command."""
+
+    @patch("deriva.cli.cli.PipelineSession")
+    def test_benchmark_list_shows_sessions(self, mock_session_class, capsys):
+        """Should list benchmark sessions."""
+        mock_session = MagicMock()
+        mock_session.list_benchmarks.return_value = [
+            {
+                "session_id": "bench_001",
+                "status": "completed",
+                "started_at": "2024-01-01T10:00:00",
+                "description": "Test run",
+            },
+            {
+                "session_id": "bench_002",
+                "status": "failed",
+                "started_at": "2024-01-02T10:00:00",
+                "description": "",
+            },
+        ]
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        args = argparse.Namespace(limit=10)
+        result = cmd_benchmark_list(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "BENCHMARK SESSIONS" in output
+        assert "bench_001" in output
+        assert "bench_002" in output
+        assert "completed" in output
+        assert "failed" in output
+
+    @patch("deriva.cli.cli.PipelineSession")
+    def test_benchmark_list_empty(self, mock_session_class, capsys):
+        """Should show message when no sessions found."""
+        mock_session = MagicMock()
+        mock_session.list_benchmarks.return_value = []
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        args = argparse.Namespace(limit=10)
+        result = cmd_benchmark_list(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "No benchmark sessions found" in output
+
+
+class TestCmdBenchmarkModels:
+    """Tests for cmd_benchmark_models command."""
+
+    @patch("deriva.cli.cli.PipelineSession")
+    def test_benchmark_models_lists_configs(self, mock_session_class, capsys):
+        """Should list available model configurations."""
+        from deriva.adapters.llm.models import BenchmarkModelConfig
+
+        mock_session = MagicMock()
+        mock_session.list_benchmark_models.return_value = {
+            "openai-gpt4": BenchmarkModelConfig(
+                name="openai-gpt4",
+                provider="openai",
+                model="gpt-4",
+                api_key_env="OPENAI_API_KEY",
+            ),
+            "anthropic-claude": BenchmarkModelConfig(
+                name="anthropic-claude",
+                provider="anthropic",
+                model="claude-3-sonnet",
+                api_key_env="ANTHROPIC_API_KEY",
+            ),
+        }
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        args = argparse.Namespace()
+        result = cmd_benchmark_models(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "openai-gpt4" in output
+        assert "anthropic-claude" in output
+        assert "gpt-4" in output or "openai" in output
+
+    @patch("deriva.cli.cli.PipelineSession")
+    def test_benchmark_models_empty(self, mock_session_class, capsys):
+        """Should show message when no models configured."""
+        mock_session = MagicMock()
+        mock_session.list_benchmark_models.return_value = {}
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        args = argparse.Namespace()
+        result = cmd_benchmark_models(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "No benchmark model" in output
+
+
+class TestCmdBenchmarkAnalyze:
+    """Tests for cmd_benchmark_analyze command."""
+
+    @patch("deriva.cli.cli.PipelineSession")
+    def test_benchmark_analyze_success(self, mock_session_class, capsys):
+        """Should analyze benchmark session."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_analyzer = MagicMock()
+        mock_analyzer.session_id = "bench_123"
+        mock_analyzer.compute_intra_model_consistency.return_value = {"gpt4": {"score": 0.95}}
+        mock_analyzer.compute_inter_model_consistency.return_value = {"overall_agreement": 0.85}
+        mock_analyzer.localize_inconsistencies.return_value = []
+        mock_session.analyze_benchmark.return_value = mock_analyzer
+
+        args = argparse.Namespace(
+            session_id="bench_123",
+            output=None,
+            format="json",
+        )
+        result = cmd_benchmark_analyze(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "ANALYZING BENCHMARK" in output or "bench_123" in output
+
+    @patch("deriva.cli.cli.PipelineSession")
+    def test_benchmark_analyze_not_found(self, mock_session_class, capsys):
+        """Should handle session not found."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+        mock_session.analyze_benchmark.side_effect = ValueError("Session not found")
+
+        args = argparse.Namespace(
+            session_id="nonexistent",
+            output=None,
+            format="json",
+        )
+        result = cmd_benchmark_analyze(args)
+
+        assert result == 1
+        output = capsys.readouterr().out
+        assert "Error" in output
+
+
+class TestCmdBenchmarkDeviations:
+    """Tests for cmd_benchmark_deviations command."""
+
+    @patch("deriva.cli.cli.PipelineSession")
+    def test_benchmark_deviations_success(self, mock_session_class, capsys):
+        """Should analyze config deviations."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_report = MagicMock()
+        mock_report.total_runs = 3
+        mock_report.total_deviations = 5
+        mock_report.overall_consistency = 0.85
+        mock_report.deviations = []
+
+        mock_analyzer = MagicMock()
+        mock_analyzer.analyze.return_value = mock_report
+        mock_session.analyze_config_deviations.return_value = mock_analyzer
+
+        args = argparse.Namespace(
+            session_id="bench_123",
+            sort_by="deviation_count",
+            output=None,
+        )
+        result = cmd_benchmark_deviations(args)
+
+        assert result == 0
+        output = capsys.readouterr().out
+        assert "bench_123" in output
+
+    @patch("deriva.cli.cli.PipelineSession")
+    def test_benchmark_deviations_not_found(self, mock_session_class, capsys):
+        """Should handle session not found."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+        mock_session.analyze_config_deviations.side_effect = ValueError("Session not found")
+
+        args = argparse.Namespace(
+            session_id="nonexistent",
+            sort_by="deviation_count",
+            output=None,
+        )
+        result = cmd_benchmark_deviations(args)
+
+        assert result == 1
+        output = capsys.readouterr().out
+        assert "Error" in output
