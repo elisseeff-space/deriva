@@ -726,3 +726,498 @@ class TestFiletypeCommands:
 
         assert result.exit_code == 0
         assert "FILE TYPE STATISTICS" in result.stdout
+
+
+class TestBenchmarkAnalyzeCommand:
+    """Tests for benchmark analyze command."""
+
+    @patch("deriva.cli.commands.benchmark.PipelineSession")
+    def test_analyze_invalid_format(self, mock_session_class):
+        """Should reject invalid format."""
+        result = runner.invoke(app, ["benchmark", "analyze", "session_123", "-f", "xml"])
+
+        assert result.exit_code == 1
+        assert "format must be" in result.output
+
+    @patch("deriva.cli.commands.benchmark.PipelineSession")
+    def test_analyze_session_not_found(self, mock_session_class):
+        """Should handle session not found error."""
+        mock_session = MagicMock()
+        mock_session.analyze_benchmark.side_effect = ValueError("Session not found")
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["benchmark", "analyze", "nonexistent"])
+
+        assert result.exit_code == 1
+        assert "Session not found" in result.output
+
+    @patch("deriva.cli.commands.benchmark._get_run_stats_from_ocel")
+    @patch("deriva.cli.commands.benchmark.PipelineSession")
+    def test_analyze_success(self, mock_session_class, mock_get_stats):
+        """Should analyze benchmark successfully."""
+        mock_session = MagicMock()
+        mock_analyzer = MagicMock()
+
+        # Mock summary with all required attributes
+        mock_summary = MagicMock()
+        mock_summary.intra_model = []
+        mock_summary.inter_model = []
+        mock_summary.localization.hotspots = []
+
+        mock_analyzer.compute_full_analysis.return_value = mock_summary
+        mock_analyzer.export_summary.return_value = "output.json"
+        mock_session.analyze_benchmark.return_value = mock_analyzer
+        mock_session_class.return_value.__enter__.return_value = mock_session
+        mock_get_stats.return_value = {}
+
+        result = runner.invoke(app, ["benchmark", "analyze", "session_123"])
+
+        assert result.exit_code == 0
+        assert "ANALYZING BENCHMARK" in result.stdout
+
+    @patch("deriva.cli.commands.benchmark._get_run_stats_from_ocel")
+    @patch("deriva.cli.commands.benchmark.PipelineSession")
+    def test_analyze_with_intra_model_data(self, mock_session_class, mock_get_stats):
+        """Should display intra-model consistency data."""
+        mock_session = MagicMock()
+        mock_analyzer = MagicMock()
+
+        # Mock intra-model data
+        mock_intra = MagicMock()
+        mock_intra.model = "gpt4"
+        mock_intra.stable_edges = ["e1", "e2"]
+        mock_intra.unstable_edges = ["e3"]
+
+        mock_summary = MagicMock()
+        mock_summary.intra_model = [mock_intra]
+        mock_summary.inter_model = []
+        mock_summary.localization.hotspots = []
+
+        mock_analyzer.compute_full_analysis.return_value = mock_summary
+        mock_analyzer.export_summary.return_value = "output.json"
+        mock_session.analyze_benchmark.return_value = mock_analyzer
+        mock_session_class.return_value.__enter__.return_value = mock_session
+        mock_get_stats.return_value = {"gpt4": [(100, 50), (110, 55)]}
+
+        result = runner.invoke(app, ["benchmark", "analyze", "session_123"])
+
+        assert result.exit_code == 0
+        assert "INTRA-MODEL CONSISTENCY" in result.stdout
+
+
+class TestBenchmarkDeviationsCommand:
+    """Tests for benchmark deviations command."""
+
+    def test_deviations_invalid_sort(self):
+        """Should reject invalid sort-by value."""
+        result = runner.invoke(app, ["benchmark", "deviations", "session_123", "--sort-by", "invalid"])
+
+        assert result.exit_code == 1
+        assert "sort-by must be" in result.output
+
+    @patch("deriva.cli.commands.benchmark.PipelineSession")
+    def test_deviations_session_not_found(self, mock_session_class):
+        """Should handle session not found error."""
+        mock_session = MagicMock()
+        mock_session.analyze_config_deviations.side_effect = ValueError("Not found")
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["benchmark", "deviations", "nonexistent"])
+
+        assert result.exit_code == 1
+        assert "Not found" in result.output
+
+    @patch("deriva.modules.analysis.generate_recommendations")
+    @patch("deriva.cli.commands.benchmark.PipelineSession")
+    def test_deviations_success(self, mock_session_class, mock_recommendations):
+        """Should analyze deviations successfully."""
+        mock_session = MagicMock()
+        mock_analyzer = MagicMock()
+
+        mock_report = MagicMock()
+        mock_report.total_runs = 5
+        mock_report.total_deviations = 10
+        mock_report.overall_consistency = 0.85
+        mock_report.config_deviations = []
+
+        mock_analyzer.analyze.return_value = mock_report
+        mock_analyzer.export_json.return_value = "deviations.json"
+        mock_session.analyze_config_deviations.return_value = mock_analyzer
+        mock_session_class.return_value.__enter__.return_value = mock_session
+        mock_recommendations.return_value = []
+
+        result = runner.invoke(app, ["benchmark", "deviations", "session_123"])
+
+        assert result.exit_code == 0
+        assert "Total runs analyzed: 5" in result.stdout
+
+
+class TestBenchmarkComprehensiveCommand:
+    """Tests for benchmark comprehensive-analysis command."""
+
+    def test_comprehensive_invalid_format(self):
+        """Should reject invalid format."""
+        result = runner.invoke(app, ["benchmark", "comprehensive-analysis", "session_1", "-f", "csv"])
+
+        assert result.exit_code == 1
+        assert "format must be" in result.output
+
+    @patch("deriva.services.analysis.BenchmarkAnalyzer")
+    @patch("deriva.cli.commands.benchmark.PipelineSession")
+    def test_comprehensive_session_not_found(self, mock_session_class, mock_analyzer_class):
+        """Should handle session not found error."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+        mock_analyzer_class.side_effect = ValueError("Session not found")
+
+        result = runner.invoke(app, ["benchmark", "comprehensive-analysis", "bad_session"])
+
+        assert result.exit_code == 1
+        assert "Session not found" in result.output
+
+    @patch("deriva.services.analysis.BenchmarkAnalyzer")
+    @patch("deriva.cli.commands.benchmark.PipelineSession")
+    def test_comprehensive_success(self, mock_session_class, mock_analyzer_class):
+        """Should run comprehensive analysis successfully."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_analyzer = MagicMock()
+        mock_report = MagicMock()
+        mock_report.repositories = ["repo1"]
+        mock_report.models = ["gpt4"]
+        mock_report.overall_consistency = 0.9
+        mock_report.overall_precision = 0.85
+        mock_report.overall_recall = 0.88
+        mock_report.stability_reports = {}
+        mock_report.semantic_reports = {}
+        mock_report.cross_repo = None
+        mock_report.recommendations = ["Improve consistency"]
+
+        mock_analyzer.generate_report.return_value = mock_report
+        mock_analyzer.export_all.return_value = {"json": "out.json", "markdown": "out.md"}
+        mock_analyzer_class.return_value = mock_analyzer
+
+        result = runner.invoke(app, ["benchmark", "comprehensive-analysis", "session_1"])
+
+        assert result.exit_code == 0
+        assert "BENCHMARK ANALYSIS" in result.stdout
+        assert "Consistency:" in result.stdout
+
+
+class TestBenchmarkModelsCommand:
+    """Tests for benchmark models command."""
+
+    @patch("deriva.cli.commands.benchmark.PipelineSession")
+    def test_benchmark_models_with_data(self, mock_session_class):
+        """Should list available benchmark models."""
+        mock_session = MagicMock()
+
+        mock_config = MagicMock()
+        mock_config.provider = "openai"
+        mock_config.model = "gpt-4"
+        mock_config.api_url = "https://api.openai.com/v1/very-long-url-that-should-be-truncated"
+
+        mock_session.list_benchmark_models.return_value = {"gpt4": mock_config}
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["benchmark", "models"])
+
+        assert result.exit_code == 0
+        assert "AVAILABLE BENCHMARK MODELS" in result.stdout
+        assert "gpt4" in result.stdout
+        assert "Provider: openai" in result.stdout
+
+
+class TestBenchmarkRunWithErrors:
+    """Tests for benchmark run command error scenarios."""
+
+    @patch("deriva.cli.commands.benchmark.create_benchmark_progress_reporter")
+    @patch("deriva.cli.commands.benchmark.PipelineSession")
+    def test_benchmark_run_with_errors(self, mock_session_class, mock_progress):
+        """Should display errors from benchmark run."""
+        mock_session = MagicMock()
+        mock_result = MagicMock()
+        mock_result.session_id = "bench_123"
+        mock_result.runs_completed = 2
+        mock_result.runs_failed = 1
+        mock_result.duration_seconds = 60.0
+        mock_result.ocel_path = "ocel.json"
+        mock_result.success = False
+        mock_result.errors = ["Error 1", "Error 2", "Error 3", "Error 4", "Error 5", "Error 6"]
+        mock_session.run_benchmark.return_value = mock_result
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_reporter = MagicMock()
+        mock_progress.return_value = mock_reporter
+        mock_reporter.__enter__ = MagicMock(return_value=mock_reporter)
+        mock_reporter.__exit__ = MagicMock(return_value=False)
+
+        result = runner.invoke(app, ["benchmark", "run", "--repos", "repo1", "--models", "gpt4"])
+
+        assert result.exit_code == 1
+        assert "Errors (6)" in result.stdout
+        assert "... and 1 more" in result.stdout
+
+
+class TestConfigShowCommand:
+    """Tests for config show command."""
+
+    def test_show_invalid_step_type(self):
+        """Should reject invalid step type."""
+        result = runner.invoke(app, ["config", "show", "invalid", "Test"])
+
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_show_extraction_config(self, mock_session_class, mock_config):
+        """Should show extraction config details."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_cfg = MagicMock()
+        mock_cfg.node_type = "BusinessConcept"
+        mock_cfg.sequence = 1
+        mock_cfg.enabled = True
+        mock_cfg.input_sources = None
+        mock_cfg.instruction = "Extract business concepts"
+        mock_cfg.example = '{"concepts": []}'
+        mock_config.get_extraction_config.return_value = mock_cfg
+
+        result = runner.invoke(app, ["config", "show", "extraction", "BusinessConcept"])
+
+        assert result.exit_code == 0
+        assert "EXTRACTION CONFIG: BusinessConcept" in result.stdout
+        assert "Sequence: 1" in result.stdout
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_show_extraction_not_found(self, mock_session_class, mock_config):
+        """Should handle extraction config not found."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+        mock_config.get_extraction_config.return_value = None
+
+        result = runner.invoke(app, ["config", "show", "extraction", "NotFound"])
+
+        assert result.exit_code == 1
+        assert "not found" in result.stdout
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_show_derivation_config(self, mock_session_class, mock_config):
+        """Should show derivation config details."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_cfg = MagicMock()
+        mock_cfg.element_type = "ApplicationComponent"
+        mock_cfg.sequence = 1
+        mock_cfg.enabled = True
+        mock_cfg.input_graph_query = "MATCH (n) RETURN n"
+        mock_cfg.instruction = "Derive application components"
+        mock_config.get_derivation_config.return_value = mock_cfg
+
+        result = runner.invoke(app, ["config", "show", "derivation", "ApplicationComponent"])
+
+        assert result.exit_code == 0
+        assert "DERIVATION CONFIG: ApplicationComponent" in result.stdout
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_show_derivation_not_found(self, mock_session_class, mock_config):
+        """Should handle derivation config not found."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+        mock_config.get_derivation_config.return_value = None
+
+        result = runner.invoke(app, ["config", "show", "derivation", "NotFound"])
+
+        assert result.exit_code == 1
+        assert "not found" in result.stdout
+
+
+class TestConfigUpdateCommand:
+    """Tests for config update command."""
+
+    def test_update_invalid_step_type(self):
+        """Should reject invalid step type."""
+        result = runner.invoke(app, ["config", "update", "invalid", "Test"])
+
+        assert result.exit_code == 1
+        assert "Error" in result.output
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_update_derivation_success(self, mock_session_class, mock_config):
+        """Should update derivation config successfully."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_config.create_derivation_config_version.return_value = {
+            "success": True,
+            "old_version": 1,
+            "new_version": 2,
+        }
+
+        result = runner.invoke(
+            app,
+            ["config", "update", "derivation", "AppComp", "-i", "New instruction"],
+        )
+
+        assert result.exit_code == 0
+        assert "Updated derivation config" in result.stdout
+        assert "Version: 1 -> 2" in result.stdout
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_update_extraction_success(self, mock_session_class, mock_config):
+        """Should update extraction config successfully."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_config.create_extraction_config_version.return_value = {
+            "success": True,
+            "old_version": 1,
+            "new_version": 2,
+        }
+
+        result = runner.invoke(
+            app,
+            ["config", "update", "extraction", "Concept", "-i", "New instruction"],
+        )
+
+        assert result.exit_code == 0
+        assert "Updated extraction config" in result.stdout
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_update_with_params(self, mock_session_class, mock_config):
+        """Should update config with params successfully."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_config.create_derivation_config_version.return_value = {
+            "success": True,
+            "old_version": 1,
+            "new_version": 2,
+        }
+
+        result = runner.invoke(
+            app,
+            ["config", "update", "derivation", "AppComp", "-p", '{"key": "value"}'],
+        )
+
+        assert result.exit_code == 0
+        assert "Params: updated" in result.stdout
+
+    def test_update_invalid_params_json(self):
+        """Should reject invalid params JSON."""
+        result = runner.invoke(
+            app,
+            ["config", "update", "derivation", "AppComp", "-p", "not valid json"],
+        )
+
+        assert result.exit_code == 1
+        assert "params must be valid JSON" in result.output
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_update_failure(self, mock_session_class, mock_config):
+        """Should handle update failure."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_config.create_derivation_config_version.return_value = {
+            "success": False,
+            "error": "Config not found",
+        }
+
+        result = runner.invoke(
+            app,
+            ["config", "update", "derivation", "NotFound", "-i", "test"],
+        )
+
+        assert result.exit_code == 1
+        assert "Config not found" in result.output
+
+
+class TestConfigVersionsCommand:
+    """Tests for config versions command."""
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_versions_success(self, mock_session_class, mock_config):
+        """Should show config versions."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_config.get_active_config_versions.return_value = {
+            "extraction": {"BusinessConcept": 3, "TypeDefinition": 1},
+            "derivation": {"ApplicationComponent": 2},
+        }
+
+        result = runner.invoke(app, ["config", "versions"])
+
+        assert result.exit_code == 0
+        assert "ACTIVE CONFIG VERSIONS" in result.stdout
+        assert "BusinessConcept" in result.stdout
+        assert "v3" in result.stdout
+
+
+class TestFiletypeListEmpty:
+    """Tests for filetype list when empty."""
+
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_filetype_list_empty(self, mock_session_class):
+        """Should show message when no file types."""
+        mock_session = MagicMock()
+        mock_session.get_file_types.return_value = []
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["config", "filetype", "list"])
+
+        assert result.exit_code == 0
+        assert "No file types registered" in result.stdout
+
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_filetype_add_failure(self, mock_session_class):
+        """Should handle add file type failure."""
+        mock_session = MagicMock()
+        mock_session.add_file_type.return_value = False
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["config", "filetype", "add", ".py", "code", "python"])
+
+        assert result.exit_code == 1
+        assert "Failed to add" in result.output
+
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_filetype_delete_failure(self, mock_session_class):
+        """Should handle delete file type failure."""
+        mock_session = MagicMock()
+        mock_session.delete_file_type.return_value = False
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["config", "filetype", "delete", ".unknown"])
+
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+
+class TestBenchmarkListEmpty:
+    """Tests for benchmark list when empty."""
+
+    @patch("deriva.cli.commands.benchmark.PipelineSession")
+    def test_benchmark_list_empty(self, mock_session_class):
+        """Should show message when no sessions."""
+        mock_session = MagicMock()
+        mock_session.list_benchmarks.return_value = []
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["benchmark", "list"])
+
+        assert result.exit_code == 0
+        assert "No benchmark sessions found" in result.stdout

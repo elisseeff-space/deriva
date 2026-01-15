@@ -83,7 +83,7 @@ deriva/
 │
 ├── common/ (Shared utilities)
 │   ├── types.py     - Shared TypedDicts, Protocols, ProgressReporter
-│   ├── logging.py   - Pipeline logging (JSON Lines)
+│   ├── logging.py   - Pipeline logging with structlog (JSON Lines output)
 │   ├── chunking.py  - File chunking with overlap support
 │   └── utils.py     - File encoding, helpers
 │
@@ -719,13 +719,14 @@ def add_node(self, node: GraphNode, node_id: str | None = None) -> str:
 
 ### Overview
 
-The LLM adapter (`adapters/llm/`) provides a unified interface for multiple LLM providers with caching and structured output support.
+The LLM adapter (`adapters/llm/`) provides a unified interface for multiple LLM providers using **pydantic-ai** for agent-based LLM interactions with automatic retries, caching, and structured output support.
 
 **Supported Providers:**
 
 - **Azure OpenAI** - Enterprise Azure deployments
 - **OpenAI** - Direct OpenAI API
 - **Anthropic** - Claude models
+- **Mistral** - Mistral AI models
 - **Ollama** - Local LLM inference (no API key required)
 
 ### Basic Usage
@@ -744,9 +745,9 @@ else:
     print(f"Error: {response.error}")
 ```
 
-### Structured Output with Pydantic
+### Structured Output with pydantic-ai
 
-Use `response_model` to get validated, type-safe responses:
+Use `response_model` to get validated, type-safe responses via pydantic-ai agents:
 
 ```python
 from pydantic import BaseModel, Field
@@ -1035,7 +1036,7 @@ def classify_files(
 - Registry comes from DatabaseManager (passed as data, not manager)
 
 #### `logging.py`
-**Goal:** JSON Lines logging for pipeline runs with configurable verbosity.
+**Goal:** JSON Lines logging for pipeline runs using structlog with configurable verbosity.
 
 ```python
 class LogLevel(int, Enum):
@@ -1043,15 +1044,20 @@ class LogLevel(int, Enum):
     STEP = 2    # Steps: Repository, Directory, File, etc.
     DETAIL = 3  # Item-level: each file, node, edge
 
-class PipelineLogger:
-    def log(self, level: int, phase: str, status: str, ...) -> None
+class RunLogger:
+    """Structured logger using structlog for JSON Lines output."""
+    def phase_start(self, phase: str, message: str = "") -> None
+    def phase_end(self, phase: str, message: str = "") -> None
+    def step(self, step_name: str) -> StepContext  # Context manager
     def get_entries(self, min_level: int = 1) -> List[LogEntry]
 ```
 
 **Rules:**
-- Logs stored in `logs/run_{id}/log_{datetime}.jsonl`
+
+- Uses structlog for structured logging with JSON Lines output
+- Logs stored in `workspace/logs/run_{id}/`
 - Use level 1 for phase start/end, level 2 for steps, level 3 for details
-- Logger instance created in app.py, passed to extraction functions
+- Logger instance created in services, passed to extraction/derivation functions
 
 #### `utils.py`
 **Goal:** Shared utility functions for file handling and data processing.
