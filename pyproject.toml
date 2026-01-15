@@ -1,6 +1,6 @@
 [project]
 name = "Deriva"
-version = "0.6.7"
+version = "0.6.8"
 description = "Deriva is a research project aimed at enabling digital architects by automating the derivation of enterprise architecture models. Deriva uses dual knowledge graphs, heuristics and LLM's."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -35,9 +35,9 @@ classifiers = [
 dependencies = [
     # Core
     "pydantic>=2.12.5",
+    "pydantic-ai>=0.1.0",
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0.3",
-    "requests>=2.32.5",
     "rich>=14.2.0",
     # Database & Graph
     "duckdb>=1.4.3",
@@ -65,7 +65,7 @@ dev = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
     "ruff>=0.14.11",
-    "ty>=0.0.11",
+    "ty>=0.0.12",
     "types-lxml>=2025.3.30",
 ]
 

@@ -1,14 +1,15 @@
 """
 LLM Manager - Unified interface for LLM API calls with caching and structured output.
 
-This module provides the LLMManager class which handles all LLM operations
-with multi-provider support, intelligent caching, and type-safe structured output.
+Uses PydanticAI for model-agnostic LLM interactions.
 
 Supported Providers:
     - Azure OpenAI
     - OpenAI
     - Anthropic
-    - Ollama (local)
+    - Ollama
+    - Mistral
+    - LM Studio
 
 Usage:
     from deriva.adapters.llm import LLMManager
@@ -27,25 +28,21 @@ Usage:
 
     result = llm.query("Extract concept...", response_model=Concept)
     print(result.name)  # Type-safe access
-
-    # Check response type
-    if response.response_type == "cached":
-        print("Response was cached")
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, TypeVar, overload
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, ValidationError as PydanticValidationError
+from pydantic import BaseModel
+from pydantic_ai import Agent
 
 from .cache import CacheManager
+from .model_registry import VALID_PROVIDERS, get_pydantic_ai_model
 from .models import (
     APIError,
     BenchmarkModelConfig,
@@ -56,32 +53,12 @@ from .models import (
     LLMResponse,
     ValidationError,
 )
-from .providers import ProviderConfig, ProviderError, create_provider
+from .rate_limiter import RateLimitConfig, RateLimiter, get_default_rate_limit
 
 logger = logging.getLogger(__name__)
 
-
-def _strip_markdown_json(content: str) -> str:
-    """Strip markdown code blocks from JSON content.
-
-    Some providers (e.g., Anthropic) return JSON wrapped in markdown:
-    ```json
-    {"key": "value"}
-    ```
-
-    This function extracts the JSON content.
-    """
-    import re
-
-    content = content.strip()
-
-    # Pattern to match ```json ... ``` or ``` ... ```
-    pattern = r"^```(?:json|JSON)?\s*\n?(.*?)\n?```$"
-    match = re.match(pattern, content, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-
-    return content
+# Type variable for structured output
+T = TypeVar("T", bound=BaseModel)
 
 
 def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
@@ -94,14 +71,6 @@ def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
         LLM_{NAME}_URL (optional)
         LLM_{NAME}_KEY (optional, direct key)
         LLM_{NAME}_KEY_ENV (optional, env var name for key)
-        LLM_{NAME}_STRUCTURED_OUTPUT (optional, "true" to enable)
-
-    Example .env:
-        LLM_AZURE_GPT4_PROVIDER=azure
-        LLM_AZURE_GPT4_MODEL=gpt-4
-        LLM_AZURE_GPT4_URL=https://...
-        LLM_AZURE_GPT4_KEY=sk-...
-        LLM_AZURE_GPT4_STRUCTURED_OUTPUT=true
 
     Returns:
         Dict mapping config name to BenchmarkModelConfig
@@ -110,13 +79,11 @@ def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
 
     configs: dict[str, BenchmarkModelConfig] = {}
 
-    # Find all LLM_*_PROVIDER entries (but not legacy LLM_PROVIDER)
     prefix = "LLM_"
     suffix = "_PROVIDER"
 
     for key, value in os.environ.items():
         if key.startswith(prefix) and key.endswith(suffix) and key != "LLM_PROVIDER":
-            # Extract the name part (e.g., "AZURE_GPT4" from "LLM_AZURE_GPT4_PROVIDER")
             name = key[len(prefix) : -len(suffix)]
 
             provider = value
@@ -124,13 +91,10 @@ def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
             api_url = os.getenv(f"{prefix}{name}_URL")
             api_key = os.getenv(f"{prefix}{name}_KEY")
             api_key_env = os.getenv(f"{prefix}{name}_KEY_ENV")
-            structured_output_str = os.getenv(f"{prefix}{name}_STRUCTURED_OUTPUT", "")
-            structured_output = structured_output_str.lower() in ("true", "1", "yes")
 
             if not model:
-                continue  # Skip incomplete configs
+                continue
 
-            # Convert name to lowercase with hyphens (AZURE_GPT4 -> azure-gpt4)
             friendly_name = name.lower().replace("_", "-")
 
             try:
@@ -141,28 +105,24 @@ def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
                     api_url=api_url,
                     api_key=api_key,
                     api_key_env=api_key_env,
-                    structured_output=structured_output,
                 )
             except ValueError:
-                # Invalid provider, skip
                 continue
 
     return configs
-
-
-# Type variable for structured output
-T = TypeVar("T", bound=BaseModel)
 
 
 class LLMManager:
     """
     Manages LLM API calls with intelligent caching and structured output support.
 
+    Uses PydanticAI for model interactions with caching layer on top.
+
     Features:
-    - Multi-provider support (Azure OpenAI, OpenAI, Anthropic, Ollama)
+    - Multi-provider support (Azure OpenAI, OpenAI, Anthropic, Ollama, Mistral, LM Studio)
     - Automatic caching of responses
     - Structured output with Pydantic models
-    - JSON schema validation
+    - Rate limiting
     - Response type indicators (live/cached/failed)
 
     Example:
@@ -199,17 +159,19 @@ class LLMManager:
             cache_path = project_root / cache_path
         self.cache = CacheManager(str(cache_path))
 
-        # Create provider with rate limiting
-        provider_config = ProviderConfig(
-            api_url=self.config["api_url"],
-            api_key=self.config["api_key"],
-            model=self.config["model"],
-            timeout=self.config.get("timeout", 60),
-            requests_per_minute=self.config.get("requests_per_minute", 0),
-            min_request_delay=self.config.get("min_request_delay", 0.0),
-            rate_limit_retries=self.config.get("rate_limit_retries", 3),
+        # Initialize rate limiter
+        rpm = self.config.get("requests_per_minute", 0)
+        if rpm <= 0:
+            rpm = get_default_rate_limit(self.config["provider"])
+        self._rate_limiter = RateLimiter(
+            config=RateLimitConfig(
+                requests_per_minute=rpm,
+                min_request_delay=self.config.get("min_request_delay", 0.0),
+            )
         )
-        self.provider = create_provider(self.config["provider"], provider_config)
+
+        # Get PydanticAI model
+        self._pydantic_model = get_pydantic_ai_model(self.config)
 
         # Store config values for easy access
         self.model = self.config["model"]
@@ -217,8 +179,7 @@ class LLMManager:
         self.cache_ttl = self.config.get("cache_ttl", 0)
         self.nocache = self.config.get("nocache", False)
         self.temperature = self.config.get("temperature", 0.7)
-        self.max_tokens = self.config.get("max_tokens")  # None = provider default
-        self.structured_output = self.config.get("structured_output", False)
+        self.max_tokens = self.config.get("max_tokens")
 
     @classmethod
     def from_config(
@@ -228,14 +189,10 @@ class LLMManager:
         max_retries: int = 3,
         timeout: int = 60,
         temperature: float | None = None,
-        nocache: bool = True,  # Default to no cache for benchmarking
+        nocache: bool = True,
     ) -> "LLMManager":
         """
         Create an LLMManager from explicit configuration.
-
-        This factory method allows creating LLMManager instances without
-        relying on environment variables, useful for benchmarking multiple
-        models in the same process.
 
         Args:
             config: BenchmarkModelConfig with provider/model settings
@@ -247,23 +204,15 @@ class LLMManager:
 
         Returns:
             Configured LLMManager instance
-
-        Raises:
-            ConfigurationError: If configuration is invalid
         """
         load_dotenv(override=True)
 
-        # Get temperature from env if not provided
         effective_temperature = (
-            temperature
-            if temperature is not None
-            else float(os.getenv("LLM_TEMPERATURE", "0.7"))
+            temperature if temperature is not None else float(os.getenv("LLM_TEMPERATURE", "0.7"))
         )
 
-        # Create instance without calling __init__
         instance = object.__new__(cls)
 
-        # Build config dict from BenchmarkModelConfig
         instance.config = {
             "provider": config.provider,
             "api_url": config.get_api_url(),
@@ -274,39 +223,34 @@ class LLMManager:
             "timeout": timeout,
             "temperature": effective_temperature,
             "nocache": nocache,
-            "structured_output": config.structured_output,
         }
 
-        # Validate
         instance._validate_config()
 
-        # Initialize cache manager
         cache_path = Path(cache_dir)
         if not cache_path.is_absolute():
             project_root = Path(__file__).parent.parent.parent.parent
             cache_path = project_root / cache_path
         instance.cache = CacheManager(str(cache_path))
 
-        # Create provider with rate limiting
-        provider_config = ProviderConfig(
-            api_url=instance.config["api_url"],
-            api_key=instance.config["api_key"],
-            model=instance.config["model"],
-            timeout=timeout,
-            requests_per_minute=int(os.getenv("LLM_RATE_LIMIT_RPM", "0")),
-            min_request_delay=float(os.getenv("LLM_RATE_LIMIT_DELAY", "0.0")),
-            rate_limit_retries=int(os.getenv("LLM_RATE_LIMIT_RETRIES", "3")),
+        rpm = int(os.getenv("LLM_RATE_LIMIT_RPM", "0"))
+        if rpm <= 0:
+            rpm = get_default_rate_limit(config.provider)
+        instance._rate_limiter = RateLimiter(
+            config=RateLimitConfig(
+                requests_per_minute=rpm,
+                min_request_delay=float(os.getenv("LLM_RATE_LIMIT_DELAY", "0.0")),
+            )
         )
-        instance.provider = create_provider(config.provider, provider_config)
 
-        # Store config values
+        instance._pydantic_model = get_pydantic_ai_model(instance.config)
+
         instance.model = config.model
         instance.max_retries = max_retries
         instance.cache_ttl = 0
         instance.nocache = nocache
         instance.temperature = effective_temperature
-        instance.max_tokens = None  # None = use provider default
-        instance.structured_output = config.structured_output
+        instance.max_tokens = None
 
         return instance
 
@@ -316,41 +260,21 @@ class LLMManager:
         return self.config.get("provider", "unknown")
 
     def _load_config_from_env(self) -> dict[str, Any]:
-        """
-        Load configuration from environment variables (.env file).
-
-        Supports two modes:
-        1. LLM_DEFAULT_MODEL: References a benchmark model config (e.g., "azure-gpt4mini")
-        2. Legacy mode: Uses LLM_PROVIDER with provider-specific settings
-
-        Returns:
-            Configuration dictionary
-
-        Raises:
-            ConfigurationError: If required env vars are missing
-        """
-        # Check if using a benchmark model as default
+        """Load configuration from environment variables."""
         default_model = os.getenv("LLM_DEFAULT_MODEL")
         if default_model:
-            # Load benchmark model configs and use the specified one
             benchmark_models = load_benchmark_models()
             if default_model not in benchmark_models:
-                available = (
-                    ", ".join(benchmark_models.keys()) if benchmark_models else "none"
-                )
-                raise ConfigurationError(
-                    f"LLM_DEFAULT_MODEL '{default_model}' not found. Available: {available}"
-                )
+                available = ", ".join(benchmark_models.keys()) if benchmark_models else "none"
+                raise ConfigurationError(f"LLM_DEFAULT_MODEL '{default_model}' not found. Available: {available}")
             config = benchmark_models[default_model]
             provider = config.provider
             api_url = config.get_api_url()
             api_key = config.get_api_key()
             model = config.model
         else:
-            # Legacy mode: use LLM_PROVIDER with provider-specific settings
             provider = os.getenv("LLM_PROVIDER", "azure")
 
-            # Get provider-specific settings
             if provider == "azure":
                 api_url = os.getenv("LLM_AZURE_API_URL")
                 api_key = os.getenv("LLM_AZURE_API_KEY")
@@ -362,23 +286,22 @@ class LLMManager:
             elif provider == "anthropic":
                 api_url = "https://api.anthropic.com/v1/messages"
                 api_key = os.getenv("LLM_ANTHROPIC_API_KEY")
-                model = os.getenv("LLM_ANTHROPIC_MODEL", "claude-3-5-sonnet-20241022")
+                model = os.getenv("LLM_ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
             elif provider == "ollama":
-                api_url = os.getenv(
-                    "LLM_OLLAMA_API_URL", "http://localhost:11434/api/chat"
-                )
-                api_key = None  # Ollama doesn't require an API key
+                api_url = os.getenv("LLM_OLLAMA_API_URL", "http://localhost:11434/api/chat")
+                api_key = None
                 model = os.getenv("LLM_OLLAMA_MODEL", "llama3.2")
+            elif provider == "mistral":
+                api_url = "https://api.mistral.ai/v1/chat/completions"
+                api_key = os.getenv("LLM_MISTRAL_API_KEY")
+                model = os.getenv("LLM_MISTRAL_MODEL", "mistral-large-latest")
             elif provider == "lmstudio":
-                api_url = os.getenv(
-                    "LLM_LMSTUDIO_API_URL", "http://localhost:1234/v1/chat/completions"
-                )
-                api_key = None  # LM Studio doesn't require an API key (local)
+                api_url = os.getenv("LLM_LMSTUDIO_API_URL", "http://localhost:1234/v1/chat/completions")
+                api_key = None
                 model = os.getenv("LLM_LMSTUDIO_MODEL", "local-model")
             else:
                 raise ConfigurationError(f"Unknown LLM provider: {provider}")
 
-        # Parse max_tokens - None if not set or empty
         max_tokens_str = os.getenv("LLM_MAX_TOKENS", "")
         max_tokens = int(max_tokens_str) if max_tokens_str else None
 
@@ -392,103 +315,27 @@ class LLMManager:
             "max_retries": int(os.getenv("LLM_MAX_RETRIES", "3")),
             "timeout": int(os.getenv("LLM_TIMEOUT", "60")),
             "temperature": float(os.getenv("LLM_TEMPERATURE", "0.7")),
-            "max_tokens": max_tokens,  # None = use provider default
+            "max_tokens": max_tokens,
             "nocache": os.getenv("LLM_NOCACHE", "false").strip("'\"").lower() == "true",
-            # Rate limiting configuration
             "requests_per_minute": int(os.getenv("LLM_RATE_LIMIT_RPM", "0")),
             "min_request_delay": float(os.getenv("LLM_RATE_LIMIT_DELAY", "0.0")),
-            "rate_limit_retries": int(os.getenv("LLM_RATE_LIMIT_RETRIES", "3")),
         }
 
     def _validate_config(self) -> None:
-        """
-        Validate configuration has required fields.
+        """Validate configuration has required fields."""
+        provider = self.config.get("provider", "")
+        if provider not in VALID_PROVIDERS:
+            raise ConfigurationError(f"Invalid provider: {provider}. Must be one of {VALID_PROVIDERS}")
 
-        Raises:
-            ConfigurationError: If required fields are missing
-        """
-        # Ollama, LM Studio, and ClaudeCode don't require api_key
-        if self.config["provider"] in ("ollama", "lmstudio", "claudecode"):
-            required_fields = ["provider", "api_url", "model"]
+        # Ollama and LM Studio don't require api_key
+        if provider in ("ollama", "lmstudio"):
+            required_fields = ["provider", "model"]
         else:
-            required_fields = ["provider", "api_url", "api_key", "model"]
+            required_fields = ["provider", "api_key", "model"]
 
         missing = [f for f in required_fields if not self.config.get(f)]
-
         if missing:
-            raise ConfigurationError(
-                f"Missing required config fields: {', '.join(missing)}"
-            )
-
-    def _validate_prompt(self, prompt: str) -> None:
-        """
-        Validate prompt input.
-
-        Args:
-            prompt: The prompt to validate
-
-        Raises:
-            ValidationError: If prompt is invalid
-        """
-        if not prompt or not isinstance(prompt, str):
-            raise ValidationError("Prompt must be a non-empty string")
-
-        if len(prompt.strip()) == 0:
-            raise ValidationError("Prompt cannot be empty or whitespace only")
-
-    def _build_messages(
-        self,
-        prompt: str,
-        system_prompt: str | None = None,
-    ) -> list[dict[str, str]]:
-        """
-        Build message list for the provider.
-
-        Args:
-            prompt: The user prompt
-            system_prompt: Optional system prompt
-
-        Returns:
-            List of message dictionaries
-        """
-        messages = []
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-        messages.append({"role": "user", "content": prompt})
-        return messages
-
-    def _augment_prompt_for_schema(
-        self,
-        prompt: str,
-        schema: dict[str, Any] | None = None,
-        response_model: type[BaseModel] | None = None,
-    ) -> str:
-        """
-        Augment prompt with schema instructions.
-
-        Args:
-            prompt: Original prompt
-            schema: Raw JSON schema dict
-            response_model: Pydantic model for structured output
-
-        Returns:
-            Augmented prompt with schema instructions
-        """
-        if response_model:
-            schema = response_model.model_json_schema()
-
-        if not schema:
-            return prompt
-
-        schema_str = json.dumps(schema, indent=2)
-        return f"""{prompt}
-
-Respond with a valid JSON object matching this schema:
-```json
-{schema_str}
-```
-
-Return only the JSON object, no additional text."""
+            raise ConfigurationError(f"Missing required config fields: {', '.join(missing)}")
 
     @overload
     def query(
@@ -541,195 +388,112 @@ Return only the JSON object, no additional text."""
             max_tokens: Maximum tokens in response
             use_cache: Whether to use caching (default: True)
             system_prompt: Optional system prompt
-            bench_hash: Optional benchmark hash (e.g., "repo:model:run") for per-run
-                       cache isolation. Off by default. When set, allows resuming
-                       failed benchmark runs with cache enabled.
+            bench_hash: Optional benchmark hash for per-run cache isolation
 
         Returns:
             If response_model is provided: Validated Pydantic model instance or FailedResponse
             Otherwise: LiveResponse, CachedResponse, or FailedResponse
         """
-        # Use configured values if not explicitly provided
-        effective_temperature = (
-            temperature if temperature is not None else self.temperature
-        )
+        effective_temperature = temperature if temperature is not None else self.temperature
         effective_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
-
-        # Determine if we need JSON mode
-        json_mode = schema is not None or response_model is not None
-
-        # Augment prompt with schema if needed
-        effective_prompt = self._augment_prompt_for_schema(
-            prompt, schema, response_model
-        )
 
         # Generate cache key
         cache_key = CacheManager.generate_cache_key(
-            effective_prompt,
+            prompt,
             self.model,
             response_model.model_json_schema() if response_model else schema,
             bench_hash=bench_hash,
         )
 
-        # Determine cache behavior:
-        # - read_cache: Whether to read from cache (disabled by nocache)
-        # - write_cache: Whether to write to cache (always enabled unless use_cache=False)
         read_cache = use_cache and not self.nocache
-        write_cache = use_cache  # Always write to cache if use_cache is True
+        write_cache = use_cache
 
         try:
-            self._validate_prompt(prompt)
+            # Validate prompt
+            if not prompt or not isinstance(prompt, str) or len(prompt.strip()) == 0:
+                raise ValidationError("Prompt must be a non-empty string")
 
-            # Check cache (only if reading is enabled)
-            # NOTE: We skip cached errors to allow retries on transient failures
+            # Check cache
             if read_cache:
                 cached = self.cache.get(cache_key)
                 if cached and not cached.get("is_error"):
                     content = cached["content"]
-
-                    # Skip cached responses with empty content (invalid)
-                    if not content or not content.strip():
-                        # Invalid cached response, fall through to make fresh API call
-                        pass
-                    # If response_model, parse and return the model
-                    elif response_model:
-                        try:
-                            return response_model.model_validate_json(content)
-                        except PydanticValidationError:
-                            # Cached content doesn't match model, invalidate and retry
-                            pass
-                    else:
-                        return CachedResponse(
-                            prompt=cached["prompt"],
-                            model=cached["model"],
-                            content=content,
-                            cache_key=cached["cache_key"],
-                            cached_at=cached["cached_at"],
-                        )
-
-            # Build initial messages (keep original for retry efficiency)
-            messages = self._build_messages(effective_prompt, system_prompt)
-            original_messages = messages.copy()
-
-            # Attempt API call with retries
-            last_error = None
-
-            for attempt in range(self.max_retries):
-                try:
-                    # Only pass json_schema if structured_output is enabled
-                    effective_schema = schema if self.structured_output else None
-                    result = self.provider.complete(
-                        messages=messages,
-                        temperature=effective_temperature,
-                        max_tokens=effective_max_tokens,
-                        json_mode=json_mode,
-                        json_schema=effective_schema,
-                    )
-
-                    content = result.content
-
-                    # Validate JSON if schema provided
-                    if json_mode:
-                        # Strip markdown code blocks (some providers wrap JSON in ```json...```)
-                        # Skip if provider already stripped it (e.g., ClaudeCode)
-                        if not result.markdown_stripped:
-                            content = _strip_markdown_json(content)
-
-                        # Validate content is non-empty before parsing
-                        if not content or not content.strip():
-                            if attempt < self.max_retries - 1:
-                                last_error = "LLM returned empty content"
-                                # Append retry hint as conversation turn (saves tokens vs rebuilding prompt)
-                                messages = original_messages + [
-                                    {"role": "assistant", "content": content or ""},
-                                    {
-                                        "role": "user",
-                                        "content": f"Error: {last_error}. Please provide valid JSON.",
-                                    },
-                                ]
-                                continue
-                            raise ValidationError(
-                                "LLM returned empty content after all retries"
+                    if content and content.strip():
+                        if response_model:
+                            try:
+                                return response_model.model_validate_json(content)
+                            except Exception:
+                                pass  # Cache miss, continue to API call
+                        else:
+                            return CachedResponse(
+                                prompt=cached["prompt"],
+                                model=cached["model"],
+                                content=content,
+                                cache_key=cached["cache_key"],
+                                cached_at=cached["cached_at"],
                             )
 
-                        try:
-                            parsed = json.loads(content)
+            # Rate limit
+            self._rate_limiter.wait_if_needed()
 
-                            # If response_model, validate and return
-                            if response_model:
-                                try:
-                                    validated = response_model.model_validate(parsed)
-
-                                    # Cache the raw content
-                                    if write_cache:
-                                        self.cache.set_response(
-                                            cache_key,
-                                            content,
-                                            prompt,
-                                            self.model,
-                                            result.usage,
-                                        )
-
-                                    return validated
-
-                                except PydanticValidationError as e:
-                                    if attempt < self.max_retries - 1:
-                                        last_error = f"Validation error: {e}"
-                                        # Append retry hint as conversation turn (saves tokens)
-                                        messages = original_messages + [
-                                            {"role": "assistant", "content": content},
-                                            {
-                                                "role": "user",
-                                                "content": f"Error: {last_error}. Fix the response.",
-                                            },
-                                        ]
-                                        continue
-                                    raise ValidationError(
-                                        f"Failed to validate response after {self.max_retries} attempts: {e}"
-                                    )
-
-                        except json.JSONDecodeError as e:
-                            if attempt < self.max_retries - 1:
-                                last_error = f"Invalid JSON: {e}"
-                                # Append retry hint as conversation turn (saves tokens)
-                                messages = original_messages + [
-                                    {"role": "assistant", "content": content},
-                                    {
-                                        "role": "user",
-                                        "content": f"Error: {last_error}. Return valid JSON.",
-                                    },
-                                ]
-                                continue
-                            raise ValidationError(
-                                f"Failed to generate valid JSON after {self.max_retries} attempts: {e}"
-                            )
-
-                    # Success! Cache the response
-                    if write_cache:
-                        self.cache.set_response(
-                            cache_key, content, prompt, self.model, result.usage
-                        )
-
-                    return LiveResponse(
-                        prompt=prompt,
-                        model=self.model,
-                        content=content,
-                        usage=result.usage,
-                        finish_reason=result.finish_reason,
-                    )
-
-                except ProviderError as e:
-                    last_error = str(e)
-                    if attempt < self.max_retries - 1:
-                        continue
-                    raise APIError(str(e)) from e
-
-            raise APIError(
-                f"Failed after {self.max_retries} attempts. Last error: {last_error}"
+            # Create PydanticAI agent
+            output_type = response_model if response_model else str
+            agent: Agent[None, Any] = Agent(
+                model=self._pydantic_model,
+                output_type=output_type,
+                system_prompt=system_prompt or "",
+                retries=self.max_retries,
             )
 
-        except (ValidationError, APIError) as e:
-            # NOTE: Errors are NOT cached to allow retries on transient failures
+            # Run query
+            result = agent.run_sync(
+                prompt,
+                model_settings={
+                    "temperature": effective_temperature,
+                    "max_tokens": effective_max_tokens,
+                },
+            )
+
+            self._rate_limiter.record_success()
+
+            # Extract usage
+            usage = None
+            if hasattr(result, "usage") and result.usage:
+                usage = {
+                    "prompt_tokens": getattr(result.usage, "request_tokens", 0) or 0,
+                    "completion_tokens": getattr(result.usage, "response_tokens", 0) or 0,
+                    "total_tokens": getattr(result.usage, "total_tokens", 0) or 0,
+                }
+
+            # Handle response
+            if response_model:
+                # Cache the serialized model
+                if write_cache:
+                    content = result.output.model_dump_json() if hasattr(result.output, "model_dump_json") else str(result.output)
+                    self.cache.set_response(cache_key, content, prompt, self.model, usage)
+                return result.output
+            else:
+                content = str(result.output) if result.output else ""
+                if write_cache:
+                    self.cache.set_response(cache_key, content, prompt, self.model, usage)
+                return LiveResponse(
+                    prompt=prompt,
+                    model=self.model,
+                    content=content,
+                    usage=usage,
+                    finish_reason="stop",
+                )
+
+        except ValidationError as e:
+            logger.warning(f"LLM query failed with ValidationError: {e}")
+            return FailedResponse(
+                prompt=prompt,
+                model=self.model,
+                error=str(e),
+                error_type="ValidationError",
+            )
+
+        except Exception as e:
             logger.warning(f"LLM query failed with {type(e).__name__}: {e}")
             return FailedResponse(
                 prompt=prompt,
@@ -738,55 +502,12 @@ Return only the JSON object, no additional text."""
                 error_type=type(e).__name__,
             )
 
-        except Exception as e:
-            # NOTE: Errors are NOT cached to allow retries on transient failures
-            return FailedResponse(
-                prompt=prompt,
-                model=self.model,
-                error=f"Unexpected error: {e}",
-                error_type="UnexpectedError",
-            )
-
-    def _cache_error(
-        self, cache_key: str, prompt: str, error: str, error_type: str
-    ) -> None:
-        """
-        Cache an error response to prevent retrying failed prompts.
-
-        Args:
-            cache_key: The cache key
-            prompt: The original prompt
-            error: Error message
-            error_type: Type of error
-        """
-        error_data = {
-            "prompt": prompt,
-            "model": self.model,
-            "error": error,
-            "error_type": error_type,
-            "is_error": True,
-            "cached_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-            "cache_key": cache_key,
-        }
-
-        cache_file = self.cache.cache_dir / f"{cache_key}.json"
-        try:
-            with open(cache_file, "w", encoding="utf-8") as f:
-                json.dump(error_data, f, indent=2)
-        except Exception as e:
-            logger.warning("Failed to cache error response: %s", e)
-
     def clear_cache(self) -> None:
         """Clear all cached responses."""
         self.cache.clear_all()
 
     def get_cache_stats(self) -> dict[str, Any]:
-        """
-        Get cache statistics.
-
-        Returns:
-            Dictionary with cache statistics
-        """
+        """Get cache statistics."""
         return self.cache.get_cache_stats()
 
     def get_token_usage_stats(self) -> dict[str, Any]:
@@ -794,19 +515,14 @@ Return only the JSON object, no additional text."""
         Aggregate token usage statistics from all cached entries.
 
         Returns:
-            Dictionary with:
-            - total_prompt_tokens: Total input tokens across all cached calls
-            - total_completion_tokens: Total output tokens across all cached calls
-            - total_tokens: Sum of prompt + completion tokens
-            - total_calls: Number of cached LLM calls
-            - avg_prompt_tokens: Average input tokens per call
-            - avg_completion_tokens: Average output tokens per call
+            Dictionary with token usage statistics
         """
+        import json
+
         total_prompt = 0
         total_completion = 0
         total_calls = 0
 
-        # Scan cached files for usage data
         for cache_file in self.cache.cache_dir.glob("*.json"):
             try:
                 with open(cache_file, encoding="utf-8") as f:
@@ -825,11 +541,9 @@ Return only the JSON object, no additional text."""
             "total_tokens": total_prompt + total_completion,
             "total_calls": total_calls,
             "avg_prompt_tokens": total_prompt / total_calls if total_calls else 0,
-            "avg_completion_tokens": total_completion / total_calls
-            if total_calls
-            else 0,
+            "avg_completion_tokens": total_completion / total_calls if total_calls else 0,
         }
 
     def __repr__(self) -> str:
         """String representation."""
-        return f"LLMManager(provider={self.provider.name}, model={self.model})"
+        return f"LLMManager(provider={self.provider_name}, model={self.model})"
