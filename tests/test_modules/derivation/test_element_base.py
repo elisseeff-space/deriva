@@ -123,16 +123,13 @@ class TestElementDerivationBase:
         derivation = FilterAllDerivation()
 
         mock_graph = MagicMock()
-        mock_graph.query.return_value = [
-            {"id": "1", "name": "test", "labels": ["Node"], "properties": {}}
-        ]
+        mock_graph.query.return_value = [{"id": "1", "name": "test", "labels": ["Node"], "properties": {}}]
 
         # Patch the helper functions to control behavior
-        with patch(
-            "deriva.modules.derivation.element_base.get_enrichments_from_neo4j"
-        ) as mock_enrichments, patch(
-            "deriva.modules.derivation.element_base.query_candidates"
-        ) as mock_candidates:
+        with (
+            patch("deriva.modules.derivation.element_base.get_enrichments_from_neo4j") as mock_enrichments,
+            patch("deriva.modules.derivation.element_base.query_candidates") as mock_candidates,
+        ):
             mock_enrichments.return_value = {}
             mock_candidates.return_value = [
                 Candidate(

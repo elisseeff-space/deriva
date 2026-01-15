@@ -868,3 +868,783 @@ class TestListSteps:
             list_steps(engine, "derivation", phase="prep")
             mock_fn.assert_called_once()
             assert mock_fn.call_args[1].get("phase") == "prep"
+
+
+class TestGetSettings:
+    """Tests for get_settings function."""
+
+    def test_returns_cached_settings(self):
+        """Should return cached DerivaSettings instance."""
+        from deriva.services.config import get_settings
+
+        # Clear cache for testing
+        get_settings.cache_clear()
+
+        settings = get_settings()
+        assert settings is not None
+        # Should return same instance on subsequent calls
+        settings2 = get_settings()
+        assert settings is settings2
+
+
+class TestUpdateExtractionConfigTemperatureAndTokens:
+    """Tests for update_extraction_config with temperature and max_tokens."""
+
+    def test_updates_temperature_field(self):
+        """Should update temperature field."""
+        engine = MagicMock()
+        engine.execute.return_value.rowcount = 1
+
+        result = update_extraction_config(engine, "BusinessConcept", temperature=0.7)
+
+        assert result is True
+        call_args = engine.execute.call_args[0][0]
+        assert "temperature = ?" in call_args
+
+    def test_updates_max_tokens_field(self):
+        """Should update max_tokens field."""
+        engine = MagicMock()
+        engine.execute.return_value.rowcount = 1
+
+        result = update_extraction_config(engine, "BusinessConcept", max_tokens=4096)
+
+        assert result is True
+        call_args = engine.execute.call_args[0][0]
+        assert "max_tokens = ?" in call_args
+
+
+class TestUpdateDerivationConfigTemperatureAndTokens:
+    """Tests for update_derivation_config with temperature and max_tokens."""
+
+    def test_updates_input_model_query(self):
+        """Should update input_model_query field."""
+        engine = MagicMock()
+        engine.execute.return_value.rowcount = 1
+
+        result = update_derivation_config(
+            engine,
+            "ApplicationComponent",
+            input_model_query="MATCH (n:Model) RETURN n",
+        )
+
+        assert result is True
+        call_args = engine.execute.call_args[0][0]
+        assert "input_model_query = ?" in call_args
+
+    def test_updates_temperature_field(self):
+        """Should update temperature field."""
+        engine = MagicMock()
+        engine.execute.return_value.rowcount = 1
+
+        result = update_derivation_config(
+            engine,
+            "ApplicationComponent",
+            temperature=0.5,
+        )
+
+        assert result is True
+        call_args = engine.execute.call_args[0][0]
+        assert "temperature = ?" in call_args
+
+    def test_updates_max_tokens_field(self):
+        """Should update max_tokens field."""
+        engine = MagicMock()
+        engine.execute.return_value.rowcount = 1
+
+        result = update_derivation_config(
+            engine,
+            "ApplicationComponent",
+            max_tokens=8192,
+        )
+
+        assert result is True
+        call_args = engine.execute.call_args[0][0]
+        assert "max_tokens = ?" in call_args
+
+
+class TestCreateDerivationConfigVersion:
+    """Tests for create_derivation_config_version function."""
+
+    def test_creates_new_version(self):
+        """Should create new version with incremented version number."""
+        from deriva.services.config import create_derivation_config_version
+
+        engine = MagicMock()
+        # Current config: (id, version, phase, sequence, enabled, llm, graph_query, model_query, instruction, example, params, temperature, max_tokens)
+        engine.execute.return_value.fetchone.side_effect = [
+            (1, 1, "generate", 1, True, True, "MATCH (n)", None, "instruction", "example", None, 0.7, 4096),  # Current config
+            (2,),  # Next ID
+        ]
+
+        result = create_derivation_config_version(
+            engine,
+            "ApplicationComponent",
+            instruction="New instruction",
+        )
+
+        assert result["success"] is True
+        assert result["step_name"] == "ApplicationComponent"
+        assert result["old_version"] == 1
+        assert result["new_version"] == 2
+
+    def test_returns_error_when_not_found(self):
+        """Should return error when config not found."""
+        from deriva.services.config import create_derivation_config_version
+
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = None
+
+        result = create_derivation_config_version(engine, "UnknownStep")
+
+        assert result["success"] is False
+        assert "Config not found" in result["error"]
+
+    def test_preserves_existing_values(self):
+        """Should preserve existing values when not specified."""
+        from deriva.services.config import create_derivation_config_version
+
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.side_effect = [
+            (1, 1, "generate", 5, True, True, "OLD_QUERY", "OLD_MODEL", "old_instruction", "old_example", '{"key": "value"}', 0.5, 2000),
+            (2,),
+        ]
+
+        result = create_derivation_config_version(
+            engine,
+            "ApplicationComponent",
+            enabled=False,  # Only change enabled
+        )
+
+        assert result["success"] is True
+        # Verify INSERT preserves old values
+        insert_call = [c for c in engine.execute.call_args_list if "INSERT INTO derivation_config" in str(c)]
+        assert len(insert_call) > 0
+
+
+class TestCreateExtractionConfigVersion:
+    """Tests for create_extraction_config_version function."""
+
+    def test_creates_new_version(self):
+        """Should create new version with incremented version number."""
+        from deriva.services.config import create_extraction_config_version
+
+        engine = MagicMock()
+        # Current config: (id, version, sequence, enabled, input_sources, instruction, example, temperature, max_tokens)
+        engine.execute.return_value.fetchone.side_effect = [
+            (1, 1, 1, True, '{"files": []}', "instruction", "example", 0.7, 4096),
+            (2,),  # Next ID
+        ]
+
+        result = create_extraction_config_version(
+            engine,
+            "BusinessConcept",
+            instruction="New instruction",
+        )
+
+        assert result["success"] is True
+        assert result["node_type"] == "BusinessConcept"
+        assert result["old_version"] == 1
+        assert result["new_version"] == 2
+
+    def test_returns_error_when_not_found(self):
+        """Should return error when config not found."""
+        from deriva.services.config import create_extraction_config_version
+
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = None
+
+        result = create_extraction_config_version(engine, "UnknownType")
+
+        assert result["success"] is False
+        assert "Config not found" in result["error"]
+
+
+class TestGetActiveConfigVersions:
+    """Tests for get_active_config_versions function."""
+
+    def test_returns_all_active_versions(self):
+        """Should return all active config versions."""
+        from deriva.services.config import get_active_config_versions
+
+        engine = MagicMock()
+        # Mock two separate fetchall calls
+        engine.execute.return_value.fetchall.side_effect = [
+            [("BusinessConcept", 3), ("TypeDefinition", 1)],  # Extraction
+            [("ApplicationComponent", 2), ("PageRank", 1)],  # Derivation
+        ]
+
+        result = get_active_config_versions(engine)
+
+        assert result["extraction"]["BusinessConcept"] == 3
+        assert result["extraction"]["TypeDefinition"] == 1
+        assert result["derivation"]["ApplicationComponent"] == 2
+        assert result["derivation"]["PageRank"] == 1
+
+
+class TestLogConsistencyRun:
+    """Tests for log_consistency_run function."""
+
+    def test_logs_run_and_returns_id(self):
+        """Should log run and return new ID."""
+        from deriva.services.config import log_consistency_run
+
+        engine = MagicMock()
+        engine.execute.return_value.fetchone.return_value = (1,)  # Next ID
+
+        result = log_consistency_run(
+            engine,
+            repo_name="test_repo",
+            num_runs=5,
+            results={
+                "name_consistency": 0.95,
+                "identifier_consistency": 0.92,
+                "count_variance": 0.05,
+                "stable_count": 10,
+                "total_unique": 12,
+            },
+            config_versions={"extraction": {"BusinessConcept": 1}},
+        )
+
+        assert result == 1
+        # Verify table creation
+        create_calls = [c for c in engine.execute.call_args_list if "CREATE TABLE" in str(c)]
+        assert len(create_calls) > 0
+
+
+class TestGetConsistencyHistory:
+    """Tests for get_consistency_history function."""
+
+    def test_returns_history_records(self):
+        """Should return history records."""
+        from deriva.services.config import get_consistency_history
+
+        engine = MagicMock()
+        # First call checks table existence, second gets data
+        engine.execute.return_value.fetchall.side_effect = [
+            [("consistency_runs",)],  # Table exists
+            [
+                (1, "test_repo", 5, 0.95, 0.92, 0.05, 10, 12, '{"extraction": {}}', "2024-01-01 00:00:00"),
+            ],
+        ]
+
+        result = get_consistency_history(engine, repo_name="test_repo")
+
+        assert len(result) == 1
+        assert result[0]["repo_name"] == "test_repo"
+        assert result[0]["name_consistency"] == 0.95
+
+    def test_returns_empty_when_table_not_exists(self):
+        """Should return empty list when table doesn't exist."""
+        from deriva.services.config import get_consistency_history
+
+        engine = MagicMock()
+        engine.execute.return_value.fetchall.return_value = []
+
+        result = get_consistency_history(engine)
+
+        assert result == []
+
+
+class TestGetDerivationPatterns:
+    """Tests for get_derivation_patterns function."""
+
+    def test_returns_patterns(self):
+        """Should return patterns grouped by type."""
+        from deriva.services.config import get_derivation_patterns
+
+        engine = MagicMock()
+        engine.execute.return_value.fetchall.return_value = [
+            ("include", '["get", "post", "put"]'),
+            ("exclude", '["_", "private"]'),
+        ]
+
+        result = get_derivation_patterns(engine, "ApplicationService")
+
+        assert "get" in result["include"]
+        assert "post" in result["include"]
+        assert "_" in result["exclude"]
+
+    def test_raises_when_not_found(self):
+        """Should raise ValueError when no patterns found."""
+        import pytest
+
+        from deriva.services.config import get_derivation_patterns
+
+        engine = MagicMock()
+        engine.execute.return_value.fetchall.return_value = []
+
+        with pytest.raises(ValueError, match="No patterns found"):
+            get_derivation_patterns(engine, "UnknownStep")
+
+
+class TestGetIncludePatterns:
+    """Tests for get_include_patterns function."""
+
+    def test_returns_include_patterns_only(self):
+        """Should return only include patterns."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_include_patterns
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_derivation_patterns",
+            return_value={"include": {"get", "post"}, "exclude": set()},
+        ):
+            result = get_include_patterns(engine, "ApplicationService")
+
+        assert "get" in result
+        assert "post" in result
+
+
+class TestGetExcludePatterns:
+    """Tests for get_exclude_patterns function."""
+
+    def test_returns_exclude_patterns_only(self):
+        """Should return only exclude patterns."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_exclude_patterns
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_derivation_patterns",
+            return_value={"include": set(), "exclude": {"_", "private"}},
+        ):
+            result = get_exclude_patterns(engine, "ApplicationService")
+
+        assert "_" in result
+        assert "private" in result
+
+
+class TestUpdateDerivationPatterns:
+    """Tests for update_derivation_patterns function."""
+
+    def test_updates_existing_patterns(self):
+        """Should update existing patterns."""
+        from deriva.services.config import update_derivation_patterns
+
+        engine = MagicMock()
+        engine.execute.return_value.rowcount = 1
+
+        result = update_derivation_patterns(
+            engine,
+            "ApplicationService",
+            "include",
+            "http_methods",
+            ["get", "post", "put", "delete"],
+        )
+
+        assert result is True
+
+    def test_inserts_when_not_exists(self):
+        """Should insert new patterns when not exists."""
+        from deriva.services.config import update_derivation_patterns
+
+        engine = MagicMock()
+        engine.execute.return_value.rowcount = 0
+        engine.execute.return_value.fetchone.return_value = (1,)
+
+        result = update_derivation_patterns(
+            engine,
+            "NewStep",
+            "include",
+            "new_category",
+            ["pattern1", "pattern2"],
+        )
+
+        assert result is True
+
+
+class TestThresholdHelpers:
+    """Tests for threshold helper functions."""
+
+    def test_get_confidence_threshold_from_settings(self):
+        """Should get threshold from system_settings."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_confidence_threshold
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_setting",
+            return_value="0.75",
+        ):
+            result = get_confidence_threshold(engine, "min_relationship")
+
+        assert result == 0.75
+
+    def test_get_confidence_threshold_uses_default(self):
+        """Should use default when setting not found."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_confidence_threshold
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_setting",
+            return_value=None,
+        ):
+            result = get_confidence_threshold(engine, "min_relationship")
+
+        assert result == 0.6  # Default value
+
+    def test_get_confidence_threshold_handles_invalid_value(self):
+        """Should handle invalid value and use default."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_confidence_threshold
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_setting",
+            return_value="not_a_number",
+        ):
+            result = get_confidence_threshold(engine, "min_relationship")
+
+        assert result == 0.6  # Default value
+
+    def test_get_derivation_limit_from_settings(self):
+        """Should get limit from system_settings."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_derivation_limit
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_setting",
+            return_value="50",
+        ):
+            result = get_derivation_limit(engine, "default_batch_size")
+
+        assert result == 50
+
+    def test_get_derivation_limit_uses_default(self):
+        """Should use default when setting not found."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_derivation_limit
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_setting",
+            return_value=None,
+        ):
+            result = get_derivation_limit(engine, "default_batch_size")
+
+        assert result == 10  # Default value
+
+
+class TestSpecificThresholdHelpers:
+    """Tests for specific threshold helper functions."""
+
+    def test_get_min_relationship_confidence(self):
+        """Should get min relationship confidence."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_min_relationship_confidence
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_confidence_threshold",
+            return_value=0.65,
+        ):
+            result = get_min_relationship_confidence(engine)
+
+        assert result == 0.65
+
+    def test_get_community_rel_confidence(self):
+        """Should get community relationship confidence."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_community_rel_confidence
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_confidence_threshold",
+            return_value=0.95,
+        ):
+            result = get_community_rel_confidence(engine)
+
+        assert result == 0.95
+
+    def test_get_name_match_confidence(self):
+        """Should get name match confidence."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_name_match_confidence
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_confidence_threshold",
+            return_value=0.95,
+        ):
+            result = get_name_match_confidence(engine)
+
+        assert result == 0.95
+
+    def test_get_file_match_confidence(self):
+        """Should get file match confidence."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_file_match_confidence
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_confidence_threshold",
+            return_value=0.85,
+        ):
+            result = get_file_match_confidence(engine)
+
+        assert result == 0.85
+
+    def test_get_fuzzy_match_threshold(self):
+        """Should get fuzzy match threshold."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_fuzzy_match_threshold
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_confidence_threshold",
+            return_value=0.85,
+        ):
+            result = get_fuzzy_match_threshold(engine)
+
+        assert result == 0.85
+
+    def test_get_semantic_confidence(self):
+        """Should get semantic confidence."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_semantic_confidence
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_confidence_threshold",
+            return_value=0.95,
+        ):
+            result = get_semantic_confidence(engine)
+
+        assert result == 0.95
+
+    def test_get_pagerank_min(self):
+        """Should get pagerank minimum threshold."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_pagerank_min
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_confidence_threshold",
+            return_value=0.001,
+        ):
+            result = get_pagerank_min(engine)
+
+        assert result == 0.001
+
+
+class TestSpecificLimitHelpers:
+    """Tests for specific limit helper functions."""
+
+    def test_get_max_batch_size(self):
+        """Should get max batch size."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_max_batch_size
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_derivation_limit",
+            return_value=10,
+        ):
+            result = get_max_batch_size(engine)
+
+        assert result == 10
+
+    def test_get_max_candidates(self):
+        """Should get max candidates."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_max_candidates
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_derivation_limit",
+            return_value=30,
+        ):
+            result = get_max_candidates(engine)
+
+        assert result == 30
+
+    def test_get_max_relationships_per_derivation(self):
+        """Should get max relationships per derivation."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_max_relationships_per_derivation
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_derivation_limit",
+            return_value=500,
+        ):
+            result = get_max_relationships_per_derivation(engine)
+
+        assert result == 500
+
+
+class TestAlgorithmSettingsHelpers:
+    """Tests for algorithm settings helper functions."""
+
+    def test_get_algorithm_setting_from_settings(self):
+        """Should get algorithm setting from system_settings."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_algorithm_setting
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_setting",
+            return_value="0.9",
+        ):
+            result = get_algorithm_setting(engine, "algorithm_pagerank_damping")
+
+        assert result == "0.9"
+
+    def test_get_algorithm_setting_uses_default(self):
+        """Should use default when setting not found."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_algorithm_setting
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_setting",
+            return_value=None,
+        ):
+            result = get_algorithm_setting(engine, "algorithm_pagerank_damping")
+
+        assert result == "0.85"  # Default value
+
+    def test_get_algorithm_setting_float(self):
+        """Should get algorithm setting as float."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_algorithm_setting_float
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_algorithm_setting",
+            return_value="0.85",
+        ):
+            result = get_algorithm_setting_float(engine, "algorithm_pagerank_damping")
+
+        assert result == 0.85
+
+    def test_get_algorithm_setting_float_handles_invalid(self):
+        """Should handle invalid float value."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_algorithm_setting_float
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_algorithm_setting",
+            return_value="not_a_number",
+        ):
+            result = get_algorithm_setting_float(engine, "key", default=0.5)
+
+        assert result == 0.5
+
+    def test_get_algorithm_setting_int(self):
+        """Should get algorithm setting as int."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_algorithm_setting_int
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_algorithm_setting",
+            return_value="100",
+        ):
+            result = get_algorithm_setting_int(engine, "algorithm_pagerank_max_iter")
+
+        assert result == 100
+
+    def test_get_algorithm_setting_int_handles_invalid(self):
+        """Should handle invalid int value."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_algorithm_setting_int
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_algorithm_setting",
+            return_value="not_a_number",
+        ):
+            result = get_algorithm_setting_int(engine, "key", default=50)
+
+        assert result == 50
+
+    def test_get_pagerank_config(self):
+        """Should get pagerank configuration."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_pagerank_config
+
+        engine = MagicMock()
+
+        with (
+            patch(
+                "deriva.services.config.get_algorithm_setting_float",
+                side_effect=[0.85, 1e-6],
+            ),
+            patch(
+                "deriva.services.config.get_algorithm_setting_int",
+                return_value=100,
+            ),
+        ):
+            result = get_pagerank_config(engine)
+
+        assert result["damping"] == 0.85
+        assert result["max_iter"] == 100
+        assert result["tol"] == 1e-6
+
+    def test_get_louvain_config(self):
+        """Should get louvain configuration."""
+        from unittest.mock import patch
+
+        from deriva.services.config import get_louvain_config
+
+        engine = MagicMock()
+
+        with patch(
+            "deriva.services.config.get_algorithm_setting_float",
+            return_value=1.0,
+        ):
+            result = get_louvain_config(engine)
+
+        assert result["resolution"] == 1.0

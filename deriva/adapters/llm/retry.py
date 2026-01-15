@@ -8,9 +8,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import TypeVar
 
 import backoff
+from backoff._typing import Details
 
 logger = logging.getLogger(__name__)
 
@@ -25,31 +26,33 @@ RETRIABLE_EXCEPTIONS = (
 )
 
 
-def on_backoff(details: dict[str, Any]) -> None:
+def on_backoff(details: Details) -> None:
     """Log backoff events."""
     wait = details.get("wait", 0)
     tries = details.get("tries", 0)
-    target = details.get("target", lambda: None).__name__
+    target = details.get("target")
+    target_name = getattr(target, "__name__", "unknown") if target else "unknown"
     exception = details.get("exception")
 
     logger.warning(
         "Retry %d for %s, backing off %.2fs. Error: %s",
         tries,
-        target,
+        target_name,
         wait,
         exception,
     )
 
 
-def on_giveup(details: dict[str, Any]) -> None:
+def on_giveup(details: Details) -> None:
     """Log when retries are exhausted."""
     tries = details.get("tries", 0)
-    target = details.get("target", lambda: None).__name__
+    target = details.get("target")
+    target_name = getattr(target, "__name__", "unknown") if target else "unknown"
     exception = details.get("exception")
 
     logger.error(
         "Giving up on %s after %d attempts. Final error: %s",
-        target,
+        target_name,
         tries,
         exception,
     )

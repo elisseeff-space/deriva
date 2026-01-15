@@ -6,6 +6,8 @@ and test_python.py files with parameterized tests that reduce duplication.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from deriva.adapters.treesitter import TreeSitterManager
@@ -25,7 +27,7 @@ def manager():
 # LANGUAGE-SPECIFIC CODE SAMPLES
 # =============================================================================
 
-SAMPLES = {
+SAMPLES: dict[str, dict[str, Any]] = {
     "java": {
         "class": ("public class UserService { private String name; }", "UserService", "class"),
         "class_inheritance": ("public class Admin extends User { private int level; }", "Admin"),
