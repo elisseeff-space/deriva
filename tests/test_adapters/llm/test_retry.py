@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
+from backoff._typing import Details
 
 from deriva.adapters.llm.retry import (
     RETRIABLE_EXCEPTIONS,
@@ -41,10 +44,13 @@ class TestOnBackoff:
         def dummy_func():
             pass
 
-        details = {
-            "wait": 2.5,
-            "tries": 2,
+        details: Details = {
             "target": dummy_func,
+            "args": (),
+            "kwargs": {},
+            "tries": 2,
+            "elapsed": 0.0,
+            "wait": 2.5,
             "exception": ConnectionError("Connection refused"),
         }
 
