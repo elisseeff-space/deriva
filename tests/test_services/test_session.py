@@ -594,3 +594,502 @@ class TestPipelineSessionGetRunLogger:
         logger = session._get_run_logger()
 
         assert logger is None
+
+
+class TestPipelineSessionNeo4jControl:
+    """Tests for Neo4j container control methods."""
+
+    def test_start_neo4j(self):
+        """Should start Neo4j container."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection") as mock_neo4j,
+        ):
+            session = PipelineSession(auto_connect=True)
+            mock_neo4j.return_value.start_container.return_value = {"success": True}
+
+            result = session.start_neo4j()
+
+            assert result["success"] is True
+
+    def test_stop_neo4j(self):
+        """Should stop Neo4j container."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection") as mock_neo4j,
+        ):
+            session = PipelineSession(auto_connect=True)
+            mock_neo4j.return_value.stop_container.return_value = {"success": True}
+
+            result = session.stop_neo4j()
+
+            assert result["success"] is True
+
+
+class TestPipelineSessionDerivationNoLLM:
+    """Tests for derivation with no LLM configured."""
+
+    @pytest.fixture
+    def connected_session(self):
+        """Create connected session with mocked services."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            yield session
+
+    def test_run_derivation_returns_error_when_no_llm(self, connected_session):
+        """Should return error when LLM not configured."""
+        with patch.object(connected_session, "_get_llm_query_fn", return_value=None):
+            result = connected_session.run_derivation()
+
+        assert result["success"] is False
+        assert "LLM not configured" in result["errors"][0]
+
+    def test_run_derivation_iter_yields_error_when_no_llm(self, connected_session):
+        """Should yield error update when LLM not configured."""
+        with patch.object(connected_session, "_get_llm_query_fn", return_value=None):
+            updates = list(connected_session.run_derivation_iter())
+
+        assert len(updates) == 1
+        assert updates[0].status == "error"
+        assert "LLM not configured" in updates[0].message
+
+
+class TestPipelineSessionExport:
+    """Tests for export methods."""
+
+    @pytest.fixture
+    def connected_session(self):
+        """Create connected session with mocked managers."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager") as mock_archimate,
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._mock_archimate = mock_archimate.return_value
+            yield session
+
+    def test_export_model_success(self, connected_session, tmp_path):
+        """Should export model successfully."""
+        mock_element = MagicMock()
+        mock_element.identifier = "elem1"
+        mock_rel = MagicMock()
+        mock_rel.source = "elem1"
+        mock_rel.target = "elem1"
+
+        connected_session._mock_archimate.get_elements.return_value = [mock_element]
+        connected_session._mock_archimate.get_relationships.return_value = [mock_rel]
+
+        output_path = str(tmp_path / "model.xml")
+        with patch("deriva.services.session.ArchiMateXMLExporter"):
+            result = connected_session.export_model(output_path=output_path)
+
+        assert result["success"] is True
+        assert result["elements_exported"] == 1
+
+    def test_export_model_no_elements(self, connected_session, tmp_path):
+        """Should return error when no elements found."""
+        connected_session._mock_archimate.get_elements.return_value = []
+
+        result = connected_session.export_model(output_path=str(tmp_path / "model.xml"))
+
+        assert result["success"] is False
+        assert "No ArchiMate elements" in result["error"]
+
+
+class TestPipelineSessionConfigMethods:
+    """Tests for config passthrough methods."""
+
+    @pytest.fixture
+    def connected_session(self):
+        """Create connected session with mocked engine."""
+        with (
+            patch("deriva.services.session.get_connection") as mock_db,
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+            patch("deriva.services.session.config") as mock_config,
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._mock_engine = mock_db.return_value  # type: ignore[attr-defined]
+            session._mock_config = mock_config  # type: ignore[attr-defined]
+            yield session
+
+    def test_list_steps_delegates_to_config(self, connected_session):
+        """Should delegate list_steps to config service."""
+        connected_session._mock_config.list_steps.return_value = [{"name": "step1"}]
+
+        result = connected_session.list_steps("extraction")
+
+        assert len(result) == 1
+        assert result[0]["name"] == "step1"
+
+    def test_enable_step_delegates_to_config(self, connected_session):
+        """Should delegate enable_step to config service."""
+        connected_session._mock_config.enable_step.return_value = True
+
+        result = connected_session.enable_step("extraction", "BusinessConcept")
+
+        assert result is True
+
+    def test_disable_step_delegates_to_config(self, connected_session):
+        """Should delegate disable_step to config service."""
+        connected_session._mock_config.disable_step.return_value = True
+
+        result = connected_session.disable_step("extraction", "BusinessConcept")
+
+        assert result is True
+
+    def test_get_file_types_returns_list(self, connected_session):
+        """Should return file types as dicts."""
+
+        # Use a simple object with __dict__ instead of MagicMock
+        class MockFileType:
+            def __init__(self):
+                self.extension = ".py"
+                self.file_type = "source"
+
+        connected_session._mock_config.get_file_types.return_value = [MockFileType()]
+
+        result = connected_session.get_file_types()
+
+        assert len(result) == 1
+
+    def test_get_extraction_configs_returns_list(self, connected_session):
+        """Should return extraction configs as dicts."""
+        mock_config = MagicMock()
+        mock_config.node_type = "BusinessConcept"
+        mock_config.sequence = 1
+        mock_config.enabled = True
+        mock_config.input_sources = None
+        mock_config.instruction = "Test"
+        mock_config.example = "{}"
+        connected_session._mock_config.get_extraction_configs.return_value = [mock_config]
+
+        result = connected_session.get_extraction_configs()
+
+        assert len(result) == 1
+        assert result[0]["node_type"] == "BusinessConcept"
+
+    def test_update_extraction_config(self, connected_session):
+        """Should delegate to config service."""
+        connected_session._mock_config.update_extraction_config.return_value = True
+
+        result = connected_session.update_extraction_config("BusinessConcept", enabled=True)
+
+        assert result is True
+
+    def test_save_extraction_config(self, connected_session):
+        """Should delegate to config service for versioned update."""
+        connected_session._mock_config.create_extraction_config_version.return_value = {
+            "success": True,
+            "new_version": 2,
+        }
+
+        result = connected_session.save_extraction_config("BusinessConcept", enabled=True)
+
+        assert result["success"] is True
+
+    def test_get_derivation_configs(self, connected_session):
+        """Should return derivation configs as dicts."""
+        mock_config = MagicMock()
+        mock_config.element_type = "ApplicationComponent"
+        mock_config.sequence = 1
+        mock_config.enabled = True
+        mock_config.input_graph_query = "MATCH (n)"
+        mock_config.instruction = "Test"
+        mock_config.example = "{}"
+        connected_session._mock_config.get_derivation_configs.return_value = [mock_config]
+
+        result = connected_session.get_derivation_configs()
+
+        assert len(result) == 1
+        assert result[0]["element_type"] == "ApplicationComponent"
+
+    def test_update_derivation_config(self, connected_session):
+        """Should delegate to config service."""
+        connected_session._mock_config.update_derivation_config.return_value = True
+
+        result = connected_session.update_derivation_config("ApplicationComponent", enabled=True)
+
+        assert result is True
+
+    def test_save_derivation_config(self, connected_session):
+        """Should delegate to config service for versioned update."""
+        connected_session._mock_config.create_derivation_config_version.return_value = {
+            "success": True,
+            "new_version": 2,
+        }
+
+        result = connected_session.save_derivation_config("ApplicationComponent", enabled=True)
+
+        assert result["success"] is True
+
+    def test_get_config_versions(self, connected_session):
+        """Should return config versions."""
+        connected_session._mock_config.get_active_config_versions.return_value = {
+            "extraction": {"BusinessConcept": 1},
+            "derivation": {"ApplicationComponent": 2},
+        }
+
+        result = connected_session.get_config_versions()
+
+        assert result["extraction"]["BusinessConcept"] == 1
+        assert result["derivation"]["ApplicationComponent"] == 2
+
+    def test_add_file_type(self, connected_session):
+        """Should delegate to config service."""
+        connected_session._mock_config.add_file_type.return_value = True
+
+        result = connected_session.add_file_type(".rs", "source", "rust")
+
+        assert result is True
+
+    def test_update_file_type(self, connected_session):
+        """Should delegate to config service."""
+        connected_session._mock_config.update_file_type.return_value = True
+
+        result = connected_session.update_file_type(".py", "source", "python3")
+
+        assert result is True
+
+    def test_delete_file_type(self, connected_session):
+        """Should delegate to config service."""
+        connected_session._mock_config.delete_file_type.return_value = True
+
+        result = connected_session.delete_file_type(".xyz")
+
+        assert result is True
+
+
+class TestPipelineSessionFileTypeStats:
+    """Tests for file type stats method."""
+
+    def test_get_file_type_stats(self):
+        """Should return file type statistics."""
+        with (
+            patch("deriva.services.session.get_connection") as mock_db,
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            mock_db.return_value.execute.return_value.fetchone.side_effect = [
+                (5,),  # types
+                (10,),  # subtypes
+                (20,),  # total
+            ]
+
+            result = session.get_file_type_stats()
+
+            assert result["types"] == 5
+            assert result["subtypes"] == 10
+            assert result["total"] == 20
+
+
+class TestPipelineSessionLLMManagement:
+    """Tests for LLM management methods."""
+
+    def test_toggle_llm_cache_enabled(self):
+        """Should enable LLM cache."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._llm_manager = MagicMock()
+
+            result = session.toggle_llm_cache(True)
+
+            assert result["success"] is True
+            assert result["cache_enabled"] is True
+
+    def test_toggle_llm_cache_no_manager(self):
+        """Should return error when no LLM manager."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            # Force _llm_manager to None
+            with patch.object(session, "_get_llm_query_fn", return_value=None):
+                session._llm_manager = None
+
+                result = session.toggle_llm_cache(True)
+
+                assert result["success"] is False
+
+    def test_list_benchmark_models(self):
+        """Should return benchmark models dict."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+            patch("deriva.services.session.benchmarking"),
+        ):
+            session = PipelineSession(auto_connect=True)
+
+            with patch("deriva.adapters.llm.manager.load_benchmark_models", return_value={"model1": {}}):
+                result = session.list_benchmark_models()
+
+            assert "model1" in result
+
+
+class TestPipelineSessionMiscMethods:
+    """Tests for miscellaneous session methods."""
+
+    @pytest.fixture
+    def connected_session(self):
+        """Create connected session."""
+        with (
+            patch("deriva.services.session.get_connection") as mock_db,
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+            patch("deriva.services.session.pipeline") as mock_pipeline,
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._mock_engine = mock_db.return_value
+            session._mock_pipeline = mock_pipeline
+            yield session
+
+    def test_run_classification(self, connected_session):
+        """Should delegate to pipeline service."""
+        connected_session._mock_pipeline.run_classification.return_value = {"success": True}
+
+        result = connected_session.run_classification(repo_name="test-repo")
+
+        assert result["success"] is True
+
+    def test_get_database_path(self, connected_session):
+        """Should return database path."""
+        with patch("deriva.adapters.database.DB_PATH", "test/path/db.duckdb"):
+            result = connected_session.get_database_path()
+
+            assert "db" in result.lower() or "path" in result.lower()
+
+    def test_execute_sql_with_params(self, connected_session):
+        """Should execute SQL with parameters."""
+        connected_session._mock_engine.execute.return_value.fetchall.return_value = [(1, "test")]
+
+        result = connected_session.execute_sql("SELECT * FROM test WHERE id = ?", [1])
+
+        assert len(result) == 1
+        assert result[0] == (1, "test")
+
+    def test_execute_sql_without_params(self, connected_session):
+        """Should execute SQL without parameters."""
+        connected_session._mock_engine.execute.return_value.fetchall.return_value = [(1,), (2,)]
+
+        result = connected_session.execute_sql("SELECT COUNT(*) FROM test")
+
+        assert len(result) == 2
+
+    def test_workspace_dir_property(self, connected_session):
+        """Should return workspace directory."""
+        result = connected_session.workspace_dir
+
+        assert result is not None
+
+
+class TestPipelineSessionRepositoryInfo:
+    """Tests for repository info method."""
+
+    @pytest.fixture
+    def connected_session(self):
+        """Create connected session with mocked repo manager."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager") as mock_repo,
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._mock_repo = mock_repo.return_value
+            yield session
+
+    def test_get_repository_info_found(self, connected_session):
+        """Should return repository info when found."""
+        mock_info = MagicMock()
+        mock_info.to_dict.return_value = {"name": "test-repo", "path": "/path/to/repo"}
+        connected_session._mock_repo.get_repository_info.return_value = mock_info
+
+        result = connected_session.get_repository_info("test-repo")
+
+        assert result is not None
+        assert result["name"] == "test-repo"
+
+    def test_get_repository_info_not_found(self, connected_session):
+        """Should return None when not found."""
+        connected_session._mock_repo.get_repository_info.return_value = None
+
+        result = connected_session.get_repository_info("unknown-repo")
+
+        assert result is None
+
+    def test_get_repository_info_error(self, connected_session):
+        """Should return None on error."""
+        connected_session._mock_repo.get_repository_info.side_effect = Exception("Error")
+
+        result = connected_session.get_repository_info("test-repo")
+
+        assert result is None
+
+    def test_delete_repository_error(self, connected_session):
+        """Should return error on delete failure."""
+        connected_session._mock_repo.delete_repository.side_effect = Exception("Delete failed")
+
+        result = connected_session.delete_repository("test-repo")
+
+        assert result["success"] is False
+        assert "Delete failed" in result["error"]
+
+
+class TestPipelineSessionExtractionStepCount:
+    """Tests for get_extraction_step_count method."""
+
+    def test_get_extraction_step_count(self):
+        """Should return extraction step count."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager") as mock_repo,
+            patch("deriva.services.session.Neo4jConnection"),
+            patch("deriva.services.session.config") as mock_config,
+        ):
+            session = PipelineSession(auto_connect=True)
+
+            # 3 configs * 2 repos = 6 steps
+            mock_config.get_extraction_configs.return_value = [MagicMock(), MagicMock(), MagicMock()]
+            mock_repo.return_value.list_repositories.return_value = [MagicMock(name="repo1"), MagicMock(name="repo2")]
+
+            count = session.get_extraction_step_count()
+
+            assert count == 6

@@ -24,11 +24,39 @@ Usage:
 
     # Get derivation configs by phase
     generate_configs = config.get_derivation_configs(engine, phase="generate")
+
+    # Load environment settings (pydantic-settings)
+    from deriva.services.config_models import DerivaSettings
+    settings = DerivaSettings()
+    print(settings.llm.temperature)
 """
 
 from __future__ import annotations
 
-from typing import Any
+from functools import lru_cache
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from deriva.services.config_models import DerivaSettings
+
+
+@lru_cache
+def get_settings() -> DerivaSettings:
+    """
+    Get cached application settings from environment.
+
+    Returns:
+        DerivaSettings instance with all environment configuration.
+
+    Usage:
+        settings = get_settings()
+        print(settings.llm.temperature)
+        print(settings.neo4j.uri)
+    """
+    from deriva.services.config_models import DerivaSettings
+
+    return DerivaSettings()
+
 
 # =============================================================================
 # Type Definitions

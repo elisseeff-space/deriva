@@ -19,7 +19,6 @@ from deriva.adapters.llm.models import (
     LiveResponse,
 )
 
-
 # =============================================================================
 # load_benchmark_models() Tests
 # =============================================================================
@@ -528,7 +527,7 @@ class TestQuery:
         with patch("deriva.adapters.llm.manager.load_dotenv"):
             with patch.dict("os.environ", env_vars, clear=True):
                 manager = LLMManager()
-                manager.cache.get = MagicMock(return_value=cached_data)
+                manager.cache.get = MagicMock(return_value=cached_data)  # type: ignore[method-assign]
 
                 response = manager.query("Hello")
 
@@ -595,8 +594,8 @@ class TestQuery:
                 with patch("deriva.adapters.llm.manager.Agent") as mock_agent_class:
                     mock_agent_class.return_value.run_sync.return_value = mock_result
                     manager = LLMManager()
-                    manager.cache.get = MagicMock(return_value=None)
-                    manager.cache.set_response = MagicMock()
+                    manager.cache.get = MagicMock(return_value=None)  # type: ignore[method-assign]
+                    manager.cache.set_response = MagicMock()  # type: ignore[method-assign]
 
                     manager.query("Hello")
 
@@ -636,7 +635,7 @@ class TestUtilityMethods:
         with patch("deriva.adapters.llm.manager.load_dotenv"):
             with patch.dict("os.environ", env_vars, clear=True):
                 manager = LLMManager()
-                manager.cache.clear_all = MagicMock()
+                manager.cache.clear_all = MagicMock()  # type: ignore[method-assign]
 
                 manager.clear_cache()
 
@@ -655,7 +654,7 @@ class TestUtilityMethods:
         with patch("deriva.adapters.llm.manager.load_dotenv"):
             with patch.dict("os.environ", env_vars, clear=True):
                 manager = LLMManager()
-                manager.cache.get_cache_stats = MagicMock(return_value=mock_stats)
+                manager.cache.get_cache_stats = MagicMock(return_value=mock_stats)  # type: ignore[method-assign]
 
                 stats = manager.get_cache_stats()
 

@@ -1,10 +1,11 @@
 """
 Rate limiter for LLM API requests.
 
-Implements token bucket algorithm with support for:
+Implements token bucket algorithm for:
 - Requests per minute (RPM) limits
 - Minimum delay between requests
-- Exponential backoff on rate limit errors
+
+For retry logic with exponential backoff, use retry.py instead.
 """
 
 from __future__ import annotations
@@ -27,7 +28,6 @@ DEFAULT_RATE_LIMITS: dict[str, int] = {
     "mistral": 24,  # Mistral: varies by tier
     "ollama": 0,  # Local - no limit
     "lmstudio": 0,  # Local - no limit
-    "claudecode": 30,  # Claude Code CLI: conservative default
 }
 
 
@@ -37,15 +37,12 @@ class RateLimitConfig:
 
     requests_per_minute: int = 60  # 0 = no limit
     min_request_delay: float = 0.0  # Minimum seconds between requests
-    backoff_base: float = 2.0  # Base for exponential backoff
-    backoff_max: float = 60.0  # Maximum backoff delay in seconds
-    backoff_jitter: float = 0.1  # Jitter factor (0-1) for randomization
 
 
 @dataclass
 class RateLimiter:
     """
-    Token bucket rate limiter with exponential backoff support.
+    Token bucket rate limiter for API requests.
 
     Thread-safe implementation that tracks request timestamps and
     enforces rate limits across concurrent calls.
@@ -56,8 +53,8 @@ class RateLimiter:
     config: RateLimitConfig = field(default_factory=RateLimitConfig)
     _request_times: deque = field(default_factory=deque)  # O(1) popleft
     _lock: threading.Lock = field(default_factory=threading.Lock)
-    _consecutive_rate_limits: int = field(default=0)
     _last_request_time: float = field(default=0.0)
+    _successful_requests: int = field(default=0)
 
     def wait_if_needed(self) -> float:
         """
@@ -110,54 +107,9 @@ class RateLimiter:
             return wait_time
 
     def record_success(self) -> None:
-        """Record a successful request, resetting backoff counter."""
+        """Record a successful request."""
         with self._lock:
-            self._consecutive_rate_limits = 0
-
-    def record_rate_limit(self, retry_after: float | None = None) -> float:
-        """
-        Record a rate limit error and calculate backoff delay.
-
-        Args:
-            retry_after: Optional retry-after value from API response header (seconds).
-                        If provided, uses this value instead of exponential backoff.
-
-        Returns:
-            float: Recommended wait time before retry
-        """
-        import random
-
-        with self._lock:
-            self._consecutive_rate_limits += 1
-
-            # Use retry-after header if provided
-            if retry_after is not None and retry_after > 0:
-                delay = min(retry_after, self.config.backoff_max)
-                logger.warning(
-                    "Rate limit hit (attempt %d), using retry-after header: %.2fs",
-                    self._consecutive_rate_limits,
-                    delay,
-                )
-                return delay
-
-            # Calculate exponential backoff with jitter
-            delay = min(
-                self.config.backoff_base**self._consecutive_rate_limits,
-                self.config.backoff_max,
-            )
-
-            # Add jitter to prevent thundering herd
-            if self.config.backoff_jitter > 0:
-                jitter = delay * self.config.backoff_jitter * random.random()
-                delay += jitter
-
-            logger.warning(
-                "Rate limit hit (attempt %d), backing off %.2fs",
-                self._consecutive_rate_limits,
-                delay,
-            )
-
-            return delay
+            self._successful_requests += 1
 
     def get_stats(self) -> dict[str, float | int]:
         """Get current rate limiter statistics."""
@@ -172,7 +124,7 @@ class RateLimiter:
             return {
                 "requests_last_minute": recent_requests,
                 "rpm_limit": self.config.requests_per_minute,
-                "consecutive_rate_limits": self._consecutive_rate_limits,
+                "successful_requests": self._successful_requests,
                 "min_request_delay": self.config.min_request_delay,
             }
 
@@ -216,3 +168,12 @@ def parse_retry_after(headers: dict[str, str] | None) -> float | None:
                 continue
 
     return None
+
+
+__all__ = [
+    "RateLimitConfig",
+    "RateLimiter",
+    "get_default_rate_limit",
+    "parse_retry_after",
+    "DEFAULT_RATE_LIMITS",
+]

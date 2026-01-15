@@ -1,5 +1,5 @@
 """
-Logging module - JSON Lines based logging for pipeline runs.
+Logging module - Structured logging for pipeline runs using structlog.
 
 Logging Levels:
 - Level 1: High-level phases (classification, extraction, derivation, validation)
@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import asdict, dataclass
+from contextlib import contextmanager
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
+
+import structlog
 
 __all__ = [
     "LogLevel",
@@ -50,36 +52,112 @@ class LogStatus(str, Enum):
     SKIPPED = "skipped"
 
 
-@dataclass
 class LogEntry:
-    """A single log entry."""
+    """A single log entry - compatibility wrapper for structlog output."""
 
-    level: int
-    phase: str
-    status: str
-    timestamp: str
-    message: str
-    step: str | None = None
-    sequence: int | None = None
-    duration_ms: int | None = None
-    items_processed: int | None = None
-    items_created: int | None = None
-    items_failed: int | None = None
-    stats: dict[str, Any] | None = None
-    error: str | None = None
+    def __init__(
+        self,
+        level: int,
+        phase: str,
+        status: str,
+        timestamp: str,
+        message: str,
+        step: str | None = None,
+        sequence: int | None = None,
+        duration_ms: int | None = None,
+        items_processed: int | None = None,
+        items_created: int | None = None,
+        items_failed: int | None = None,
+        stats: dict[str, Any] | None = None,
+        error: str | None = None,
+    ):
+        self.level = level
+        self.phase = phase
+        self.status = status
+        self.timestamp = timestamp
+        self.message = message
+        self.step = step
+        self.sequence = sequence
+        self.duration_ms = duration_ms
+        self.items_processed = items_processed
+        self.items_created = items_created
+        self.items_failed = items_failed
+        self.stats = stats
+        self.error = error
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary, excluding None values."""
-        return {k: v for k, v in asdict(self).items() if v is not None}
+        result = {
+            "level": self.level,
+            "phase": self.phase,
+            "status": self.status,
+            "timestamp": self.timestamp,
+            "message": self.message,
+        }
+        if self.step is not None:
+            result["step"] = self.step
+        if self.sequence is not None:
+            result["sequence"] = self.sequence
+        if self.duration_ms is not None:
+            result["duration_ms"] = self.duration_ms
+        if self.items_processed is not None:
+            result["items_processed"] = self.items_processed
+        if self.items_created is not None:
+            result["items_created"] = self.items_created
+        if self.items_failed is not None:
+            result["items_failed"] = self.items_failed
+        if self.stats is not None:
+            result["stats"] = self.stats
+        if self.error is not None:
+            result["error"] = self.error
+        return result
 
     def to_json(self) -> str:
         """Convert to JSON string."""
         return json.dumps(self.to_dict())
 
 
+def _jsonl_renderer(
+    logger: structlog.types.WrappedLogger,
+    method_name: str,
+    event_dict: structlog.types.EventDict,
+) -> str:
+    """Custom renderer that outputs JSONL format compatible with existing logs."""
+    return json.dumps(event_dict, default=str)
+
+
+def _create_structlog_logger(file_handle: IO[str]) -> structlog.stdlib.BoundLogger:
+    """Create a structlog logger configured for JSONL file output."""
+
+    def file_writer(
+        logger: structlog.types.WrappedLogger,
+        method_name: str,
+        event_dict: structlog.types.EventDict,
+    ) -> str:
+        """Write to file and return the JSON string."""
+        json_str = json.dumps(event_dict, default=str)
+        file_handle.write(json_str + "\n")
+        file_handle.flush()
+        return json_str
+
+    structlog.configure(
+        processors=[
+            structlog.stdlib.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            file_writer,
+        ],
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.PrintLoggerFactory(),
+        cache_logger_on_first_use=False,
+    )
+
+    return structlog.get_logger()
+
+
 class RunLogger:
     """
-    Logger for a single pipeline run.
+    Logger for a single pipeline run using structlog.
 
     Creates and appends to a JSONL file in workspace/logs/run_{id}/.
     """
@@ -97,7 +175,6 @@ class RunLogger:
         # Resolve logs_dir relative to project root
         logs_path = Path(logs_dir)
         if not logs_path.is_absolute():
-            # Resolve relative to project root (2 levels up from logging.py: common -> src -> root)
             project_root = Path(__file__).parent.parent.parent
             logs_path = project_root / logs_path
 
@@ -112,10 +189,24 @@ class RunLogger:
         datetime_str = self.start_time.strftime("%Y%m%d_%H%M%S")
         self.log_file = self.run_dir / f"log_{datetime_str}.jsonl"
 
+        # Open file handle for structlog
+        self._file_handle: IO[str] | None = None
+
         # Track current phase for step logging
         self._current_phase: str | None = None
         self._phase_start: datetime | None = None
         self._step_sequence: int = 0
+
+        # Bound logger with run context
+        self._logger: structlog.stdlib.BoundLogger | None = None
+
+    def _ensure_logger(self) -> structlog.stdlib.BoundLogger:
+        """Ensure the structlog logger is initialized."""
+        if self._logger is None:
+            self._file_handle = open(self.log_file, "a", encoding="utf-8")
+            self._logger = _create_structlog_logger(self._file_handle)
+            self._logger = self._logger.bind(run_id=self.run_id)
+        return self._logger
 
     def _write_entry(self, entry: LogEntry) -> None:
         """Write a log entry to the JSONL file."""
@@ -129,6 +220,16 @@ class RunLogger:
     def _elapsed_ms(self, start: datetime) -> int:
         """Calculate elapsed milliseconds since start."""
         return int((datetime.now() - start).total_seconds() * 1000)
+
+    def close(self) -> None:
+        """Close the file handle."""
+        if hasattr(self, "_file_handle") and self._file_handle:
+            self._file_handle.close()
+            self._file_handle = None
+
+    def __del__(self) -> None:
+        """Cleanup on deletion."""
+        self.close()
 
     # ==================== Level 1: Phase Logging ====================
 
@@ -327,20 +428,42 @@ class RunLogger:
         )
         self._write_entry(entry)
 
+    # ==================== Level 2: Step Context Manager ====================
+
+    @contextmanager
+    def step(self, step_name: str, message: str = ""):
+        """
+        Context manager for step logging with automatic timing.
+
+        Args:
+            step_name: Name of the step
+            message: Optional start message
+
+        Yields:
+            StepContext for tracking items processed/created
+
+        Example:
+            with logger.step("Repository") as ctx:
+                # do work
+                ctx.items_processed = 10
+                ctx.items_created = 5
+        """
+        ctx = self.step_start(step_name, message)
+        try:
+            yield ctx
+        except Exception as e:
+            ctx.error(str(e))
+            raise
+        else:
+            if not ctx._completed:
+                ctx.complete()
+
     # ==================== Level 3: Detail Logging ====================
 
     def detail_file_classified(
         self, file_path: str, file_type: str, subtype: str, extension: str
     ) -> None:
-        """
-        Log a successfully classified file (Level 3).
-
-        Args:
-            file_path: Path to the file
-            file_type: Classified file type (e.g., 'documentation', 'code')
-            subtype: File subtype (e.g., 'markdown', 'python')
-            extension: File extension
-        """
+        """Log a successfully classified file (Level 3)."""
         entry = LogEntry(
             level=LogLevel.DETAIL,
             phase=self._current_phase or "classification",
@@ -357,13 +480,7 @@ class RunLogger:
         self._write_entry(entry)
 
     def detail_file_unclassified(self, file_path: str, extension: str) -> None:
-        """
-        Log an unclassified file (Level 3).
-
-        Args:
-            file_path: Path to the file
-            extension: Unknown file extension
-        """
+        """Log an unclassified file (Level 3)."""
         entry = LogEntry(
             level=LogLevel.DETAIL,
             phase=self._current_phase or "classification",
@@ -392,22 +509,7 @@ class RunLogger:
         success: bool = True,
         error: str | None = None,
     ) -> None:
-        """
-        Log an LLM extraction detail (Level 3).
-
-        Args:
-            file_path: Path to the source file
-            node_type: Type of node being extracted (e.g., 'BusinessConcept')
-            prompt: The prompt sent to LLM
-            response: The LLM response
-            tokens_in: Input tokens used
-            tokens_out: Output tokens generated
-            cache_used: Whether cache was used
-            retries: Number of retries needed
-            concepts_extracted: Number of concepts/nodes extracted
-            success: Whether extraction succeeded
-            error: Error message if failed
-        """
+        """Log an LLM extraction detail (Level 3)."""
         entry = LogEntry(
             level=LogLevel.DETAIL,
             phase=self._current_phase or "extraction",
@@ -436,15 +538,7 @@ class RunLogger:
         source_file: str,
         properties: dict[str, Any] | None = None,
     ) -> None:
-        """
-        Log a node creation detail (Level 3).
-
-        Args:
-            node_id: ID of the created node
-            node_type: Type of node (Repository, Directory, File, BusinessConcept)
-            source_file: Source file path
-            properties: Optional node properties
-        """
+        """Log a node creation detail (Level 3)."""
         entry = LogEntry(
             level=LogLevel.DETAIL,
             phase=self._current_phase or "extraction",
@@ -463,15 +557,7 @@ class RunLogger:
     def detail_edge_created(
         self, edge_id: str, relationship_type: str, from_node: str, to_node: str
     ) -> None:
-        """
-        Log an edge creation detail (Level 3).
-
-        Args:
-            edge_id: ID of the created edge
-            relationship_type: Type of relationship
-            from_node: Source node ID
-            to_node: Target node ID
-        """
+        """Log an edge creation detail (Level 3)."""
         entry = LogEntry(
             level=LogLevel.DETAIL,
             phase=self._current_phase or "extraction",
@@ -495,21 +581,7 @@ class RunLogger:
         algorithm: str | None = None,
         properties: dict[str, Any] | None = None,
     ) -> None:
-        """
-        Log a node deactivation detail (Level 3).
-
-        Used during graph preparation phase when nodes are marked as inactive
-        (active=False) rather than deleted. The node remains in Neo4j but won't
-        be queried for further derivation.
-
-        Args:
-            node_id: ID of the deactivated node
-            node_type: Type of node (e.g., 'Directory', 'File', 'BusinessConcept')
-            reason: Human-readable reason for deactivation
-            algorithm: Optional algorithm that triggered deactivation
-                      (e.g., 'k-core', 'articulation_points', 'scc')
-            properties: Optional additional metadata about the deactivation
-        """
+        """Log a node deactivation detail (Level 3)."""
         stats = {
             "node_id": node_id,
             "node_type": node_type,
@@ -541,23 +613,7 @@ class RunLogger:
         algorithm: str | None = None,
         properties: dict[str, Any] | None = None,
     ) -> None:
-        """
-        Log an edge deactivation detail (Level 3).
-
-        Used during graph preparation phase when edges are marked as inactive
-        (active=False) rather than deleted. The edge remains in Neo4j but won't
-        be queried for further derivation.
-
-        Args:
-            edge_id: ID of the deactivated edge
-            relationship_type: Type of relationship
-            from_node: Source node ID
-            to_node: Target node ID
-            reason: Human-readable reason for deactivation
-            algorithm: Optional algorithm that triggered deactivation
-                      (e.g., 'cycle_detection', 'redundant_edges')
-            properties: Optional additional metadata about the deactivation
-        """
+        """Log an edge deactivation detail (Level 3)."""
         stats = {
             "edge_id": edge_id,
             "relationship_type": relationship_type,
@@ -590,17 +646,7 @@ class RunLogger:
         confidence: float | None = None,
         properties: dict[str, Any] | None = None,
     ) -> None:
-        """
-        Log an ArchiMate element creation detail (Level 3).
-
-        Args:
-            element_id: ID of the created element
-            element_type: ArchiMate element type (e.g., 'ApplicationComponent')
-            name: Human-readable element name
-            source_node: Optional reference to source graph node
-            confidence: Optional confidence score from LLM derivation
-            properties: Optional additional element properties
-        """
+        """Log an ArchiMate element creation detail (Level 3)."""
         stats: dict[str, Any] = {
             "element_id": element_id,
             "element_type": element_type,
@@ -632,17 +678,7 @@ class RunLogger:
         confidence: float | None = None,
         properties: dict[str, Any] | None = None,
     ) -> None:
-        """
-        Log an ArchiMate relationship creation detail (Level 3).
-
-        Args:
-            relationship_id: ID of the created relationship
-            relationship_type: ArchiMate relationship type (e.g., 'Composition')
-            source_element: Source element ID
-            target_element: Target element ID
-            confidence: Optional confidence score from LLM derivation
-            properties: Optional additional relationship properties
-        """
+        """Log an ArchiMate relationship creation detail (Level 3)."""
         stats: dict[str, Any] = {
             "relationship_id": relationship_id,
             "relationship_type": relationship_type,
@@ -797,7 +833,6 @@ def read_run_logs(
     Returns:
         List of log entries, or empty list if no logs found
     """
-    # Resolve logs_dir relative to project root
     logs_path = Path(logs_dir)
     if not logs_path.is_absolute():
         project_root = Path(__file__).parent.parent.parent
@@ -827,7 +862,7 @@ def read_run_logs(
 
 
 # =============================================================================
-# Standard Logging Bridge
+# Standard Logging Bridge (integrates Python logging with structlog)
 # =============================================================================
 
 
@@ -837,14 +872,6 @@ class RunLoggerHandler(logging.Handler):
 
     This bridges the standard logging module with the structured RunLogger,
     allowing warnings/errors from adapters to appear in pipeline logs.
-
-    Usage:
-        logger = RunLogger(run_id=1)
-        handler = RunLoggerHandler(logger)
-        logging.getLogger().addHandler(handler)
-
-        # Or use the convenience function:
-        setup_logging_bridge(logger)
     """
 
     def __init__(self, run_logger: RunLogger, min_level: int = logging.WARNING):
@@ -909,14 +936,6 @@ def setup_logging_bridge(
 
     Returns:
         The handler (for later removal if needed)
-
-    Example:
-        with PipelineSession() as session:
-            logger = get_logger_for_active_run(session._engine)
-            if logger:
-                handler = setup_logging_bridge(logger)
-                # ... run pipeline ...
-                # Warnings from adapters now appear in run logs
     """
     handler = RunLoggerHandler(run_logger, min_level)
     handler.setFormatter(logging.Formatter("%(name)s: %(message)s"))

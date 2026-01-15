@@ -6,17 +6,47 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
-## v0.6.8 - PydanticAI Migration (Unreleased)
+## v0.6.8 - Library Migration & Overall Cleanup (Unreleased)
+
+Big migration replacing 6 custom implementations with off-the-shelf libraries, reducing the amount of code and improving maintainability.
 
 ### LLM Adapter Rewrite
-- **PydanticAI Integration**: Replaced custom REST provider implementations with PydanticAI library
-- **Code Reduction**: Same (or better) llm adapter with way less code, deleted entire `providers.py` 
+- **PydanticAI Integration**: Replaced custom REST provider implementations with `pydantic-ai` library
+- **Model Registry**: New `model_registry.py` maps Deriva config to PydanticAI model identifiers with URL normalization for Azure/LM Studio
+- **Code Reduction**: Same (or better) LLM adapter with way less code, deleted entire `providers.py`
 - **Native Structured Output**: PydanticAI handles validation and retry automatically
-- **Removed ClaudeCode Provider**: Use `anthropic` provider directly instead (CLI subprocess no longer supported)
 
 ### Configuration
+- **Pydantic Settings**: New `config_models.py` with type-safe environment validation using `pydantic-settings`
 - **Standard API Keys**: Added PydanticAI standard env vars (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `MISTRAL_API_KEY`, `AZURE_OPENAI_*`)
-- **Updated .env.example**: Removed `claudecode` provider, added Anthropic direct API configs
+
+### Caching
+- **diskcache Integration**: Replaced custom SQLite-based caching with `diskcache` library
+- **Simplified Cache Utils**: Rewrote `cache_utils.py` to wrap diskcache with `BaseDiskCache` class
+- **Preserved Features**: Kept `hash_inputs()`, `bench_hash` isolation, and `export_to_json()` functionality
+- **LLM & Graph Caches**: Updated both adapters to use new base cache class
+
+### Retry Logic
+- **backoff Library**: Replaced custom retry implementation with `backoff` library
+- **New retry.py**: Centralized retry decorator with exponential backoff and jitter
+- **Simplified Rate Limiter**: Token bucket rate limiting now separate from retry logic
+
+### Small CLI refactor
+- **Typer Framework**: Replaced argparse-based CLI with `typer`
+- **Command Modules**: Split CLI into `deriva/cli/commands/` with separate files for `benchmark.py`, `config.py`, `repo.py`, `run.py`
+- **Modern CLI Features**: Auto-completion, better help generation, type hints via `Annotated`
+- **Subcommand Groups**: `config`, `repo`, `benchmark` as typer subapps
+
+### Logging
+
+- **structlog Integration**: Rewrote `logging.py` with `structlog` for structured logging
+- **Preserved API**: Same RunLogger, StepContext, and JSONL output format
+- **OCEL Unchanged**: OCEL module kept intact for benchmark process mining
+
+### Tests & Quality
+- **CLI Tests Rewritten**: Updated all 51 CLI tests to use typer's `CliRunner`
+- **Tree-sitter Test Consolidation**: Merged per-language test files into single `test_languages.py`
+- **Coverage Threshold**: Updated CI coverage threshold to 80%
 
 ---
 

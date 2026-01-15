@@ -35,17 +35,17 @@ classifiers = [
 dependencies = [
     # Core
     "pydantic>=2.12.5",
-    "pydantic-ai>=0.1.0",
+    "pydantic-settings>=2.0",
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0.3",
     "rich>=14.2.0",
-    # Database & Graph
+    "lxml>=6.0.2",
+    # Databases
     "duckdb>=1.4.3",
     "neo4j>=6.1.0",
     "sqlglot>=28.6.0",
-    # UI & XML
-    "marimo>=0.19.2",
-    "lxml>=6.0.2",
+    # UI
+    "marimo>=0.19.3",
     # Code Analysis (tree-sitter)
     "tree-sitter>=0.24.6",
     "tree-sitter-python>=0.23.0",
@@ -57,6 +57,13 @@ dependencies = [
     "python-docx>=1.2.0",
     # Graph Algorithms
     "solvor>=0.5.3",
+    # LLM 
+    "backoff>=2.2.1",
+    "pydantic-ai>=1.42.0",
+    # Utilities
+    "diskcache>=5.6.3",
+    "structlog>=24.0",
+    "typer>=0.21.1",
 ]
 
 [project.optional-dependencies]
@@ -64,7 +71,7 @@ dev = [
     "pre-commit>=4.5.1",
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
-    "ruff>=0.14.11",
+    "ruff>=0.14.13",
     "ty>=0.0.12",
     "types-lxml>=2025.3.30",
 ]
@@ -178,7 +185,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 79
+fail_under = 80
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

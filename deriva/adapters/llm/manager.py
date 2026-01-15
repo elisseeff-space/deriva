@@ -40,11 +40,11 @@ from typing import Any, TypeVar, overload
 from dotenv import load_dotenv
 from pydantic import BaseModel
 from pydantic_ai import Agent
+from pydantic_ai.settings import ModelSettings
 
 from .cache import CacheManager
 from .model_registry import VALID_PROVIDERS, get_pydantic_ai_model
 from .models import (
-    APIError,
     BenchmarkModelConfig,
     CachedResponse,
     ConfigurationError,
@@ -208,7 +208,9 @@ class LLMManager:
         load_dotenv(override=True)
 
         effective_temperature = (
-            temperature if temperature is not None else float(os.getenv("LLM_TEMPERATURE", "0.7"))
+            temperature
+            if temperature is not None
+            else float(os.getenv("LLM_TEMPERATURE", "0.7"))
         )
 
         instance = object.__new__(cls)
@@ -265,8 +267,12 @@ class LLMManager:
         if default_model:
             benchmark_models = load_benchmark_models()
             if default_model not in benchmark_models:
-                available = ", ".join(benchmark_models.keys()) if benchmark_models else "none"
-                raise ConfigurationError(f"LLM_DEFAULT_MODEL '{default_model}' not found. Available: {available}")
+                available = (
+                    ", ".join(benchmark_models.keys()) if benchmark_models else "none"
+                )
+                raise ConfigurationError(
+                    f"LLM_DEFAULT_MODEL '{default_model}' not found. Available: {available}"
+                )
             config = benchmark_models[default_model]
             provider = config.provider
             api_url = config.get_api_url()
@@ -288,7 +294,9 @@ class LLMManager:
                 api_key = os.getenv("LLM_ANTHROPIC_API_KEY")
                 model = os.getenv("LLM_ANTHROPIC_MODEL", "claude-sonnet-4-20250514")
             elif provider == "ollama":
-                api_url = os.getenv("LLM_OLLAMA_API_URL", "http://localhost:11434/api/chat")
+                api_url = os.getenv(
+                    "LLM_OLLAMA_API_URL", "http://localhost:11434/api/chat"
+                )
                 api_key = None
                 model = os.getenv("LLM_OLLAMA_MODEL", "llama3.2")
             elif provider == "mistral":
@@ -296,7 +304,9 @@ class LLMManager:
                 api_key = os.getenv("LLM_MISTRAL_API_KEY")
                 model = os.getenv("LLM_MISTRAL_MODEL", "mistral-large-latest")
             elif provider == "lmstudio":
-                api_url = os.getenv("LLM_LMSTUDIO_API_URL", "http://localhost:1234/v1/chat/completions")
+                api_url = os.getenv(
+                    "LLM_LMSTUDIO_API_URL", "http://localhost:1234/v1/chat/completions"
+                )
                 api_key = None
                 model = os.getenv("LLM_LMSTUDIO_MODEL", "local-model")
             else:
@@ -325,7 +335,9 @@ class LLMManager:
         """Validate configuration has required fields."""
         provider = self.config.get("provider", "")
         if provider not in VALID_PROVIDERS:
-            raise ConfigurationError(f"Invalid provider: {provider}. Must be one of {VALID_PROVIDERS}")
+            raise ConfigurationError(
+                f"Invalid provider: {provider}. Must be one of {VALID_PROVIDERS}"
+            )
 
         # Ollama and LM Studio don't require api_key
         if provider in ("ollama", "lmstudio"):
@@ -335,7 +347,9 @@ class LLMManager:
 
         missing = [f for f in required_fields if not self.config.get(f)]
         if missing:
-            raise ConfigurationError(f"Missing required config fields: {', '.join(missing)}")
+            raise ConfigurationError(
+                f"Missing required config fields: {', '.join(missing)}"
+            )
 
     @overload
     def query(
@@ -394,7 +408,9 @@ class LLMManager:
             If response_model is provided: Validated Pydantic model instance or FailedResponse
             Otherwise: LiveResponse, CachedResponse, or FailedResponse
         """
-        effective_temperature = temperature if temperature is not None else self.temperature
+        effective_temperature = (
+            temperature if temperature is not None else self.temperature
+        )
         effective_max_tokens = max_tokens if max_tokens is not None else self.max_tokens
 
         # Generate cache key
@@ -446,12 +462,12 @@ class LLMManager:
             )
 
             # Run query
+            settings: ModelSettings = {"temperature": effective_temperature}
+            if effective_max_tokens is not None:
+                settings["max_tokens"] = effective_max_tokens
             result = agent.run_sync(
                 prompt,
-                model_settings={
-                    "temperature": effective_temperature,
-                    "max_tokens": effective_max_tokens,
-                },
+                model_settings=settings,
             )
 
             self._rate_limiter.record_success()
@@ -461,7 +477,8 @@ class LLMManager:
             if hasattr(result, "usage") and result.usage:
                 usage = {
                     "prompt_tokens": getattr(result.usage, "request_tokens", 0) or 0,
-                    "completion_tokens": getattr(result.usage, "response_tokens", 0) or 0,
+                    "completion_tokens": getattr(result.usage, "response_tokens", 0)
+                    or 0,
                     "total_tokens": getattr(result.usage, "total_tokens", 0) or 0,
                 }
 
@@ -469,13 +486,21 @@ class LLMManager:
             if response_model:
                 # Cache the serialized model
                 if write_cache:
-                    content = result.output.model_dump_json() if hasattr(result.output, "model_dump_json") else str(result.output)
-                    self.cache.set_response(cache_key, content, prompt, self.model, usage)
+                    content = (
+                        result.output.model_dump_json()
+                        if hasattr(result.output, "model_dump_json")
+                        else str(result.output)
+                    )
+                    self.cache.set_response(
+                        cache_key, content, prompt, self.model, usage
+                    )
                 return result.output
             else:
                 content = str(result.output) if result.output else ""
                 if write_cache:
-                    self.cache.set_response(cache_key, content, prompt, self.model, usage)
+                    self.cache.set_response(
+                        cache_key, content, prompt, self.model, usage
+                    )
                 return LiveResponse(
                     prompt=prompt,
                     model=self.model,
@@ -541,7 +566,9 @@ class LLMManager:
             "total_tokens": total_prompt + total_completion,
             "total_calls": total_calls,
             "avg_prompt_tokens": total_prompt / total_calls if total_calls else 0,
-            "avg_completion_tokens": total_completion / total_calls if total_calls else 0,
+            "avg_completion_tokens": total_completion / total_calls
+            if total_calls
+            else 0,
         }
 
     def __repr__(self) -> str:

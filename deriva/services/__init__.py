@@ -37,13 +37,16 @@ Internal services (used by PipelineSession):
 
 from __future__ import annotations
 
-from . import config, derivation, extraction, pipeline
+from . import config, config_models, derivation, extraction, pipeline
+from .config import get_settings
 from .session import PipelineSession
 
 __all__ = [
     "PipelineSession",
     "config",
+    "config_models",
     "extraction",
     "derivation",
     "pipeline",
+    "get_settings",
 ]

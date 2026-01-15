@@ -1,0 +1,356 @@
+"""
+Config CLI commands.
+
+Provides commands for managing pipeline configurations.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Annotated
+
+import typer
+
+from deriva.services import config
+from deriva.services.session import PipelineSession
+
+app = typer.Typer(name="config", help="Manage pipeline configurations")
+
+# Filetype subapp
+filetype_app = typer.Typer(name="filetype", help="Manage file type registry")
+app.add_typer(filetype_app)
+
+
+# =============================================================================
+# Config Commands
+# =============================================================================
+
+
+@app.command("list")
+def config_list(
+    step_type: Annotated[str, typer.Argument(help="Type of configuration to list")],
+    enabled: Annotated[
+        bool, typer.Option("--enabled", help="Only show enabled configurations")
+    ] = False,
+    phase: Annotated[
+        str | None,
+        typer.Option(
+            "--phase", help="Filter derivation by phase (prep, generate, refine)"
+        ),
+    ] = None,
+) -> None:
+    """List configurations for a step type."""
+    if step_type not in ("extraction", "derivation"):
+        typer.echo(
+            f"Error: step_type must be 'extraction' or 'derivation', got '{step_type}'",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    with PipelineSession() as session:
+        steps = session.list_steps(step_type, enabled_only=enabled)
+
+        if not steps:
+            typer.echo(f"No {step_type} configurations found.")
+            return
+
+        typer.echo(f"\n{step_type.upper()} CONFIGURATIONS")
+        typer.echo("-" * 60)
+
+        for step in steps:
+            status = "enabled" if step["enabled"] else "disabled"
+            name = step["name"]
+            seq = step["sequence"]
+            typer.echo(f"  [{seq}] {name:<30} ({status})")
+
+        typer.echo("")
+
+
+@app.command("show")
+def config_show(
+    step_type: Annotated[str, typer.Argument(help="Type of configuration")],
+    name: Annotated[str, typer.Argument(help="Name of the configuration")],
+) -> None:
+    """Show detailed configuration for a specific step."""
+    if step_type not in ("extraction", "derivation"):
+        typer.echo("Error: step_type must be 'extraction' or 'derivation'", err=True)
+        raise typer.Exit(1)
+
+    with PipelineSession() as session:
+        if step_type == "extraction":
+            cfg = config.get_extraction_config(session._engine, name)
+            if not cfg:
+                typer.echo(f"Extraction config '{name}' not found.")
+                raise typer.Exit(1)
+            typer.echo(f"\nEXTRACTION CONFIG: {cfg.node_type}")
+            typer.echo("-" * 60)
+            typer.echo(f"  Sequence: {cfg.sequence}")
+            typer.echo(f"  Enabled:  {cfg.enabled}")
+            typer.echo(f"  Sources:  {cfg.input_sources or 'None'}")
+            typer.echo(f"  Instruction: {(cfg.instruction or '')[:100]}...")
+            typer.echo(f"  Example: {(cfg.example or '')[:100]}...")
+
+        elif step_type == "derivation":
+            cfg = config.get_derivation_config(session._engine, name)
+            if not cfg:
+                typer.echo(f"Derivation config '{name}' not found.")
+                raise typer.Exit(1)
+            typer.echo(f"\nDERIVATION CONFIG: {cfg.element_type}")
+            typer.echo("-" * 60)
+            typer.echo(f"  Sequence: {cfg.sequence}")
+            typer.echo(f"  Enabled:  {cfg.enabled}")
+            typer.echo(f"  Query:    {(cfg.input_graph_query or '')[:100]}...")
+            typer.echo(f"  Instruction: {(cfg.instruction or '')[:100]}...")
+
+        typer.echo("")
+
+
+@app.command("enable")
+def config_enable(
+    step_type: Annotated[str, typer.Argument(help="Type of configuration")],
+    name: Annotated[str, typer.Argument(help="Name to enable")],
+) -> None:
+    """Enable a configuration step."""
+    if step_type not in ("extraction", "derivation"):
+        typer.echo("Error: step_type must be 'extraction' or 'derivation'", err=True)
+        raise typer.Exit(1)
+
+    with PipelineSession() as session:
+        if session.enable_step(step_type, name):
+            typer.echo(f"Enabled {step_type} step: {name}")
+        else:
+            typer.echo(f"Step not found: {step_type}/{name}")
+            raise typer.Exit(1)
+
+
+@app.command("disable")
+def config_disable(
+    step_type: Annotated[str, typer.Argument(help="Type of configuration")],
+    name: Annotated[str, typer.Argument(help="Name to disable")],
+) -> None:
+    """Disable a configuration step."""
+    if step_type not in ("extraction", "derivation"):
+        typer.echo("Error: step_type must be 'extraction' or 'derivation'", err=True)
+        raise typer.Exit(1)
+
+    with PipelineSession() as session:
+        if session.disable_step(step_type, name):
+            typer.echo(f"Disabled {step_type} step: {name}")
+        else:
+            typer.echo(f"Step not found: {step_type}/{name}")
+            raise typer.Exit(1)
+
+
+@app.command("update")
+def config_update(
+    step_type: Annotated[str, typer.Argument(help="Type of configuration to update")],
+    name: Annotated[str, typer.Argument(help="Name of the configuration to update")],
+    instruction: Annotated[
+        str | None, typer.Option("-i", "--instruction", help="New instruction text")
+    ] = None,
+    example: Annotated[
+        str | None, typer.Option("-e", "--example", help="New example text")
+    ] = None,
+    instruction_file: Annotated[
+        str | None,
+        typer.Option("--instruction-file", help="Read instruction from file"),
+    ] = None,
+    example_file: Annotated[
+        str | None, typer.Option("--example-file", help="Read example from file")
+    ] = None,
+    query: Annotated[
+        str | None,
+        typer.Option("-q", "--query", help="New input_graph_query (derivation only)"),
+    ] = None,
+    sources: Annotated[
+        str | None,
+        typer.Option("-s", "--sources", help="New input_sources (extraction only)"),
+    ] = None,
+    params: Annotated[
+        str | None,
+        typer.Option("-p", "--params", help="New params JSON (derivation only)"),
+    ] = None,
+    params_file: Annotated[
+        str | None, typer.Option("--params-file", help="Read params JSON from file")
+    ] = None,
+) -> None:
+    """Update a configuration with versioning."""
+    if step_type not in ("extraction", "derivation"):
+        typer.echo("Error: step_type must be 'extraction' or 'derivation'", err=True)
+        raise typer.Exit(1)
+
+    # Read instruction from file if provided
+    if instruction_file:
+        try:
+            with open(instruction_file, encoding="utf-8") as f:
+                instruction = f.read()
+        except Exception as e:
+            typer.echo(f"Error reading instruction file: {e}", err=True)
+            raise typer.Exit(1)
+
+    # Read example from file if provided
+    if example_file:
+        try:
+            with open(example_file, encoding="utf-8") as f:
+                example = f.read()
+        except Exception as e:
+            typer.echo(f"Error reading example file: {e}", err=True)
+            raise typer.Exit(1)
+
+    # Read params from file if provided
+    if params_file:
+        try:
+            with open(params_file, encoding="utf-8") as f:
+                params = f.read()
+        except Exception as e:
+            typer.echo(f"Error reading params file: {e}", err=True)
+            raise typer.Exit(1)
+
+    # Validate params is valid JSON if provided
+    if params:
+        try:
+            json.loads(params)
+        except json.JSONDecodeError as e:
+            typer.echo(f"Error: params must be valid JSON: {e}", err=True)
+            raise typer.Exit(1)
+
+    with PipelineSession() as session:
+        if step_type == "derivation":
+            result = config.create_derivation_config_version(
+                session._engine,
+                name,
+                instruction=instruction,
+                example=example,
+                input_graph_query=query,
+                params=params,
+            )
+        elif step_type == "extraction":
+            result = config.create_extraction_config_version(
+                session._engine,
+                name,
+                instruction=instruction,
+                example=example,
+                input_sources=sources,
+            )
+        else:
+            typer.echo(f"Versioned updates not yet supported for: {step_type}")
+            raise typer.Exit(1)
+
+        if result.get("success"):
+            typer.echo(f"Updated {step_type} config: {name}")
+            typer.echo(f"  Version: {result['old_version']} -> {result['new_version']}")
+            if params:
+                typer.echo("  Params: updated")
+        else:
+            typer.echo(f"Error: {result.get('error', 'Unknown error')}", err=True)
+            raise typer.Exit(1)
+
+
+@app.command("versions")
+def config_versions() -> None:
+    """Show active config versions."""
+    with PipelineSession() as session:
+        versions = config.get_active_config_versions(session._engine)
+
+        typer.echo("\nACTIVE CONFIG VERSIONS")
+        typer.echo("=" * 60)
+
+        for step_type in ["extraction", "derivation"]:
+            if versions.get(step_type):
+                typer.echo(f"\n{step_type.upper()}:")
+                for name, version in sorted(versions[step_type].items()):
+                    typer.echo(f"  {name:<30} v{version}")
+
+        typer.echo("")
+
+
+# =============================================================================
+# Filetype Commands
+# =============================================================================
+
+
+@filetype_app.command("list")
+def filetype_list() -> None:
+    """List all registered file types."""
+    with PipelineSession() as session:
+        file_types = session.get_file_types()
+
+        if not file_types:
+            typer.echo("No file types registered.")
+            return
+
+        # Group by file_type
+        by_type: dict[str, list] = {}
+        for ft in file_types:
+            ft_type = ft.get("file_type", "unknown")
+            if ft_type not in by_type:
+                by_type[ft_type] = []
+            by_type[ft_type].append(ft)
+
+        typer.echo(f"\n{'=' * 60}")
+        typer.echo("FILE TYPE REGISTRY")
+        typer.echo(f"{'=' * 60}")
+        typer.echo(f"Total: {len(file_types)} registered\n")
+
+        for ft_type in sorted(by_type.keys()):
+            entries = by_type[ft_type]
+            typer.echo(f"{ft_type.upper()} ({len(entries)}):")
+            for ft in sorted(entries, key=lambda x: x.get("extension", "")):
+                ext = ft.get("extension", "")
+                subtype = ft.get("subtype", "")
+                typer.echo(f"  {ext:<25} -> {subtype}")
+            typer.echo("")
+
+
+@filetype_app.command("add")
+def filetype_add(
+    extension: Annotated[
+        str, typer.Argument(help="File extension (e.g., '.py', 'Dockerfile')")
+    ],
+    file_type: Annotated[str, typer.Argument(help="File type category")],
+    subtype: Annotated[
+        str, typer.Argument(help="Subtype (e.g., 'python', 'javascript')")
+    ],
+) -> None:
+    """Add a new file type."""
+    with PipelineSession() as session:
+        success = session.add_file_type(extension, file_type, subtype)
+
+        if success:
+            typer.echo(f"Added file type: {extension} -> {file_type}/{subtype}")
+        else:
+            typer.echo(
+                f"Failed to add file type (may already exist): {extension}", err=True
+            )
+            raise typer.Exit(1)
+
+
+@filetype_app.command("delete")
+def filetype_delete(
+    extension: Annotated[str, typer.Argument(help="Extension to delete")],
+) -> None:
+    """Delete a file type."""
+    with PipelineSession() as session:
+        success = session.delete_file_type(extension)
+
+        if success:
+            typer.echo(f"Deleted file type: {extension}")
+        else:
+            typer.echo(f"File type not found: {extension}", err=True)
+            raise typer.Exit(1)
+
+
+@filetype_app.command("stats")
+def filetype_stats() -> None:
+    """Show file type statistics."""
+    with PipelineSession() as session:
+        stats = session.get_file_type_stats()
+
+        typer.echo(f"\n{'=' * 60}")
+        typer.echo("FILE TYPE STATISTICS")
+        typer.echo(f"{'=' * 60}\n")
+
+        for ft_type, count in sorted(stats.items(), key=lambda x: -x[1]):
+            typer.echo(f"  {ft_type:<20} {count}")
+
+        typer.echo(f"\n  {'Total':<20} {sum(stats.values())}")

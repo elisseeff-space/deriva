@@ -9,8 +9,6 @@ Tests the stability analysis module which computes:
 
 from __future__ import annotations
 
-import pytest
-
 from deriva.modules.analysis.stability_analysis import (
     aggregate_stability_metrics,
     compute_phase_stability,

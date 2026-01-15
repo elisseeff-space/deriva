@@ -10,5 +10,3 @@ deriva/adapters/database/sql.db
 deriva/adapters/database/sql.db.wal
 .coverage
 coverage.xml
-.export/*
-todo/*
