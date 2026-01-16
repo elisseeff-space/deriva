@@ -3,8 +3,8 @@
 [![Build Status](https://github.com/StevenBtw/Deriva/actions/workflows/ci.yml/badge.svg)](https://github.com/StevenBtw/Deriva/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
-[![Docker](https://img.shields.io/badge/Docker-required-2496ED.svg?logo=docker)](https://www.docker.com/)
 [![Neo4j](https://img.shields.io/badge/Neo4j-5.x-008CC1.svg?logo=neo4j)](https://neo4j.com/)
+[![Docker](https://img.shields.io/badge/Docker-required-2496ED.svg?logo=docker)](https://www.docker.com/)
 [![Marimo](https://img.shields.io/badge/Marimo-notebook-orange.svg)](https://marimo.io/)
 
 **Automatically generate ArchiMate enterprise architecture models from software repositories.**
