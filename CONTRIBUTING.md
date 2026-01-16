@@ -1,6 +1,9 @@
 # Contributing to Deriva
 
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://docs.astral.sh/uv/)
+![uv](https://img.shields.io/badge/uv-%23DE5FE9.svg?style=for-the-badge&logo=uv&logoColor=white)
+![Pydantic](https://img.shields.io/badge/pydantic-%23E92063.svg?style=for-the-badge&logo=pydantic&logoColor=white)
+![Duckdb](https://img.shields.io/badge/duckdb-%23FFF000.svg?style=for-the-badge&logo=duckdb&logoColor=black)
+
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
 [![Typing: ty](https://img.shields.io/badge/typing-ty-EFC621.svg)](https://docs.astral.sh/ty/)
 [![codecov](https://codecov.io/gh/StevenBtw/Deriva/graph/badge.svg?token=A3H2COO119)](https://codecov.io/gh/StevenBtw/Deriva)
@@ -9,7 +12,7 @@ Thanks for your interest in contributing to Deriva!
 
 **Python 3.14+** is required. The project uses modern Python features and is developed with 3.14 in mind.
 
-**Tooling:** We use [uv](https://docs.astral.sh/uv/) for package management, [Ruff](https://docs.astral.sh/ruff/) for linting/formatting, and [ty](https://docs.astral.sh/ty/) for type checking.
+**Tooling:** We use [uv](https://docs.astral.sh/uv/) for package management, [Ruff](https://docs.astral.sh/ruff/) for linting/formatting, and [ty](https://docs.astral.sh/ty/) for type checking. [Pydantic AI](https://ai.pydantic.dev/) is used for interacting with llm's, [DuckDB](https://duckdb.org/) for storing configurations and settings. For testing we use pytest and [codecov](https://about.codecov.io/) for ci test coverage reporting.
 
 ## Development Setup
 
