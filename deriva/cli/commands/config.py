@@ -265,6 +265,113 @@ def config_versions() -> None:
 
 
 # =============================================================================
+# Read-Only Query Commands (safe during benchmarks)
+# =============================================================================
+
+
+@app.command("query")
+def config_query(
+    step_type: Annotated[str, typer.Argument(help="Type: 'extraction' or 'derivation'")],
+    name: Annotated[str | None, typer.Argument(help="Config name (optional)")] = None,
+) -> None:
+    """Query configs with read-only connection (safe during benchmarks).
+
+    This command uses a read-only database connection, so it can safely
+    query configurations even while a benchmark is running without causing
+    lock contention.
+    """
+    from deriva.adapters.database import get_connection
+
+    if step_type not in ("extraction", "derivation"):
+        typer.echo(
+            f"Error: step_type must be 'extraction' or 'derivation', got '{step_type}'",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    # Use read-only connection for safe concurrent access
+    engine = get_connection(read_only=True)
+
+    try:
+        if step_type == "extraction":
+            if name:
+                cfg = config.get_extraction_config(engine, name)
+                if cfg:
+                    typer.echo(f"\nEXTRACTION: {cfg.node_type}")
+                    typer.echo(f"  Enabled: {cfg.enabled}")
+                    typer.echo(f"  Sequence: {cfg.sequence}")
+                    typer.echo(f"  Method: {cfg.extraction_method}")
+                else:
+                    typer.echo(f"Config not found: {name}")
+            else:
+                configs = config.get_extraction_configs(engine)
+                typer.echo(f"\nEXTRACTION CONFIGS ({len(configs)}):")
+                for c in configs:
+                    status = "enabled" if c.enabled else "disabled"
+                    typer.echo(f"  [{c.sequence}] {c.node_type:<25} ({status})")
+        else:
+            if name:
+                cfg = config.get_derivation_config(engine, name)
+                if cfg:
+                    typer.echo(f"\nDERIVATION: {cfg.step_name}")
+                    typer.echo(f"  Phase: {cfg.phase}")
+                    typer.echo(f"  Enabled: {cfg.enabled}")
+                    typer.echo(f"  Sequence: {cfg.sequence}")
+                    typer.echo(f"  LLM: {cfg.llm}")
+                else:
+                    typer.echo(f"Config not found: {name}")
+            else:
+                configs = config.get_derivation_configs(engine)
+                typer.echo(f"\nDERIVATION CONFIGS ({len(configs)}):")
+                for c in configs:
+                    status = "enabled" if c.enabled else "disabled"
+                    typer.echo(f"  [{c.sequence}] {c.step_name:<25} {c.phase:<10} ({status})")
+    finally:
+        engine.close()
+
+
+@app.command("snapshot")
+def config_snapshot(
+    session_id: Annotated[str, typer.Argument(help="Benchmark session ID")],
+) -> None:
+    """Show config versions snapshot for a benchmark session.
+
+    Benchmarks capture the active config versions at start time. This command
+    shows which versions were used for a specific benchmark session.
+    """
+    from deriva.adapters.database import get_connection
+
+    engine = get_connection(read_only=True)
+    try:
+        row = engine.execute(
+            "SELECT config_versions_snapshot FROM benchmark_sessions WHERE session_id = ?",
+            [session_id],
+        ).fetchone()
+
+        if not row:
+            typer.echo(f"Session not found: {session_id}")
+            raise typer.Exit(1)
+
+        if not row[0]:
+            typer.echo(f"No config snapshot found for session: {session_id}")
+            typer.echo("(This may be an older session created before snapshots were added)")
+            raise typer.Exit(1)
+
+        snapshot = json.loads(row[0])
+        typer.echo(f"\nCONFIG SNAPSHOT: {session_id}")
+        typer.echo("=" * 60)
+
+        for step_type, versions in snapshot.items():
+            typer.echo(f"\n{step_type.upper()}:")
+            for name, version in sorted(versions.items()):
+                typer.echo(f"  {name:<30} v{version}")
+
+        typer.echo("")
+    finally:
+        engine.close()
+
+
+# =============================================================================
 # Filetype Commands
 # =============================================================================
 

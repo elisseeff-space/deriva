@@ -98,7 +98,8 @@ CREATE TABLE IF NOT EXISTS benchmark_sessions (
     config JSON,                -- Full config: repos, models, runs, stages
     started_at TIMESTAMP,
     completed_at TIMESTAMP,
-    status VARCHAR DEFAULT 'pending'  -- pending, running, completed, failed
+    status VARCHAR DEFAULT 'pending',  -- pending, running, completed, failed
+    config_versions_snapshot JSON      -- Config versions captured at benchmark start for consistency
 );
 
 -- Benchmark runs: individual executions within a session

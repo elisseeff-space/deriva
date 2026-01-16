@@ -103,6 +103,14 @@ def parse_json_array(content: str, array_key: str) -> ParseResult:
         extracted = extract_json_from_response(content)
         parsed = json.loads(extracted)
 
+        # Handle raw array response (some LLMs return array directly)
+        if isinstance(parsed, list):
+            return ParseResult(
+                success=True,
+                data=parsed,
+                errors=[],
+            )
+
         # Primary: check for direct array key
         if array_key in parsed:
             if not isinstance(parsed[array_key], list):

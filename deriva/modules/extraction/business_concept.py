@@ -3,11 +3,17 @@ Business Concept extraction - LLM-based extraction of business domain concepts.
 
 This module extracts BusinessConcept nodes from documentation files using LLM analysis.
 It identifies actors, entities, processes, events, rules, goals, etc.
+
+Supports hybrid extraction:
+- Layer 1 (Deterministic): Extract seed concepts from code structure (directories, classes)
+- Layer 2 (Context-aware LLM): Extract additional concepts with seed concepts as context
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 from .base import (
@@ -16,6 +22,132 @@ from .base import (
     parse_json_response,
     strip_chunk_suffix,
 )
+
+
+def extract_seed_concepts_from_structure(
+    repo_path: str | Path,
+    include_directories: bool = True,
+    include_classes: bool = False,
+) -> list[dict[str, str]]:
+    """
+    Extract seed concepts from code structure (deterministic layer).
+
+    This provides stable "anchor" concepts from directory names and optionally
+    class names. These seed concepts guide the LLM to reuse consistent names.
+
+    Args:
+        repo_path: Path to the repository root
+        include_directories: Extract concepts from directory names
+        include_classes: Extract concepts from class definitions (requires parsing)
+
+    Returns:
+        List of seed concepts with keys: conceptName, conceptType, source
+    """
+    seed_concepts: list[dict[str, str]] = []
+    repo_path = Path(repo_path)
+
+    # Keywords that indicate process-type concepts
+    process_keywords = {
+        "processing", "pipeline", "service", "handler", "manager",
+        "controller", "worker", "scheduler", "queue", "stream",
+        "ingestion", "transformation", "analytics", "engine",
+    }
+
+    # Keywords that indicate entity-type concepts
+    entity_keywords = {
+        "model", "entity", "data", "storage", "repository",
+        "database", "cache", "store", "record", "schema",
+    }
+
+    if include_directories:
+        # Skip common non-business directories
+        skip_dirs = {
+            ".git", "__pycache__", "node_modules", ".venv", "venv",
+            "dist", "build", "target", ".idea", ".vscode", "tests",
+            "test", "docs", "examples", "scripts", "bin", "lib",
+        }
+
+        for item in repo_path.iterdir():
+            if item.is_dir() and item.name not in skip_dirs and not item.name.startswith("."):
+                # Convert directory name to concept name
+                concept_name = _dir_name_to_concept_name(item.name)
+                if concept_name and len(concept_name) > 2:
+                    # Determine concept type based on keywords
+                    name_lower = item.name.lower()
+                    if any(kw in name_lower for kw in process_keywords):
+                        concept_type = "process"
+                    elif any(kw in name_lower for kw in entity_keywords):
+                        concept_type = "entity"
+                    else:
+                        concept_type = "capability"
+
+                    seed_concepts.append({
+                        "conceptName": concept_name,
+                        "conceptType": concept_type,
+                        "source": f"directory:{item.name}/",
+                    })
+
+    return seed_concepts
+
+
+def _dir_name_to_concept_name(dir_name: str) -> str:
+    """
+    Convert a directory name to a PascalCase concept name.
+
+    Examples:
+        data_processing -> DataProcessing
+        message-queue -> MessageQueue
+        analytics -> Analytics
+    """
+    # Split by underscores, hyphens, or camelCase boundaries
+    parts = re.split(r"[-_]", dir_name)
+    # Capitalize each part
+    return "".join(part.capitalize() for part in parts if part)
+
+
+def get_existing_concepts_from_graph(
+    graph_manager: Any,
+    repo_name: str,
+    limit: int = 50,
+) -> list[dict[str, str]]:
+    """
+    Fetch existing BusinessConcept nodes from the graph.
+
+    This retrieves concepts that were previously extracted, allowing
+    the LLM to build on existing knowledge and maintain consistency.
+
+    Args:
+        graph_manager: GraphManager instance
+        repo_name: Repository name to filter concepts
+        limit: Maximum number of concepts to return
+
+    Returns:
+        List of existing concepts with keys: conceptName, conceptType, source
+    """
+    query = """
+    MATCH (c:BusinessConcept)
+    WHERE c.repositoryName = $repo_name
+    RETURN c.conceptName AS conceptName,
+           c.conceptType AS conceptType,
+           c.originSource AS source
+    ORDER BY c.confidence DESC
+    LIMIT $limit
+    """
+
+    try:
+        result = graph_manager.run_cypher(query, {"repo_name": repo_name, "limit": limit})
+        return [
+            {
+                "conceptName": r["conceptName"],
+                "conceptType": r["conceptType"],
+                "source": r.get("source", "graph"),
+            }
+            for r in result
+            if r.get("conceptName")
+        ]
+    except Exception:
+        # If graph query fails, return empty list (graceful degradation)
+        return []
 
 # JSON schema for LLM structured output
 BUSINESS_CONCEPT_SCHEMA = {
@@ -76,7 +208,11 @@ BUSINESS_CONCEPT_SCHEMA = {
 
 
 def build_extraction_prompt(
-    file_content: str, file_path: str, instruction: str, example: str
+    file_content: str,
+    file_path: str,
+    instruction: str,
+    example: str,
+    existing_concepts: list[dict[str, str]] | None = None,
 ) -> str:
     """
     Build the LLM prompt for business concept extraction.
@@ -86,10 +222,15 @@ def build_extraction_prompt(
         file_path: Path to the file being analyzed
         instruction: Extraction instruction from config
         example: Example output from config
+        existing_concepts: Optional list of existing concepts from graph/code structure.
+            Each dict should have at minimum 'conceptName' and 'conceptType'.
+            When provided, guides the LLM to reuse existing names for consistency.
 
     Returns:
         Formatted prompt string
     """
+    import json
+
     from deriva.common.chunking import truncate_content
 
     # Truncate large files to reduce token usage
@@ -100,23 +241,54 @@ def build_extraction_prompt(
             "\n**Note:** File content has been truncated. Focus on visible content.\n"
         )
 
-    prompt = f"""You are analyzing a documentation file to extract business domain concepts.
+    # Build existing concepts context section (for consistency across documents)
+    existing_context = ""
+    if existing_concepts:
+        # Only include high-confidence existing concepts as reference
+        high_conf = [c for c in existing_concepts if c.get("confidence", 0.8) >= 0.8]
+        if high_conf:
+            existing_json = json.dumps(high_conf, indent=2)
+            existing_context = f"""
+## Previously Identified Concepts (for naming consistency)
+If mentioning these concepts, use the exact names shown:
+```json
+{existing_json}
+```
 
-## File Information
-- **File Path:** {file_path}
+"""
+
+    prompt = f"""Extract BUSINESS DOMAIN concepts from this documentation.
+
+## What ARE Business Concepts (extract these):
+- **Actors**: People/roles (Customer, Admin, User, Manager)
+- **Entities**: Things the system manages (Invoice, Order, Product, Process)
+- **Processes**: Business operations (Checkout, Approval, Registration, Execution)
+- **Events**: Business happenings (OrderPlaced, PaymentReceived)
+- **Rules/Goals**: Policies and objectives (DiscountPolicy, Compliance)
+
+## What are NOT Business Concepts (skip these):
+- Technical infrastructure (Kafka, Docker, Gateway, REST API)
+- Code structure (Utils, Service, Controller, Repository pattern)
+- Framework/library names (Spring, React, MongoDB)
+
+## Confidence Scoring:
+- 0.9-1.0: Core business concept, central to the domain
+- 0.8-0.9: Clear business concept
+- 0.7-0.8: Likely business-relevant
+- 0.6-0.7: Borderline, might be technical
+
+Only return concepts with confidence >= 0.6
+
+## File: {file_path}
 {truncation_note}
-## Instructions
 {instruction}
-
-## Example Output
-{example}
-
-## File Content
+{existing_context}
+## Content
 ```
 {content}
 ```
 
-Apply the instructions above to extract business concepts. Return ONLY a JSON object with a "concepts" array. If no business concepts are found, return {{"concepts": []}}.
+Return JSON: {{"concepts": [{{"conceptName": "Name", "conceptType": "actor|entity|process|event|rule|goal|other", "description": "Brief desc", "confidence": 0.85}}]}}
 """
     return prompt
 
@@ -230,6 +402,7 @@ def extract_business_concepts(
     repo_name: str,
     llm_query_fn,
     config: dict[str, Any],
+    existing_concepts: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """
     Extract business concepts from a single file using LLM.
@@ -246,6 +419,8 @@ def extract_business_concepts(
         repo_name: Repository name
         llm_query_fn: Function to call LLM (signature: (prompt, schema) -> response)
         config: Extraction config with 'instruction' and 'example' keys
+        existing_concepts: Optional list of existing concepts from graph/code structure.
+            When provided, guides the LLM to reuse existing names for consistency.
 
     Returns:
         Dictionary with:
@@ -272,6 +447,7 @@ def extract_business_concepts(
             file_path=file_path,
             instruction=instruction,
             example=example,
+            existing_concepts=existing_concepts,
         )
         llm_details["prompt"] = prompt
 
@@ -372,6 +548,7 @@ def extract_business_concepts_batch(
     llm_query_fn,
     config: dict[str, Any],
     progress_callback: Callable | None = None,
+    existing_concepts: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     """
     Extract business concepts from multiple files.
@@ -382,6 +559,8 @@ def extract_business_concepts_batch(
         llm_query_fn: Function to call LLM
         config: Extraction config
         progress_callback: Optional callback(current, total, file_path)
+        existing_concepts: Optional list of existing concepts from graph/code structure.
+            When provided, guides the LLM to reuse existing names for consistency.
 
     Returns:
         Aggregated results from all file extractions including llm_details per file
@@ -408,6 +587,7 @@ def extract_business_concepts_batch(
             repo_name=repo_name,
             llm_query_fn=llm_query_fn,
             config=config,
+            existing_concepts=existing_concepts,
         )
 
         files_processed += 1

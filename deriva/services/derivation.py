@@ -347,6 +347,7 @@ def run_derivation(
     run_logger: RunLoggerProtocol | None = None,
     progress: ProgressReporter | None = None,
     defer_relationships: bool = True,
+    config_versions: dict[str, dict[str, int]] | None = None,
 ) -> dict[str, Any]:
     """
     Run the derivation pipeline.
@@ -368,6 +369,8 @@ def run_derivation(
         defer_relationships: If True, skip per-batch relationship derivation.
                             Elements will be created but relationships will not
                             be derived. Use for A/B testing or separated phases.
+        config_versions: Optional config version snapshot (for benchmark consistency).
+                        Dict with {"derivation": {step_name: version}}
 
     Returns:
         Dict with success, stats, errors
@@ -391,10 +394,28 @@ def run_derivation(
     if run_logger:
         run_logger.phase_start("derivation", "Starting derivation pipeline")
 
-    # Calculate total steps for progress
-    prep_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="prep")
-    gen_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="generate")
-    refine_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="refine")
+    # Calculate total steps for progress - use snapshot versions if provided
+    version_map = config_versions.get("derivation", {}) if config_versions else {}
+    if version_map:
+        prep_configs = config.get_derivation_configs_by_version(
+            engine, version_map, enabled_only=enabled_only, phase="prep"
+        )
+        gen_configs = config.get_derivation_configs_by_version(
+            engine, version_map, enabled_only=enabled_only, phase="generate"
+        )
+        refine_configs = config.get_derivation_configs_by_version(
+            engine, version_map, enabled_only=enabled_only, phase="refine"
+        )
+    else:
+        prep_configs = config.get_derivation_configs(
+            engine, enabled_only=enabled_only, phase="prep"
+        )
+        gen_configs = config.get_derivation_configs(
+            engine, enabled_only=enabled_only, phase="generate"
+        )
+        refine_configs = config.get_derivation_configs(
+            engine, enabled_only=enabled_only, phase="refine"
+        )
     total_steps = 0
     if "prep" in phases:
         total_steps += len(prep_configs)

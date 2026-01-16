@@ -50,10 +50,16 @@ def extract_response_content(response: Any) -> tuple[str, str | None]:
 
     # Extract content from response
     if hasattr(response, "content"):
-        return response.content, None
+        content = response.content
+        if not content or not content.strip():
+            return "", "LLM returned empty content"
+        return content, None
 
     # Fallback to string representation (shouldn't happen with proper response types)
-    return str(response), None
+    content = str(response)
+    if not content or not content.strip():
+        return "", "LLM returned empty content"
+    return content, None
 
 
 logger = logging.getLogger(__name__)

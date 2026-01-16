@@ -853,6 +853,139 @@ def get_active_config_versions(engine: Any) -> dict[str, dict[str, int]]:
 
 
 # =============================================================================
+# Version-Specific Config Loading (for Benchmark Snapshots)
+# =============================================================================
+
+
+def get_extraction_configs_by_version(
+    engine: Any,
+    version_map: dict[str, int],
+    enabled_only: bool = False,
+) -> list[ExtractionConfig]:
+    """
+    Get extraction configurations at specific versions (for benchmark consistency).
+
+    This allows benchmarks to use the config versions captured at session start,
+    rather than the current active configs. This ensures consistency even if
+    configs are updated during the benchmark run.
+
+    Args:
+        engine: DuckDB connection
+        version_map: Dict mapping node_type to version number
+        enabled_only: If True, only return enabled configs
+
+    Returns:
+        List of ExtractionConfig objects at specified versions, ordered by sequence
+    """
+    if not version_map:
+        return get_extraction_configs(engine, enabled_only)
+
+    configs = []
+    for node_type, version in version_map.items():
+        query = """
+            SELECT node_type, sequence, enabled, input_sources, instruction, example,
+                   extraction_method, temperature, max_tokens
+            FROM extraction_config
+            WHERE node_type = ? AND version = ?
+        """
+        if enabled_only:
+            query += " AND enabled = TRUE"
+
+        row = engine.execute(query, [node_type, version]).fetchone()
+        if row:
+            configs.append(
+                ExtractionConfig(
+                    node_type=row[0],
+                    sequence=row[1],
+                    enabled=row[2],
+                    input_sources=row[3],
+                    instruction=row[4],
+                    example=row[5],
+                    extraction_method=row[6] or "llm",
+                    temperature=row[7],
+                    max_tokens=row[8],
+                )
+            )
+
+    return sorted(configs, key=lambda c: c.sequence)
+
+
+def get_derivation_configs_by_version(
+    engine: Any,
+    version_map: dict[str, int],
+    enabled_only: bool = False,
+    phase: str | None = None,
+    llm_only: bool | None = None,
+) -> list[DerivationConfig]:
+    """
+    Get derivation configurations at specific versions (for benchmark consistency).
+
+    This allows benchmarks to use the config versions captured at session start,
+    rather than the current active configs. This ensures consistency even if
+    configs are updated during the benchmark run.
+
+    Args:
+        engine: DuckDB connection
+        version_map: Dict mapping step_name to version number
+        enabled_only: If True, only return enabled configs
+        phase: Filter by phase ("prep", "generate", "refine", "relationship")
+        llm_only: If True, only LLM steps; if False, only graph algorithm steps
+
+    Returns:
+        List of DerivationConfig objects at specified versions
+    """
+    if not version_map:
+        return get_derivation_configs(
+            engine, enabled_only=enabled_only, phase=phase, llm_only=llm_only
+        )
+
+    configs = []
+    for step_name, version in version_map.items():
+        query = """
+            SELECT step_name, phase, sequence, enabled, llm, input_graph_query,
+                   input_model_query, instruction, example, params, temperature, max_tokens,
+                   max_candidates, batch_size
+            FROM derivation_config
+            WHERE step_name = ? AND version = ?
+        """
+        params = [step_name, version]
+
+        if enabled_only:
+            query += " AND enabled = TRUE"
+        if phase is not None:
+            query += " AND phase = ?"
+            params.append(phase)
+        if llm_only is not None:
+            query += " AND llm = ?"
+            params.append(llm_only)
+
+        row = engine.execute(query, params).fetchone()
+        if row:
+            configs.append(
+                DerivationConfig(
+                    step_name=row[0],
+                    phase=row[1],
+                    sequence=row[2],
+                    enabled=row[3],
+                    llm=row[4],
+                    input_graph_query=row[5],
+                    input_model_query=row[6],
+                    instruction=row[7],
+                    example=row[8],
+                    params=row[9],
+                    temperature=row[10],
+                    max_tokens=row[11],
+                    max_candidates=row[12],
+                    batch_size=row[13],
+                )
+            )
+
+    # Sort by phase priority then sequence
+    phase_priority = {"prep": 1, "generate": 2, "refine": 3, "relationship": 4}
+    return sorted(configs, key=lambda c: (phase_priority.get(c.phase, 5), c.sequence))
+
+
+# =============================================================================
 # Consistency Run Logging
 # =============================================================================
 

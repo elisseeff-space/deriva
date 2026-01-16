@@ -9,6 +9,9 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 ## v0.6.9 - (Unreleased)
 
+###
+- **Added Extraction Step**: Added a new step after creating directories, to create technology and business concept nodes, which can be used to guide llm extraction afterwards
+- **Lock and loaded**: Database can now be used during a benchmark or pipeline run without a full lock, runs will use versions, but new ones can be added without issues
 
 ## v0.6.8 - Library Migration & Overall Cleanup (January 16 2026)
 

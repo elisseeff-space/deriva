@@ -24,9 +24,17 @@ SCRIPTS_DIR = Path(__file__).parent / "scripts"
 DATA_DIR = Path(__file__).parent / "data"
 
 
-def get_connection() -> duckdb.DuckDBPyConnection:
-    """Get a connection to the database."""
-    return duckdb.connect(str(DB_PATH), read_only=False)
+def get_connection(read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    """Get a connection to the database.
+
+    Args:
+        read_only: If True, open in read-only mode (safe for queries during benchmarks).
+                   Default is False for backward compatibility.
+
+    Returns:
+        DuckDB connection
+    """
+    return duckdb.connect(str(DB_PATH), read_only=read_only)
 
 
 def run_sql_file(filepath: Path, conn: duckdb.DuckDBPyConnection | None = None) -> int:

@@ -773,6 +773,7 @@ class BenchmarkOrchestrator:
                         run_logger=cast("RunLoggerProtocol", ocel_run_logger),
                         progress=progress,
                         model=model_config.model,
+                        config_versions=getattr(self, "_config_versions_snapshot", None),
                     )
 
                     repo_stats = result.get("stats", {})
@@ -802,6 +803,7 @@ class BenchmarkOrchestrator:
                     progress=progress,
                     defer_relationships=self.config.defer_relationships,
                     phases=["prep", "generate", "refine"],  # Include refine for graph_relationships
+                    config_versions=getattr(self, "_config_versions_snapshot", None),
                 )
                 stats["derivation"] = result.get("stats", {})
                 self._log_derivation_results(result)
@@ -1066,18 +1068,27 @@ class BenchmarkOrchestrator:
     # =========================================================================
 
     def _create_session(self) -> None:
-        """Create benchmark session in database."""
+        """Create benchmark session in database with config version snapshot."""
+        from deriva.services import config as config_service
+
         assert self.session_start is not None, "session_start must be set"
+
+        # Capture current config versions as snapshot for consistency during benchmark
+        self._config_versions_snapshot = config_service.get_active_config_versions(
+            self.engine
+        )
+
         self.engine.execute(
             """
             INSERT INTO benchmark_sessions
-            (session_id, description, config, started_at, status)
-            VALUES (?, ?, ?, ?, 'running')
+            (session_id, description, config, config_versions_snapshot, started_at, status)
+            VALUES (?, ?, ?, ?, ?, 'running')
             """,
             [
                 self.session_id,
                 self.config.description,
                 json.dumps(self.config.to_dict()),
+                json.dumps(self._config_versions_snapshot),
                 self.session_start.isoformat(),
             ],
         )
