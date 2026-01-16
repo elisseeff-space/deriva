@@ -513,14 +513,6 @@ Classification -> Extraction -> Derivation -> Validation -> Export
 
 ---
 
-# v0.3.x - The UV/Extraction Functions Era
-
-**Architectural paradigm:** UV package manager + extraction functions + layered steps
-
-**Process model:** Clone -> Classify -> Extract (layered steps) -> Store in Neo4j
-
----
-
 # v0.4.x - The FastAPI/Jinja2 Era (June-July 2025)
 
 **Architectural paradigm:** FastAPI backend + Jinja2 templates + Run ID traceability
@@ -535,6 +527,13 @@ Web UI prototype with 8-week implementation roadmap. Introduced Run ID traceabil
 
 ---
 
+# v0.3.x - The UV/Extraction Functions Era
+
+**Architectural paradigm:** UV package manager + extraction functions + layered steps
+
+**Process model:** Clone -> Classify -> Extract (layered steps) -> Store in Neo4j
+
+---
 ## v0.3.5 - Pre-V2 Preparation
 
 - Refactored derivation module

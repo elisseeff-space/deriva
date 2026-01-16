@@ -68,7 +68,6 @@ from deriva.modules.extraction.business_concept import (
 )
 from deriva.modules.extraction.directory_classification import (
     classify_directories,
-    DIRECTORY_CLASSIFICATION_SCHEMA,
 )
 from deriva.services import config
 
@@ -135,9 +134,7 @@ def run_extraction(
 
     # Get extraction configs - use snapshot versions if provided (for benchmark consistency)
     if config_versions and "extraction" in config_versions:
-        configs = config.get_extraction_configs_by_version(
-            engine, config_versions["extraction"], enabled_only=enabled_only
-        )
+        configs = config.get_extraction_configs_by_version(engine, config_versions["extraction"], enabled_only=enabled_only)
     else:
         configs = config.get_extraction_configs(engine, enabled_only=enabled_only)
 

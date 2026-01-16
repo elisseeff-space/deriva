@@ -935,9 +935,7 @@ def get_derivation_configs_by_version(
         List of DerivationConfig objects at specified versions
     """
     if not version_map:
-        return get_derivation_configs(
-            engine, enabled_only=enabled_only, phase=phase, llm_only=llm_only
-        )
+        return get_derivation_configs(engine, enabled_only=enabled_only, phase=phase, llm_only=llm_only)
 
     configs = []
     for step_name, version in version_map.items():

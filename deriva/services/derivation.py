@@ -397,25 +397,13 @@ def run_derivation(
     # Calculate total steps for progress - use snapshot versions if provided
     version_map = config_versions.get("derivation", {}) if config_versions else {}
     if version_map:
-        prep_configs = config.get_derivation_configs_by_version(
-            engine, version_map, enabled_only=enabled_only, phase="prep"
-        )
-        gen_configs = config.get_derivation_configs_by_version(
-            engine, version_map, enabled_only=enabled_only, phase="generate"
-        )
-        refine_configs = config.get_derivation_configs_by_version(
-            engine, version_map, enabled_only=enabled_only, phase="refine"
-        )
+        prep_configs = config.get_derivation_configs_by_version(engine, version_map, enabled_only=enabled_only, phase="prep")
+        gen_configs = config.get_derivation_configs_by_version(engine, version_map, enabled_only=enabled_only, phase="generate")
+        refine_configs = config.get_derivation_configs_by_version(engine, version_map, enabled_only=enabled_only, phase="refine")
     else:
-        prep_configs = config.get_derivation_configs(
-            engine, enabled_only=enabled_only, phase="prep"
-        )
-        gen_configs = config.get_derivation_configs(
-            engine, enabled_only=enabled_only, phase="generate"
-        )
-        refine_configs = config.get_derivation_configs(
-            engine, enabled_only=enabled_only, phase="refine"
-        )
+        prep_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="prep")
+        gen_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="generate")
+        refine_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="refine")
     total_steps = 0
     if "prep" in phases:
         total_steps += len(prep_configs)

@@ -1074,9 +1074,7 @@ class BenchmarkOrchestrator:
         assert self.session_start is not None, "session_start must be set"
 
         # Capture current config versions as snapshot for consistency during benchmark
-        self._config_versions_snapshot = config_service.get_active_config_versions(
-            self.engine
-        )
+        self._config_versions_snapshot = config_service.get_active_config_versions(self.engine)
 
         self.engine.execute(
             """

@@ -97,9 +97,14 @@ def build_classification_prompt(
 
     # Format directory list
     dir_list = json.dumps(
-        [{"name": d.get("name", d.get("dirName", "")), "path": d.get("path", d.get("dirPath", ""))}
-         for d in directories],
-        indent=2
+        [
+            {
+                "name": d.get("name", d.get("dirName", "")),
+                "path": d.get("path", d.get("dirPath", "")),
+            }
+            for d in directories
+        ],
+        indent=2,
     )
 
     prompt = f"""{instruction}
@@ -260,8 +265,7 @@ def classify_directories(
 
         # Create lookup for source directory IDs
         dir_id_map = {
-            d.get("name", d.get("dirName", "")): d.get("id", "")
-            for d in directories
+            d.get("name", d.get("dirName", "")): d.get("id", "") for d in directories
         }
 
         for classification in parsed.get("classifications", []):
@@ -284,34 +288,36 @@ def classify_directories(
 
                 # Create edge from Directory to BusinessConcept
                 if source_dir_id:
-                    edges.append({
-                        "source": source_dir_id,
-                        "target": node["id"],
-                        "relationship_type": "REPRESENTS",
-                        "properties": {
-                            "created_at": current_timestamp(),
-                            "confidence": confidence,
-                        },
-                    })
+                    edges.append(
+                        {
+                            "source": source_dir_id,
+                            "target": node["id"],
+                            "relationship_type": "REPRESENTS",
+                            "properties": {
+                                "created_at": current_timestamp(),
+                                "confidence": confidence,
+                            },
+                        }
+                    )
 
             elif class_type == "technology":
-                node = build_technology_node(
-                    classification, source_dir_id, repo_name
-                )
+                node = build_technology_node(classification, source_dir_id, repo_name)
                 nodes.append(node)
                 stats["technologies"] += 1
 
                 # Create edge from Directory to Technology
                 if source_dir_id:
-                    edges.append({
-                        "source": source_dir_id,
-                        "target": node["id"],
-                        "relationship_type": "REPRESENTS",
-                        "properties": {
-                            "created_at": current_timestamp(),
-                            "confidence": confidence,
-                        },
-                    })
+                    edges.append(
+                        {
+                            "source": source_dir_id,
+                            "target": node["id"],
+                            "relationship_type": "REPRESENTS",
+                            "properties": {
+                                "created_at": current_timestamp(),
+                                "confidence": confidence,
+                            },
+                        }
+                    )
 
         stats["total_nodes"] = len(nodes)
 

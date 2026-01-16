@@ -48,27 +48,64 @@ def extract_seed_concepts_from_structure(
 
     # Keywords that indicate process-type concepts
     process_keywords = {
-        "processing", "pipeline", "service", "handler", "manager",
-        "controller", "worker", "scheduler", "queue", "stream",
-        "ingestion", "transformation", "analytics", "engine",
+        "processing",
+        "pipeline",
+        "service",
+        "handler",
+        "manager",
+        "controller",
+        "worker",
+        "scheduler",
+        "queue",
+        "stream",
+        "ingestion",
+        "transformation",
+        "analytics",
+        "engine",
     }
 
     # Keywords that indicate entity-type concepts
     entity_keywords = {
-        "model", "entity", "data", "storage", "repository",
-        "database", "cache", "store", "record", "schema",
+        "model",
+        "entity",
+        "data",
+        "storage",
+        "repository",
+        "database",
+        "cache",
+        "store",
+        "record",
+        "schema",
     }
 
     if include_directories:
         # Skip common non-business directories
         skip_dirs = {
-            ".git", "__pycache__", "node_modules", ".venv", "venv",
-            "dist", "build", "target", ".idea", ".vscode", "tests",
-            "test", "docs", "examples", "scripts", "bin", "lib",
+            ".git",
+            "__pycache__",
+            "node_modules",
+            ".venv",
+            "venv",
+            "dist",
+            "build",
+            "target",
+            ".idea",
+            ".vscode",
+            "tests",
+            "test",
+            "docs",
+            "examples",
+            "scripts",
+            "bin",
+            "lib",
         }
 
         for item in repo_path.iterdir():
-            if item.is_dir() and item.name not in skip_dirs and not item.name.startswith("."):
+            if (
+                item.is_dir()
+                and item.name not in skip_dirs
+                and not item.name.startswith(".")
+            ):
                 # Convert directory name to concept name
                 concept_name = _dir_name_to_concept_name(item.name)
                 if concept_name and len(concept_name) > 2:
@@ -81,11 +118,13 @@ def extract_seed_concepts_from_structure(
                     else:
                         concept_type = "capability"
 
-                    seed_concepts.append({
-                        "conceptName": concept_name,
-                        "conceptType": concept_type,
-                        "source": f"directory:{item.name}/",
-                    })
+                    seed_concepts.append(
+                        {
+                            "conceptName": concept_name,
+                            "conceptType": concept_type,
+                            "source": f"directory:{item.name}/",
+                        }
+                    )
 
     return seed_concepts
 
@@ -135,7 +174,9 @@ def get_existing_concepts_from_graph(
     """
 
     try:
-        result = graph_manager.run_cypher(query, {"repo_name": repo_name, "limit": limit})
+        result = graph_manager.run_cypher(
+            query, {"repo_name": repo_name, "limit": limit}
+        )
         return [
             {
                 "conceptName": r["conceptName"],
@@ -148,6 +189,7 @@ def get_existing_concepts_from_graph(
     except Exception:
         # If graph query fails, return empty list (graceful degradation)
         return []
+
 
 # JSON schema for LLM structured output
 BUSINESS_CONCEPT_SCHEMA = {
@@ -245,7 +287,9 @@ def build_extraction_prompt(
     existing_context = ""
     if existing_concepts:
         # Only include high-confidence existing concepts as reference
-        high_conf = [c for c in existing_concepts if c.get("confidence", 0.8) >= 0.8]
+        high_conf = [
+            c for c in existing_concepts if float(c.get("confidence", 0.8)) >= 0.8
+        ]
         if high_conf:
             existing_json = json.dumps(high_conf, indent=2)
             existing_context = f"""

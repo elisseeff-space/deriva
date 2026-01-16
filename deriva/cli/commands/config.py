@@ -271,7 +271,9 @@ def config_versions() -> None:
 
 @app.command("query")
 def config_query(
-    step_type: Annotated[str, typer.Argument(help="Type: 'extraction' or 'derivation'")],
+    step_type: Annotated[
+        str, typer.Argument(help="Type: 'extraction' or 'derivation'")
+    ],
     name: Annotated[str | None, typer.Argument(help="Config name (optional)")] = None,
 ) -> None:
     """Query configs with read-only connection (safe during benchmarks).
@@ -325,7 +327,9 @@ def config_query(
                 typer.echo(f"\nDERIVATION CONFIGS ({len(configs)}):")
                 for c in configs:
                     status = "enabled" if c.enabled else "disabled"
-                    typer.echo(f"  [{c.sequence}] {c.step_name:<25} {c.phase:<10} ({status})")
+                    typer.echo(
+                        f"  [{c.sequence}] {c.step_name:<25} {c.phase:<10} ({status})"
+                    )
     finally:
         engine.close()
 
@@ -354,7 +358,9 @@ def config_snapshot(
 
         if not row[0]:
             typer.echo(f"No config snapshot found for session: {session_id}")
-            typer.echo("(This may be an older session created before snapshots were added)")
+            typer.echo(
+                "(This may be an older session created before snapshots were added)"
+            )
             raise typer.Exit(1)
 
         snapshot = json.loads(row[0])
