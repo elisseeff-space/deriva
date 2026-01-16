@@ -6,7 +6,11 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
-## v0.6.8 - Library Migration & Overall Cleanup (Unreleased)
+
+## v0.6.9 - (Unreleased)
+
+
+## v0.6.8 - Library Migration & Overall Cleanup (January 16 2026)
 
 Big migration replacing 6 custom implementations with off-the-shelf libraries, reducing the amount of code and improving maintainability.
 
