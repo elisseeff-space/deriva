@@ -2,7 +2,7 @@
 
 This guide explains how to run benchmarks and analyze LLM consistency in Deriva's pipeline.
 
-> **For developers** optimizing prompts and configurations, see [optimization_guide.md](optimization_guide.md) for detailed case studies, lessons learned, and the optimization log.
+> **For developers** optimizing prompts and configurations, see [OPTIMIZATION.md](OPTIMIZATION.md) for detailed case studies, lessons learned, and the optimization log.
 
 ## Overview
 

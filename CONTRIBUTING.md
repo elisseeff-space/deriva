@@ -12,7 +12,7 @@ Thanks for your interest in contributing to Deriva!
 
 **Python 3.14+** is required. The project uses modern Python features and is developed with 3.14 in mind.
 
-**Tooling:** We use [uv](https://docs.astral.sh/uv/) for package management, [Ruff](https://docs.astral.sh/ruff/) for linting/formatting, and [ty](https://docs.astral.sh/ty/) for type checking. [Pydantic AI](https://ai.pydantic.dev/) is used for interacting with llm's, [DuckDB](https://duckdb.org/) for storing configurations and settings. For testing we use pytest and [codecov](https://about.codecov.io/) for ci test coverage reporting.
+**Tooling:** We use [uv](https://docs.astral.sh/uv/) for package management, [Ruff](https://docs.astral.sh/ruff/) for linting/formatting, and [ty](https://docs.astral.sh/ty/) for type checking. [Pydantic AI](https://ai.pydantic.dev/) is used for interacting with LLMs, [DuckDB](https://duckdb.org/) for storing configurations and settings. For testing we use pytest and [codecov](https://about.codecov.io/) for CI test coverage reporting.
 
 ## Development Setup
 
@@ -561,14 +561,18 @@ class Node:
     parent: Node | None = None  # Works! No quotes needed
 ```
 
-#### Exception Syntax (PEP 758)
+#### Exception Groups (PEP 654)
 
-Cleaner multi-exception handling:
+Handle multiple exceptions with exception groups:
 
 ```python
-# New way (Python 3.14+)
-except TimeoutError, ConnectionRefusedError:
-    handle_network_error()
+# Exception groups (Python 3.11+)
+try:
+    async_operations()
+except* TimeoutError:
+    handle_timeout()
+except* ConnectionRefusedError:
+    handle_connection_error()
 ```
 
 #### New UUID Functions
@@ -584,22 +588,23 @@ id = uuid7()
 
 ```python
 from pathlib import Path
+import shutil
 
 src = Path("source.txt")
 dst = Path("dest.txt")
 
-# New methods
-src.copy(dst)
-src.move(dst)
+# Use shutil for copy/move operations
+shutil.copy2(src, dst)
+shutil.move(src, dst)
 ```
 
-#### New datetime Methods
+#### datetime Parsing
 
 ```python
-from datetime import date, time
+from datetime import datetime
 
-# Parse directly on date/time classes
-d = date.strptime("2024-01-15", "%Y-%m-%d")
+# Parse dates using datetime
+d = datetime.strptime("2024-01-15", "%Y-%m-%d").date()
 ```
 
 </details>
@@ -1319,7 +1324,7 @@ deriva config versions
 
 **Never update configs by editing JSON and importing.** The `db_tool import` command is for **backup restoration only** - it overwrites the database including version history. This defeats the purpose of versioning and makes rollback impossible.
 
-See [BENCHMARKS.md](BENCHMARKS.md) for running benchmarks and [optimization_guide.md](optimization_guide.md) for the recommended config optimization workflow.
+See [BENCHMARKS.md](BENCHMARKS.md) for running benchmarks and [OPTIMIZATION.md](OPTIMIZATION.md) for the recommended config optimization workflow.
 
 </details>
 

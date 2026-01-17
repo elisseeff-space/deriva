@@ -84,7 +84,7 @@ Repository --> Extraction --> Graph --> Derivation --> ArchiMate Model --> Expor
 | `cli/` | Headless command-line interface for automation and scripting |
 | `app/` | Interactive Marimo notebook for visual configuration and monitoring |
 
-Both components use `PipelineSession` as their single interface to the backend.
+Both components use `PipelineSession` as the sole interface to the backend.
 
 ### Services Layer
 
@@ -115,9 +115,9 @@ Business logic organized by pipeline stage:
 
 | Module | Purpose |
 |--------|---------|
-| `extraction/` | Extracts nodes from source code (structural + semantic) |
+| `extraction/` | Extracts nodes from source code (structural + semantic, includes classification) |
 | `derivation/` | Derives ArchiMate elements from graph nodes |
-| `classification/` | File type classification logic |
+| `analysis/` | Consistency analysis, deviation detection, stability metrics |
 
 ### Common Layer
 

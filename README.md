@@ -413,7 +413,7 @@ deriva export -o workspace/output/model.xml
 
 ## Benchmarking
 
-Deriva includes a multi-model benchmarking system for comparing LLM performance across different providers and models. See [BENCHMARKS.md](BENCHMARKS.md) for the full guide and [optimization_guide.md](optimization_guide.md) for detailed case studies.
+Deriva includes a multi-model benchmarking system for comparing LLM performance across different providers and models. See [BENCHMARKS.md](BENCHMARKS.md) for the full guide and [OPTIMIZATION.md](OPTIMIZATION.md) for detailed case studies.
 
 ### Running Benchmarks
 

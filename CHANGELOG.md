@@ -1,6 +1,6 @@
 # Deriva Changelog
 
-Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's, a journey through architectural decisions, strategic purges and lot's (and lot's) of trial and error.
+Deriving ArchiMate models from code using knowledge graphs, heuristics, and LLMs, a journey through architectural decisions, strategic purges, and lots (and lots) of trial and error.
 
 ---
 
@@ -9,11 +9,12 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's
 
 ## v0.6.9 - (Unreleased)
 
-###
+### Changes
+
 - **Added Extraction Step**: Added a new step after creating directories, to create technology and business concept nodes, which can be used to guide llm extraction afterwards
 - **Lock and loaded**: Database can now be used during a benchmark or pipeline run without a full lock, runs will use versions, but new ones can be added without issues
 
-## v0.6.8 - Library Migration & Overall Cleanup (January 16 2026)
+## v0.6.8 - Library Migration & Overall Cleanup (January 16, 2026)
 
 Big migration replacing 6 custom implementations with off-the-shelf libraries, reducing the amount of code and improving maintainability.
 
@@ -38,7 +39,8 @@ Big migration replacing 6 custom implementations with off-the-shelf libraries, r
 - **New retry.py**: Centralized retry decorator with exponential backoff and jitter
 - **Simplified Rate Limiter**: Token bucket rate limiting now separate from retry logic
 
-### Small CLI refactor
+### CLI Refactor
+
 - **Typer Framework**: Replaced argparse-based CLI with `typer`
 - **Command Modules**: Split CLI into `deriva/cli/commands/` with separate files for `benchmark.py`, `config.py`, `repo.py`, `run.py`
 - **Modern CLI Features**: Auto-completion, better help generation, type hints via `Annotated`
@@ -57,7 +59,7 @@ Big migration replacing 6 custom implementations with off-the-shelf libraries, r
 
 ---
 
-## v0.6.7 - Gotta save some Tokens (January 15 2026)
+## v0.6.7 - Gotta save some Tokens (January 15, 2026)
 
 ### Caching & Performance
 - **Graph Cache**: New `cache.py` in graph adapter with hash-based cache for expensive graph queries
@@ -91,7 +93,7 @@ Big migration replacing 6 custom implementations with off-the-shelf libraries, r
 
 ---
 
-## v0.6.6 - ElementDerivationBase & Document Parsing (January 13 2026)
+## v0.6.6 - ElementDerivationBase & Document Parsing (January 13, 2026)
 
 ### Derivation Module Refactoring
 
@@ -133,7 +135,7 @@ Deterministic graph techniques for relationship consistency:
 
 ---
 
-## v0.6.4 - Benchmark with Deriva (this repo) runs stable and succesfull! (January 10 2026)
+## v0.6.4 - Benchmark with Deriva (this repo) runs stable and successful! (January 10, 2026)
 
 ### Refine Module (NEW)
 
@@ -214,7 +216,7 @@ Refactor of `modules/extraction/base.py`:
 
 ---
 
-## v0.6.3 - Database aAapter and Benchmark Improvements (January 9, 2026)
+## v0.6.3 - Database Adapter and Benchmark Improvements (January 9, 2026)
 
 ### Database Adapter Refactor
 
