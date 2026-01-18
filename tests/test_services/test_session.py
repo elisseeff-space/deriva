@@ -1093,3 +1093,752 @@ class TestPipelineSessionExtractionStepCount:
             count = session.get_extraction_step_count()
 
             assert count == 6
+
+
+class TestPipelineSessionCypherQueries:
+    """Tests for Cypher query methods."""
+
+    @pytest.fixture
+    def connected_session(self):
+        """Create a connected session with mocked managers."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager") as mock_graph,
+            patch("deriva.services.session.ArchimateManager") as mock_archimate,
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._mock_graph = mock_graph.return_value
+            session._mock_archimate = mock_archimate.return_value
+            yield session
+
+    def test_query_graph_executes_cypher(self, connected_session):
+        """Should execute Cypher query on Graph namespace."""
+        connected_session._mock_graph.query.return_value = [
+            {"n.name": "TestNode", "n.type": "File"}
+        ]
+
+        result = connected_session.query_graph("MATCH (n:File) RETURN n.name, n.type")
+
+        connected_session._mock_graph.query.assert_called_once_with(
+            "MATCH (n:File) RETURN n.name, n.type"
+        )
+        assert len(result) == 1
+        assert result[0]["n.name"] == "TestNode"
+
+    def test_query_model_executes_cypher(self, connected_session):
+        """Should execute Cypher query on Model namespace."""
+        connected_session._mock_archimate.query.return_value = [
+            {"e.name": "MyComponent", "e.type": "ApplicationComponent"}
+        ]
+
+        result = connected_session.query_model("MATCH (e:Element) RETURN e.name, e.type")
+
+        connected_session._mock_archimate.query.assert_called_once_with(
+            "MATCH (e:Element) RETURN e.name, e.type"
+        )
+        assert len(result) == 1
+        assert result[0]["e.name"] == "MyComponent"
+
+    def test_query_graph_raises_when_not_connected(self):
+        """Should raise RuntimeError when not connected."""
+        session = PipelineSession()
+
+        with pytest.raises(RuntimeError, match="not connected"):
+            session.query_graph("MATCH (n) RETURN n")
+
+    def test_query_model_raises_when_not_connected(self):
+        """Should raise RuntimeError when not connected."""
+        session = PipelineSession()
+
+        with pytest.raises(RuntimeError, match="not connected"):
+            session.query_model("MATCH (n) RETURN n")
+
+
+class TestPipelineSessionArchimateElements:
+    """Tests for ArchiMate element/relationship retrieval."""
+
+    @pytest.fixture
+    def connected_session(self):
+        """Create a connected session with mocked archimate manager."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager") as mock_archimate,
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._mock_archimate = mock_archimate.return_value
+            yield session
+
+    def test_get_archimate_elements_with_to_dict(self, connected_session):
+        """Should convert elements using to_dict if available."""
+        mock_element = MagicMock()
+        mock_element.to_dict.return_value = {
+            "identifier": "elem1",
+            "type": "ApplicationComponent",
+            "name": "TestComponent",
+        }
+        connected_session._mock_archimate.get_elements.return_value = [mock_element]
+
+        result = connected_session.get_archimate_elements()
+
+        assert len(result) == 1
+        assert result[0]["identifier"] == "elem1"
+        assert result[0]["type"] == "ApplicationComponent"
+
+    def test_get_archimate_elements_without_to_dict(self, connected_session):
+        """Should convert elements using dict() if no to_dict."""
+        # Create an element without to_dict
+        mock_element = {"identifier": "elem2", "type": "DataObject"}
+        connected_session._mock_archimate.get_elements.return_value = [mock_element]
+
+        result = connected_session.get_archimate_elements()
+
+        assert len(result) == 1
+        assert result[0]["identifier"] == "elem2"
+
+    def test_get_archimate_relationships_with_to_dict(self, connected_session):
+        """Should convert relationships using to_dict if available."""
+        mock_rel = MagicMock()
+        mock_rel.to_dict.return_value = {
+            "identifier": "rel1",
+            "type": "AccessRelationship",
+            "source": "elem1",
+            "target": "elem2",
+        }
+        connected_session._mock_archimate.get_relationships.return_value = [mock_rel]
+
+        result = connected_session.get_archimate_relationships()
+
+        assert len(result) == 1
+        assert result[0]["identifier"] == "rel1"
+        assert result[0]["type"] == "AccessRelationship"
+
+    def test_get_archimate_relationships_without_to_dict(self, connected_session):
+        """Should convert relationships using dict() if no to_dict."""
+        mock_rel = {"identifier": "rel2", "type": "CompositionRelationship"}
+        connected_session._mock_archimate.get_relationships.return_value = [mock_rel]
+
+        result = connected_session.get_archimate_relationships()
+
+        assert len(result) == 1
+        assert result[0]["identifier"] == "rel2"
+
+    def test_get_archimate_elements_raises_when_not_connected(self):
+        """Should raise RuntimeError when not connected."""
+        session = PipelineSession()
+
+        with pytest.raises(RuntimeError, match="not connected"):
+            session.get_archimate_elements()
+
+    def test_get_archimate_relationships_raises_when_not_connected(self):
+        """Should raise RuntimeError when not connected."""
+        session = PipelineSession()
+
+        with pytest.raises(RuntimeError, match="not connected"):
+            session.get_archimate_relationships()
+
+
+class TestPipelineSessionBenchmarking:
+    """Tests for benchmarking methods."""
+
+    @pytest.fixture
+    def connected_session(self):
+        """Create a connected session with mocked managers."""
+        with (
+            patch("deriva.services.session.get_connection") as mock_db,
+            patch("deriva.services.session.GraphManager") as mock_graph,
+            patch("deriva.services.session.ArchimateManager") as mock_archimate,
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._mock_engine = mock_db.return_value
+            session._mock_graph = mock_graph.return_value
+            session._mock_archimate = mock_archimate.return_value
+            yield session
+
+    def test_run_benchmark(self, connected_session):
+        """Should run benchmark with given config."""
+        # Patch the internal import inside run_benchmark method
+        with patch("deriva.services.benchmarking.BenchmarkConfig") as mock_config, patch(
+            "deriva.services.benchmarking.BenchmarkOrchestrator"
+        ) as mock_orch:
+            mock_result = MagicMock()
+            mock_result.session_id = "bench_123"
+            mock_orch.return_value.run.return_value = mock_result
+
+            result = connected_session.run_benchmark(
+                repositories=["repo1"],
+                models=["model1"],
+                runs=2,
+                description="Test benchmark",
+            )
+
+            mock_config.assert_called_once()
+            assert result.session_id == "bench_123"
+
+    def test_run_benchmark_with_all_options(self, connected_session):
+        """Should pass all options to benchmark config."""
+        with patch("deriva.services.benchmarking.BenchmarkConfig") as mock_config, patch(
+            "deriva.services.benchmarking.BenchmarkOrchestrator"
+        ) as mock_orch:
+            mock_result = MagicMock()
+            mock_orch.return_value.run.return_value = mock_result
+
+            connected_session.run_benchmark(
+                repositories=["repo1", "repo2"],
+                models=["model1", "model2"],
+                runs=5,
+                stages=["extraction", "derivation"],
+                description="Full benchmark",
+                use_cache=False,
+                nocache_configs=["ApplicationComponent"],
+                export_models=False,
+                clear_between_runs=False,
+                bench_hash=True,
+                defer_relationships=True,
+                per_repo=True,
+                use_enrichment_cache=False,
+                nocache_enrichment_configs=["SomeConfig"],
+            )
+
+            config_call = mock_config.call_args
+            assert config_call.kwargs["repositories"] == ["repo1", "repo2"]
+            assert config_call.kwargs["models"] == ["model1", "model2"]
+            assert config_call.kwargs["runs_per_combination"] == 5
+            assert config_call.kwargs["use_cache"] is False
+
+    def test_analyze_benchmark(self, connected_session):
+        """Should create and return BenchmarkAnalyzer."""
+        with patch("deriva.services.session.benchmarking") as mock_bench:
+            mock_analyzer = MagicMock()
+            mock_bench.BenchmarkAnalyzer.return_value = mock_analyzer
+
+            result = connected_session.analyze_benchmark("bench_123")
+
+            mock_bench.BenchmarkAnalyzer.assert_called_once_with(
+                "bench_123", connected_session._engine
+            )
+            assert result is mock_analyzer
+
+    def test_analyze_config_deviations(self, connected_session):
+        """Should create and return ConfigDeviationAnalyzer."""
+        with patch("deriva.services.config_deviation.ConfigDeviationAnalyzer") as mock_analyzer_cls:
+            mock_analyzer = MagicMock()
+            mock_analyzer_cls.return_value = mock_analyzer
+
+            result = connected_session.analyze_config_deviations("bench_123")
+
+            mock_analyzer_cls.assert_called_once_with(
+                "bench_123", connected_session._engine
+            )
+            assert result is mock_analyzer
+
+    def test_list_benchmarks(self, connected_session):
+        """Should list benchmark sessions."""
+        with patch("deriva.services.benchmarking.list_benchmark_sessions") as mock_list:
+            mock_list.return_value = [
+                {"session_id": "bench_1", "description": "Test 1"},
+                {"session_id": "bench_2", "description": "Test 2"},
+            ]
+
+            result = connected_session.list_benchmarks(limit=5)
+
+            mock_list.assert_called_once_with(connected_session._engine, 5)
+            assert len(result) == 2
+
+    def test_list_benchmarks_raises_when_not_connected(self):
+        """Should raise RuntimeError when not connected."""
+        session = PipelineSession()
+
+        with pytest.raises(RuntimeError, match="not connected"):
+            session.list_benchmarks()
+
+
+class TestPipelineSessionLLMQueryFn:
+    """Tests for _get_llm_query_fn method."""
+
+    def test_get_llm_query_fn_lazy_loads_manager(self):
+        """Should lazy load LLM manager."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            assert session._llm_manager is None
+
+            with patch("deriva.adapters.llm.LLMManager") as mock_llm:
+                mock_llm.return_value = MagicMock()
+                fn = session._get_llm_query_fn()
+
+                mock_llm.assert_called_once()
+                assert fn is not None
+
+    def test_get_llm_query_fn_returns_none_on_error(self):
+        """Should return None if LLM manager fails to initialize."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+
+            with patch("deriva.adapters.llm.LLMManager", side_effect=Exception("No API key")):
+                fn = session._get_llm_query_fn()
+
+                assert fn is None
+
+    def test_get_llm_query_fn_sets_nocache(self):
+        """Should set nocache flag on LLM manager when requested."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            mock_manager = MagicMock()
+            session._llm_manager = mock_manager
+
+            session._get_llm_query_fn(no_cache=True)
+
+            assert mock_manager.nocache is True
+
+    def test_get_llm_query_fn_reuses_existing_manager(self):
+        """Should reuse existing LLM manager."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            mock_manager = MagicMock()
+            session._llm_manager = mock_manager
+
+            with patch("deriva.adapters.llm.LLMManager") as mock_llm:
+                session._get_llm_query_fn()
+
+                # Should not create new manager
+                mock_llm.assert_not_called()
+
+
+class TestPipelineSessionLLMInfo:
+    """Tests for llm_info property."""
+
+    def test_llm_info_returns_provider_and_model(self):
+        """Should return dict with provider and model."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            mock_manager = MagicMock()
+            mock_manager.provider_name = "openai"
+            mock_manager.model = "gpt-4"
+            session._llm_manager = mock_manager
+
+            result = session.llm_info
+
+            assert result == {"provider": "openai", "model": "gpt-4"}
+
+    def test_llm_info_returns_none_when_no_manager(self):
+        """Should return None when LLM manager not configured."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+
+            with patch.object(session, "_get_llm_query_fn", return_value=None):
+                session._llm_manager = None
+                result = session.llm_info
+
+                assert result is None
+
+    def test_llm_info_lazy_loads_manager(self):
+        """Should attempt to load manager if not present."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._llm_manager = None
+
+            with patch.object(session, "_get_llm_query_fn") as mock_get:
+                _ = session.llm_info
+
+                mock_get.assert_called_once()
+
+
+class TestPipelineSessionDisconnect:
+    """Additional disconnect tests."""
+
+    def test_disconnect_idempotent(self):
+        """Disconnect should be idempotent."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession()
+            # Disconnect without connecting should not error
+            session.disconnect()
+            session.disconnect()
+
+            assert not session.is_connected()
+
+
+class TestPipelineSessionClearModelError:
+    """Test clear_model error handling."""
+
+    def test_clear_model_error(self):
+        """Should return error on failure."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager") as mock_archimate,
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            mock_archimate.return_value.clear_model.side_effect = Exception("Model error")
+
+            result = session.clear_model()
+
+            assert result["success"] is False
+            assert "Model error" in result["error"]
+
+
+class TestPipelineSessionNeo4jNotConnected:
+    """Tests for Neo4j control when not initially connected."""
+
+    def test_get_neo4j_status_creates_connection(self):
+        """Should create Neo4j connection if not present."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection") as mock_neo4j,
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._neo4j_conn = None  # Simulate no connection
+
+            mock_neo4j.return_value.get_container_status.return_value = {"running": False}
+            result = session.get_neo4j_status()
+
+            mock_neo4j.assert_called_with(namespace="Docker")
+            assert result["running"] is False
+
+    def test_start_neo4j_creates_connection(self):
+        """Should create Neo4j connection if not present."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection") as mock_neo4j,
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._neo4j_conn = None
+
+            mock_neo4j.return_value.start_container.return_value = {"success": True}
+            result = session.start_neo4j()
+
+            mock_neo4j.assert_called_with(namespace="Docker")
+            assert result["success"] is True
+
+    def test_stop_neo4j_creates_connection(self):
+        """Should create Neo4j connection if not present."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection") as mock_neo4j,
+        ):
+            session = PipelineSession(auto_connect=True)
+            session._neo4j_conn = None
+
+            mock_neo4j.return_value.stop_container.return_value = {"success": True}
+            result = session.stop_neo4j()
+
+            mock_neo4j.assert_called_with(namespace="Docker")
+            assert result["success"] is True
+
+
+class TestPipelineSessionGetRepositoriesStringReturn:
+    """Tests for get_repositories with string returns."""
+
+    def test_get_repositories_string_result(self):
+        """Should handle string repository names."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager") as mock_repo,
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            mock_repo.return_value.list_repositories.return_value = ["repo1", "repo2"]
+
+            result = session.get_repositories(detailed=False)
+
+            assert len(result) == 2
+            assert result[0] == {"name": "repo1"}
+            assert result[1] == {"name": "repo2"}
+
+    def test_get_repositories_mixed_results(self):
+        """Should handle mixed return types (objects without to_dict)."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager") as mock_repo,
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            # Create object without to_dict
+            mock_obj = object()
+            mock_repo.return_value.list_repositories.return_value = [mock_obj]
+
+            result = session.get_repositories()
+
+            assert len(result) == 1
+            # Should convert to string
+
+
+class TestPipelineSessionArchimateStatsEdgeCases:
+    """Tests for get_archimate_stats edge cases."""
+
+    def test_get_archimate_stats_with_object_type(self):
+        """Should handle elements with type attribute instead of dict."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager") as mock_archimate,
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+
+            # Create element object with type attribute
+            class MockElement:
+                type = "ApplicationService"
+
+            mock_archimate.return_value.get_elements.return_value = [MockElement(), MockElement()]
+            mock_archimate.return_value.get_relationships.return_value = []
+
+            result = session.get_archimate_stats()
+
+            assert result["total_elements"] == 2
+            assert result["by_type"]["ApplicationService"] == 2
+
+    def test_get_archimate_stats_with_unknown_type(self):
+        """Should handle elements without type."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager") as mock_archimate,
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+
+            # Create element without type
+            class MockElement:
+                pass
+
+            mock_archimate.return_value.get_elements.return_value = [MockElement()]
+            mock_archimate.return_value.get_relationships.return_value = []
+
+            result = session.get_archimate_stats()
+
+            assert result["total_elements"] == 1
+            assert result["by_type"]["Unknown"] == 1
+
+
+class TestPipelineSessionExportEdgeCases:
+    """Tests for export edge cases."""
+
+    def test_export_model_filters_disabled_relationships(self):
+        """Should filter relationships to only enabled elements."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager") as mock_archimate,
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+            patch("deriva.services.session.ArchiMateXMLExporter") as mock_exporter,
+        ):
+            session = PipelineSession(auto_connect=True)
+
+            # Two enabled elements
+            elem1 = MagicMock()
+            elem1.identifier = "elem1"
+            elem2 = MagicMock()
+            elem2.identifier = "elem2"
+
+            # Three relationships - one points to disabled element
+            rel1 = MagicMock()
+            rel1.source = "elem1"
+            rel1.target = "elem2"  # Both enabled
+            rel2 = MagicMock()
+            rel2.source = "elem1"
+            rel2.target = "elem3"  # elem3 is disabled
+
+            mock_archimate.return_value.get_elements.return_value = [elem1, elem2]
+            mock_archimate.return_value.get_relationships.return_value = [rel1, rel2]
+
+            session.export_model()
+
+            # Should only export rel1
+            export_call = mock_exporter.return_value.export.call_args
+            exported_rels = export_call.kwargs["relationships"]
+            assert len(exported_rels) == 1
+            assert exported_rels[0].target == "elem2"
+
+    def test_export_model_handles_exception(self):
+        """Should handle export exceptions."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager") as mock_archimate,
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+            patch("deriva.services.session.ArchiMateXMLExporter") as mock_exporter,
+        ):
+            session = PipelineSession(auto_connect=True)
+
+            elem = MagicMock()
+            elem.identifier = "elem1"
+            mock_archimate.return_value.get_elements.return_value = [elem]
+            mock_archimate.return_value.get_relationships.return_value = []
+            mock_exporter.return_value.export.side_effect = Exception("Write failed")
+
+            result = session.export_model()
+
+            assert result["success"] is False
+            assert "Write failed" in result["error"]
+
+
+class TestPipelineSessionCreateRunError:
+    """Tests for create_run error handling."""
+
+    def test_create_run_handles_error(self):
+        """Should return error on failure."""
+        with (
+            patch("deriva.services.session.get_connection") as mock_db,
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+        ):
+            session = PipelineSession(auto_connect=True)
+            mock_db.return_value.execute.side_effect = Exception("DB error")
+
+            result = session.create_run("Test run")
+
+            assert result["success"] is False
+            assert "DB error" in result["error"]
+
+
+class TestPipelineSessionExtractionStepCountFiltered:
+    """Tests for get_extraction_step_count with repo filter."""
+
+    def test_get_extraction_step_count_filters_by_repo(self):
+        """Should filter repos by name."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager") as mock_repo,
+            patch("deriva.services.session.Neo4jConnection"),
+            patch("deriva.services.session.config") as mock_config,
+        ):
+            session = PipelineSession(auto_connect=True)
+
+            mock_config.get_extraction_configs.return_value = [MagicMock(), MagicMock()]
+            repo1 = MagicMock()
+            repo1.name = "repo1"
+            repo2 = MagicMock()
+            repo2.name = "repo2"
+            mock_repo.return_value.list_repositories.return_value = [repo1, repo2]
+
+            # Filter to repo1 only: 2 configs * 1 repo = 2 steps
+            count = session.get_extraction_step_count(repo_name="repo1")
+
+            assert count == 2
+
+
+class TestPipelineSessionFileTypesEdgeCases:
+    """Tests for get_file_types edge cases."""
+
+    def test_get_file_types_with_has_to_dict(self):
+        """Should use HasToDict protocol."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+            patch("deriva.services.session.config") as mock_config,
+        ):
+            from deriva.common.types import HasToDict
+
+            session = PipelineSession(auto_connect=True)
+
+            # Create object implementing HasToDict
+            class MockFileType(HasToDict):
+                def to_dict(self):
+                    return {"extension": ".py", "type": "source"}
+
+            mock_config.get_file_types.return_value = [MockFileType()]
+
+            result = session.get_file_types()
+
+            assert len(result) == 1
+            assert result[0]["extension"] == ".py"
+
+    def test_get_file_types_fallback_to_str(self):
+        """Should fallback to string conversion."""
+        with (
+            patch("deriva.services.session.get_connection"),
+            patch("deriva.services.session.GraphManager"),
+            patch("deriva.services.session.ArchimateManager"),
+            patch("deriva.services.session.RepoManager"),
+            patch("deriva.services.session.Neo4jConnection"),
+            patch("deriva.services.session.config") as mock_config,
+        ):
+            session = PipelineSession(auto_connect=True)
+
+            # Create basic object without to_dict or __dict__
+            mock_config.get_file_types.return_value = ["simple_value"]
+
+            result = session.get_file_types()
+
+            assert len(result) == 1
+            assert result[0]["value"] == "simple_value"

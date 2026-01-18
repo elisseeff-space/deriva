@@ -768,3 +768,938 @@ class TestRunExtractionStep:
         )
 
         assert any("Unknown node type" in str(e) for e in result["errors"])
+
+
+class TestRunExtractionWithRunLogger:
+    """Tests for run_extraction with run_logger."""
+
+    def test_logs_phase_start_and_complete(self):
+        """Should log phase start and completion."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = MagicMock()
+            graph_manager = MagicMock()
+            run_logger = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config = MagicMock()
+            mock_config.node_type = "Repository"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [mock_config]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = []
+
+                        run_extraction(engine, graph_manager, run_logger=run_logger)
+
+            run_logger.phase_start.assert_called_once()
+            run_logger.phase_complete.assert_called_once()
+
+    def test_logs_phase_error_on_failure(self):
+        """Should log phase error when errors occur."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = MagicMock()
+            graph_manager = MagicMock()
+            run_logger = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config = MagicMock()
+            mock_config.node_type = "UnknownType"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [mock_config]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = []
+
+                        run_extraction(engine, graph_manager, run_logger=run_logger)
+
+            run_logger.phase_error.assert_called_once()
+
+    def test_logs_step_start_and_complete(self):
+        """Should log step start and completion."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = MagicMock()
+            graph_manager = MagicMock()
+            run_logger = MagicMock()
+            step_ctx = MagicMock()
+            run_logger.step_start.return_value = step_ctx
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config = MagicMock()
+            mock_config.node_type = "Repository"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [mock_config]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = []
+
+                        run_extraction(engine, graph_manager, run_logger=run_logger)
+
+            run_logger.step_start.assert_called()
+            step_ctx.complete.assert_called()
+
+
+class TestRunExtractionWithProgressReporter:
+    """Tests for run_extraction with progress reporter."""
+
+    def test_calls_progress_methods(self):
+        """Should call progress reporter methods."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = MagicMock()
+            graph_manager = MagicMock()
+            progress = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config = MagicMock()
+            mock_config.node_type = "Repository"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [mock_config]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = []
+
+                        run_extraction(engine, graph_manager, progress=progress)
+
+            progress.start_phase.assert_called_once()
+            progress.complete_phase.assert_called_once()
+
+    def test_logs_step_progress(self):
+        """Should log step start and completion via progress."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = MagicMock()
+            graph_manager = MagicMock()
+            progress = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config = MagicMock()
+            mock_config.node_type = "Repository"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [mock_config]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = []
+
+                        run_extraction(engine, graph_manager, progress=progress)
+
+            progress.start_step.assert_called()
+            progress.complete_step.assert_called()
+
+
+class TestRunExtractionVerbose:
+    """Tests for run_extraction with verbose output."""
+
+    def test_prints_repository_name(self, capsys):
+        """Should print repository name in verbose mode."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = MagicMock()
+            graph_manager = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "verbose_test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config = MagicMock()
+            mock_config.node_type = "Repository"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [mock_config]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = []
+
+                        run_extraction(engine, graph_manager, verbose=True)
+
+            captured = capsys.readouterr()
+            assert "verbose_test_repo" in captured.out
+
+    def test_prints_extraction_step(self, capsys):
+        """Should print extraction step name in verbose mode."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = MagicMock()
+            graph_manager = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config = MagicMock()
+            mock_config.node_type = "Repository"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [mock_config]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = []
+
+                        run_extraction(engine, graph_manager, verbose=True)
+
+            captured = capsys.readouterr()
+            assert "Extracting:" in captured.out or "Repository" in captured.out
+
+
+class TestRunExtractionConfigVersions:
+    """Tests for run_extraction with config_versions."""
+
+    def test_uses_versioned_configs(self):
+        """Should use versioned config lookup when provided."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = MagicMock()
+            graph_manager = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config = MagicMock()
+            mock_config.node_type = "Repository"
+
+            config_versions = {
+                "extraction": {
+                    "Repository": 2,
+                    "File": 3,
+                }
+            }
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs_by_version") as mock_version:
+                    mock_version.return_value = [mock_config]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = []
+
+                        run_extraction(engine, graph_manager, config_versions=config_versions)
+
+            mock_version.assert_called_once()
+
+
+class TestRunExtractionClassifyOnlyPhase:
+    """Tests for run_extraction classify-only mode."""
+
+    def test_classify_only_skips_parse(self, capsys):
+        """Should skip parse phase when phases=['classify']."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "main.py").write_text("def main(): pass")
+
+            engine = MagicMock()
+            graph_manager = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config = MagicMock()
+            mock_config.node_type = "Repository"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [mock_config]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = [
+                            MagicMock(extension=".py", file_type="source", subtype="python")
+                        ]
+
+                        result = run_extraction(engine, graph_manager, phases=["classify"], verbose=True)
+
+            captured = capsys.readouterr()
+            assert "Skipping parse phase" in captured.out
+            assert result["stats"]["steps_completed"] >= 1
+
+    def test_classify_counts_files(self):
+        """Should track classification stats."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "main.py").write_text("def main(): pass")
+            (Path(tmpdir) / "config.xyz").write_text("unknown")
+
+            engine = MagicMock()
+            graph_manager = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [MagicMock(node_type="Repository")]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = [
+                            MagicMock(extension=".py", file_type="source", subtype="python")
+                        ]
+
+                        result = run_extraction(engine, graph_manager, phases=["classify"])
+
+            assert "files_classified" in result["stats"]
+
+
+class TestRunExtractionIter:
+    """Tests for run_extraction_iter generator function."""
+
+    def test_yields_progress_updates(self):
+        """Should yield ProgressUpdate objects."""
+        from deriva.common.types import ProgressUpdate
+        from deriva.services.extraction import run_extraction_iter
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = MagicMock()
+            graph_manager = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config = MagicMock()
+            mock_config.node_type = "Repository"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [mock_config]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = []
+
+                        updates = list(run_extraction_iter(engine, graph_manager))
+
+            assert len(updates) >= 1
+            assert all(isinstance(u, ProgressUpdate) for u in updates)
+
+    def test_yields_error_when_no_repos(self):
+        """Should yield error when no repositories found."""
+        from deriva.services.extraction import run_extraction_iter
+
+        engine = MagicMock()
+        graph_manager = MagicMock()
+
+        with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+            mock_repo_mgr.return_value.list_repositories.return_value = []
+
+            updates = list(run_extraction_iter(engine, graph_manager))
+
+        assert len(updates) == 1
+        assert updates[0].status == "error"
+        assert "No repositories found" in updates[0].message
+
+    def test_yields_error_when_no_configs(self):
+        """Should yield error when no configs enabled."""
+        from deriva.services.extraction import run_extraction_iter
+
+        engine = MagicMock()
+        graph_manager = MagicMock()
+
+        mock_repo = MagicMock()
+        mock_repo.name = "test"
+        mock_repo.path = "/tmp"
+
+        with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+            mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+            with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                mock_cfg.return_value = []
+
+                updates = list(run_extraction_iter(engine, graph_manager))
+
+        assert len(updates) == 1
+        assert updates[0].status == "error"
+        assert "No extraction configs enabled" in updates[0].message
+
+    def test_yields_step_complete_for_each_step(self):
+        """Should yield step complete for each extraction step."""
+        from deriva.services.extraction import run_extraction_iter
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = MagicMock()
+            graph_manager = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config1 = MagicMock()
+            mock_config1.node_type = "Repository"
+            mock_config2 = MagicMock()
+            mock_config2.node_type = "Directory"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [mock_config1, mock_config2]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = []
+
+                        updates = list(run_extraction_iter(engine, graph_manager))
+
+            step_updates = [u for u in updates if u.step]
+            assert len(step_updates) >= 2
+
+    def test_yields_error_on_step_exception(self):
+        """Should yield error when step raises exception."""
+        from deriva.services.extraction import run_extraction_iter
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            engine = MagicMock()
+            graph_manager = MagicMock()
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+            mock_repo.path = tmpdir
+            mock_repo.url = "https://example.com/repo.git"
+            mock_repo.branch = "main"
+
+            mock_config = MagicMock()
+            mock_config.node_type = "Repository"
+
+            with patch("deriva.services.extraction.RepoManager") as mock_repo_mgr:
+                mock_repo_mgr.return_value.list_repositories.return_value = [mock_repo]
+
+                with patch("deriva.services.extraction.config.get_extraction_configs") as mock_cfg:
+                    mock_cfg.return_value = [mock_config]
+
+                    with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
+                        mock_ft.return_value = []
+
+                        with patch("deriva.services.extraction._run_extraction_step", side_effect=Exception("Test error")):
+                            updates = list(run_extraction_iter(engine, graph_manager))
+
+            error_updates = [u for u in updates if u.status == "error"]
+            assert len(error_updates) >= 1
+
+
+class TestExtractEdges:
+    """Tests for edge extraction functions."""
+
+    def test_extract_edges_unified(self):
+        """Should extract edges using unified batch extraction."""
+        from deriva.services.extraction import _extract_edges
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "main.py").write_text("import os\n\ndef hello(): pass")
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+
+            classified_files = [
+                {"path": "main.py", "file_type": "source", "subtype": "python"}
+            ]
+
+            graph_manager = MagicMock()
+            graph_manager.get_nodes_by_type.return_value = []
+            graph_manager.node_exists.return_value = True
+            graph_manager.add_edge.return_value = "edge_1"
+
+            with patch("deriva.modules.extraction.edges.extract_edges_batch") as mock_batch:
+                mock_batch.return_value = {
+                    "data": {"edges": []},
+                    "stats": {},
+                    "errors": [],
+                }
+
+                result = _extract_edges(mock_repo, Path(tmpdir), classified_files, graph_manager)
+
+            assert "edges_created" in result
+            mock_batch.assert_called_once()
+
+
+class TestExtractImports:
+    """Tests for _extract_imports function."""
+
+    def test_calls_extract_edges_with_import_types(self):
+        """Should call _extract_edges with IMPORTS and USES edge types."""
+        from deriva.services.extraction import _extract_imports
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_repo = MagicMock()
+            mock_repo.name = "test"
+
+            graph_manager = MagicMock()
+            graph_manager.get_nodes_by_type.return_value = []
+
+            with patch("deriva.services.extraction._extract_edges") as mock_extract:
+                mock_extract.return_value = {"edges_created": 0, "errors": []}
+
+                _extract_imports(mock_repo, Path(tmpdir), [], graph_manager)
+
+            mock_extract.assert_called_once()
+            # Check that edge_types parameter was passed
+            call_args = mock_extract.call_args
+            assert call_args[0][4] is not None  # edge_types set
+
+
+class TestExtractCalls:
+    """Tests for _extract_calls function."""
+
+    def test_calls_extract_edges_with_calls_type(self):
+        """Should call _extract_edges with CALLS edge type."""
+        from deriva.services.extraction import _extract_calls
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_repo = MagicMock()
+            mock_repo.name = "test"
+
+            graph_manager = MagicMock()
+            graph_manager.get_nodes_by_type.return_value = []
+
+            with patch("deriva.services.extraction._extract_edges") as mock_extract:
+                mock_extract.return_value = {"edges_created": 0, "errors": []}
+
+                _extract_calls(mock_repo, Path(tmpdir), [], graph_manager)
+
+            mock_extract.assert_called_once()
+
+
+class TestExtractDecorators:
+    """Tests for _extract_decorators function."""
+
+    def test_calls_extract_edges_with_decorated_by_type(self):
+        """Should call _extract_edges with DECORATED_BY edge type."""
+        from deriva.services.extraction import _extract_decorators
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_repo = MagicMock()
+            mock_repo.name = "test"
+
+            graph_manager = MagicMock()
+            graph_manager.get_nodes_by_type.return_value = []
+
+            with patch("deriva.services.extraction._extract_edges") as mock_extract:
+                mock_extract.return_value = {"edges_created": 0, "errors": []}
+
+                _extract_decorators(mock_repo, Path(tmpdir), [], graph_manager)
+
+            mock_extract.assert_called_once()
+
+
+class TestExtractReferences:
+    """Tests for _extract_references function."""
+
+    def test_calls_extract_edges_with_references_type(self):
+        """Should call _extract_edges with REFERENCES edge type."""
+        from deriva.services.extraction import _extract_references
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_repo = MagicMock()
+            mock_repo.name = "test"
+
+            graph_manager = MagicMock()
+            graph_manager.get_nodes_by_type.return_value = []
+
+            with patch("deriva.services.extraction._extract_edges") as mock_extract:
+                mock_extract.return_value = {"edges_created": 0, "errors": []}
+
+                _extract_references(mock_repo, Path(tmpdir), [], graph_manager)
+
+            mock_extract.assert_called_once()
+
+
+class TestExtractDirectoryClassification:
+    """Tests for _extract_directory_classification function."""
+
+    def test_queries_directories_from_graph(self):
+        """Should query directories from graph."""
+        from deriva.services.extraction import _extract_directory_classification
+
+        mock_cfg = MagicMock()
+        mock_cfg.instruction = "Classify directories"
+        mock_cfg.example = "{}"
+        mock_cfg.temperature = None
+        mock_cfg.max_tokens = None
+        mock_cfg.batch_size = 50
+
+        mock_repo = MagicMock()
+        mock_repo.name = "test_repo"
+
+        graph_manager = MagicMock()
+        graph_manager.query.return_value = []
+
+        result = _extract_directory_classification(mock_cfg, mock_repo, graph_manager, MagicMock())
+
+        graph_manager.query.assert_called_once()
+        assert result["nodes_created"] == 0
+
+    def test_handles_query_exception(self):
+        """Should handle query exception gracefully."""
+        from deriva.services.extraction import _extract_directory_classification
+
+        mock_cfg = MagicMock()
+        mock_cfg.instruction = "Classify"
+        mock_cfg.example = "{}"
+
+        mock_repo = MagicMock()
+        mock_repo.name = "test_repo"
+
+        graph_manager = MagicMock()
+        graph_manager.query.side_effect = Exception("DB error")
+
+        result = _extract_directory_classification(mock_cfg, mock_repo, graph_manager, MagicMock())
+
+        assert result["nodes_created"] == 0
+        assert "Failed to query directories" in result["errors"][0]
+
+    def test_classifies_directories_with_llm(self):
+        """Should classify directories using LLM."""
+        from deriva.services.extraction import _extract_directory_classification
+
+        mock_cfg = MagicMock()
+        mock_cfg.instruction = "Classify directories"
+        mock_cfg.example = "{}"
+        mock_cfg.temperature = None
+        mock_cfg.max_tokens = None
+        mock_cfg.batch_size = 50
+
+        mock_repo = MagicMock()
+        mock_repo.name = "test_repo"
+
+        graph_manager = MagicMock()
+        graph_manager.query.return_value = [
+            {"name": "src", "path": "src", "id": "dir_1"},
+            {"name": "tests", "path": "tests", "id": "dir_2"},
+        ]
+
+        with patch("deriva.services.extraction.classify_directories") as mock_classify:
+            mock_classify.return_value = {
+                "success": True,
+                "data": {
+                    "nodes": [
+                        {
+                            "id": "bc_1",
+                            "labels": ["Graph:BusinessConcept"],
+                            "properties": {
+                                "conceptName": "SourceCode",
+                                "conceptType": "entity",
+                                "description": "Source code directory",
+                            },
+                        }
+                    ],
+                    "edges": [],
+                },
+            }
+
+            result = _extract_directory_classification(mock_cfg, mock_repo, graph_manager, MagicMock())
+
+        assert result["nodes_created"] >= 1
+        graph_manager.add_node.assert_called()
+
+
+class TestExtractFileContentWithChunking:
+    """Tests for _extract_file_content with chunking."""
+
+    def test_chunks_large_content(self):
+        """Should chunk large content."""
+        # Create content large enough to require chunking
+        content = "def func():\n    pass\n" * 1000
+
+        def mock_extract_fn(_file_path, _content, _repo_name, _llm_fn, _config):
+            return {
+                "success": True,
+                "data": {
+                    "nodes": [{"properties": {"name": "func"}}],
+                    "edges": [],
+                },
+            }
+
+        with patch("deriva.services.extraction.should_chunk", return_value=True):
+            with patch("deriva.services.extraction.chunk_content") as mock_chunk:
+                from deriva.common.chunking import Chunk
+
+                mock_chunk.return_value = [
+                    Chunk(content="def func(): pass", index=0, total=2, start_line=1, end_line=10),
+                    Chunk(content="def func2(): pass", index=1, total=2, start_line=11, end_line=20),
+                ]
+
+                _nodes, _edges, _errors = _extract_file_content(
+                    file_path="large.py",
+                    content=content,
+                    repo_name="myrepo",
+                    extract_fn=mock_extract_fn,
+                    extraction_config={},
+                    llm_query_fn=MagicMock(),
+                )
+
+        assert mock_chunk.called
+
+    def test_passes_existing_concepts_to_extract_fn(self):
+        """Should pass existing_concepts when provided."""
+        content = "def func(): pass"
+        existing_concepts = [{"conceptName": "TestConcept", "conceptType": "entity"}]
+
+        extract_calls = []
+
+        def mock_extract_fn(file_path, content, repo_name, llm_fn, config, existing_concepts=None):
+            extract_calls.append(existing_concepts)
+            return {
+                "success": True,
+                "data": {"nodes": [], "edges": []},
+            }
+
+        nodes, edges, errors = _extract_file_content(
+            file_path="test.py",
+            content=content,
+            repo_name="myrepo",
+            extract_fn=mock_extract_fn,
+            extraction_config={},
+            llm_query_fn=MagicMock(),
+            existing_concepts=existing_concepts,
+        )
+
+        assert len(extract_calls) == 1
+        assert extract_calls[0] == existing_concepts
+
+
+class TestExtractLLMBasedBatching:
+    """Tests for _extract_llm_based with batching."""
+
+    def test_uses_batching_for_business_concepts(self):
+        """Should use batching when batch_size > 1 for BusinessConcept."""
+        import json as json_module
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create multiple files
+            (Path(tmpdir) / "file1.py").write_text("class A: pass")
+            (Path(tmpdir) / "file2.py").write_text("class B: pass")
+
+            mock_cfg = MagicMock()
+            mock_cfg.node_type = "BusinessConcept"
+            mock_cfg.input_sources = json_module.dumps({"files": [{"type": "source", "subtype": "python"}]})
+            mock_cfg.instruction = "Extract concepts"
+            mock_cfg.example = "{}"
+            mock_cfg.batch_size = 10  # Enable batching
+            mock_cfg.temperature = None
+            mock_cfg.max_tokens = None
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test"
+
+            classified_files = [
+                {"path": "file1.py", "file_type": "source", "subtype": "python"},
+                {"path": "file2.py", "file_type": "source", "subtype": "python"},
+            ]
+
+            graph_manager = MagicMock()
+
+            with patch("deriva.services.extraction.extraction.extract_business_concepts_multi") as mock_multi:
+                mock_multi.return_value = {
+                    "success": True,
+                    "data": {"nodes": [], "edges": []},
+                    "errors": [],
+                }
+
+                _extract_llm_based(
+                    node_type="BusinessConcept",
+                    cfg=mock_cfg,
+                    repo=mock_repo,
+                    repo_path=Path(tmpdir),
+                    classified_files=classified_files,
+                    graph_manager=graph_manager,
+                    llm_query_fn=MagicMock(),
+                    engine=MagicMock(),
+                )
+
+            mock_multi.assert_called()
+
+
+class TestExtractLLMBasedTreesitter:
+    """Tests for _extract_llm_based with tree-sitter extraction."""
+
+    def test_uses_treesitter_for_type_definition(self):
+        """Should use tree-sitter for TypeDefinition on Python files."""
+        import json as json_module
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "main.py").write_text("class MyClass:\n    pass")
+
+            mock_cfg = MagicMock()
+            mock_cfg.node_type = "TypeDefinition"
+            mock_cfg.input_sources = json_module.dumps({"files": [{"type": "source", "subtype": "python"}]})
+            mock_cfg.instruction = "Extract types"
+            mock_cfg.example = "{}"
+            mock_cfg.batch_size = 1
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test"
+
+            classified_files = [
+                {"path": "main.py", "file_type": "source", "subtype": "python"},
+            ]
+
+            graph_manager = MagicMock()
+
+            with patch("deriva.services.extraction.extraction.extract_types_from_source") as mock_ts:
+                mock_ts.return_value = {
+                    "success": True,
+                    "data": {
+                        "nodes": [{"properties": {"name": "MyClass", "type_category": "class"}}],
+                        "edges": [],
+                    },
+                }
+
+                result = _extract_llm_based(
+                    node_type="TypeDefinition",
+                    cfg=mock_cfg,
+                    repo=mock_repo,
+                    repo_path=Path(tmpdir),
+                    classified_files=classified_files,
+                    graph_manager=graph_manager,
+                    llm_query_fn=MagicMock(),
+                    engine=MagicMock(),
+                )
+
+            mock_ts.assert_called()
+            assert result["nodes_created"] >= 1
+
+    def test_uses_treesitter_for_method(self):
+        """Should use tree-sitter for Method on Python files."""
+        import json as json_module
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "main.py").write_text("def my_func():\n    pass")
+
+            mock_cfg = MagicMock()
+            mock_cfg.node_type = "Method"
+            mock_cfg.input_sources = json_module.dumps({"files": [{"type": "source", "subtype": "python"}]})
+            mock_cfg.instruction = "Extract methods"
+            mock_cfg.example = "{}"
+            mock_cfg.batch_size = 1
+
+            mock_repo = MagicMock()
+            mock_repo.name = "test"
+
+            classified_files = [
+                {"path": "main.py", "file_type": "source", "subtype": "python"},
+            ]
+
+            graph_manager = MagicMock()
+
+            with patch("deriva.services.extraction.extraction.extract_methods_from_source") as mock_ts:
+                mock_ts.return_value = {
+                    "success": True,
+                    "data": {
+                        "nodes": [{"properties": {"name": "my_func"}}],
+                        "edges": [],
+                    },
+                }
+
+                _extract_llm_based(
+                    node_type="Method",
+                    cfg=mock_cfg,
+                    repo=mock_repo,
+                    repo_path=Path(tmpdir),
+                    classified_files=classified_files,
+                    graph_manager=graph_manager,
+                    llm_query_fn=MagicMock(),
+                    engine=MagicMock(),
+                )
+
+            mock_ts.assert_called()
+
+
+class TestExtractEdgesCreateStubNodes:
+    """Tests for edge extraction creating stub nodes."""
+
+    def test_creates_stub_external_dependency_for_uses_edge(self):
+        """Should create stub ExternalDependency node for USES edges."""
+        from deriva.services.extraction import _extract_edges
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            mock_repo = MagicMock()
+            mock_repo.name = "test_repo"
+
+            classified_files = []
+
+            graph_manager = MagicMock()
+            graph_manager.get_nodes_by_type.return_value = []
+            graph_manager.node_exists.return_value = False  # Node doesn't exist
+            graph_manager.add_edge.return_value = "edge_1"
+
+            with patch("deriva.modules.extraction.edges.extract_edges_batch") as mock_batch:
+                mock_batch.return_value = {
+                    "data": {
+                        "edges": [
+                            {
+                                "from_node_id": "file_1",
+                                "to_node_id": "extdep::test_repo::requests",
+                                "relationship_type": "USES",
+                            }
+                        ]
+                    },
+                    "stats": {},
+                    "errors": [],
+                }
+
+                result = _extract_edges(mock_repo, Path(tmpdir), classified_files, graph_manager)
+
+            # Should have created a stub node
+            graph_manager.add_node.assert_called()
+            assert result["nodes_created"] >= 1
