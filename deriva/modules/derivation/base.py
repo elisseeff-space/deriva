@@ -16,7 +16,11 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, cast
 
-from deriva.adapters.graph.cache import EnrichmentCache, compute_graph_hash
+from deriva.adapters.graph.cache import (
+    EnrichmentCache,
+    EnrichmentCacheManager,
+    compute_graph_hash,
+)
 from deriva.adapters.llm import FailedResponse, ResponseType
 from deriva.common import current_timestamp, parse_json_array
 from deriva.common.types import PipelineResult
@@ -234,6 +238,8 @@ class DerivationResult:
 def get_enrichments_from_neo4j(
     graph_manager: "GraphManager",
     use_cache: bool = True,
+    cache_manager: EnrichmentCacheManager | None = None,
+    config_name: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """
     Get all graph enrichment data from Neo4j node properties.
@@ -246,13 +252,24 @@ def get_enrichments_from_neo4j(
 
     Args:
         graph_manager: Connected GraphManager instance
-        use_cache: If True, check cache first (default True)
+        use_cache: If True, check cache first (default True). Ignored if cache_manager provided.
+        cache_manager: Optional EnrichmentCacheManager for controlled caching.
+                      When provided, uses manager's cache control (nocache_configs, bench_hash).
+                      When None, falls back to module-level cache with use_cache flag.
+        config_name: Optional config name for per-config cache control (only used with cache_manager)
 
     Returns:
         Dict mapping node_id to enrichment data
     """
-    # Check cache first
-    if use_cache:
+    # Determine if we should use cache
+    if cache_manager is not None:
+        # Use managed cache with full control
+        if cached := cache_manager.get_enrichments(graph_manager, config_name):
+            logger.debug("Using managed cached enrichments for config: %s", config_name)
+            return cached
+        should_write_cache = cache_manager.should_use_cache(config_name)
+    elif use_cache:
+        # Fallback to legacy module-level cache
         try:
             graph_hash = compute_graph_hash(graph_manager)
             if cached := _enrichment_cache.get_enrichments(graph_hash):
@@ -262,11 +279,16 @@ def get_enrichments_from_neo4j(
                 return cached
         except Exception as e:
             logger.debug("Cache lookup failed, querying Neo4j: %s", e)
+        should_write_cache = True
+    else:
+        should_write_cache = False
 
     # Query Neo4j
+    # Note: Labels in Neo4j are stored as separate items (e.g., ['Graph', 'Directory']),
+    # not as concatenated strings (e.g., 'Graph:Directory').
     query = """
         MATCH (n)
-        WHERE any(label IN labels(n) WHERE label STARTS WITH 'Graph:')
+        WHERE 'Graph' IN labels(n)
           AND n.active = true
         RETURN n.id as node_id,
                n.pagerank as pagerank,
@@ -292,10 +314,13 @@ def get_enrichments_from_neo4j(
         }
 
         # Cache the results
-        if use_cache:
+        if should_write_cache:
             try:
-                graph_hash = compute_graph_hash(graph_manager)
-                _enrichment_cache.set_enrichments(graph_hash, enrichments)
+                if cache_manager is not None:
+                    cache_manager.set_enrichments(graph_manager, enrichments, config_name)
+                else:
+                    graph_hash = compute_graph_hash(graph_manager)
+                    _enrichment_cache.set_enrichments(graph_hash, enrichments)
             except Exception as e:
                 logger.debug("Failed to cache enrichments: %s", e)
 
@@ -800,6 +825,13 @@ def derive_community_relationships(
 
                 pair_key = (new_id, target_id, rule.rel_type)
                 if pair_key not in created_pairs:
+                    # For Composition, check if reverse relationship would create a cycle
+                    if rule.rel_type == "Composition":
+                        reverse_key = (target_id, new_id, "Composition")
+                        if reverse_key in created_pairs:
+                            # Skip: creating this would form a bidirectional cycle
+                            continue
+
                     created_pairs.add(pair_key)
                     relationships.append(
                         {
@@ -824,6 +856,13 @@ def derive_community_relationships(
 
                 pair_key = (source_id, new_id, rule.rel_type)
                 if pair_key not in created_pairs:
+                    # For Composition, check if reverse relationship would create a cycle
+                    if rule.rel_type == "Composition":
+                        reverse_key = (new_id, source_id, "Composition")
+                        if reverse_key in created_pairs:
+                            # Skip: creating this would form a bidirectional cycle
+                            continue
+
                     created_pairs.add(pair_key)
                     relationships.append(
                         {
@@ -938,6 +977,178 @@ def derive_neighbor_relationships(
             continue
 
     logger.debug("Graph neighbor derivation: %d relationships", len(relationships))
+    return relationships
+
+
+# =============================================================================
+# Edge-type to ArchiMate relationship mapping
+# =============================================================================
+EDGE_RELATIONSHIP_MAP: dict[str, dict[str, tuple[str, float]]] = {
+    # Graph edge type -> {target element type -> (ArchiMate relationship, confidence)}
+    "CALLS": {
+        "ApplicationService": ("Serving", 0.92),
+        "ApplicationInterface": ("Flow", 0.90),
+        "ApplicationComponent": ("Serving", 0.88),
+    },
+    "IMPORTS": {
+        "DataObject": ("Access", 0.90),
+        "ApplicationComponent": ("Access", 0.88),
+        "TechnologyService": ("Access", 0.85),
+    },
+    "USES": {
+        "TechnologyService": ("Serving", 0.93),
+        "SystemSoftware": ("Serving", 0.91),
+        "Node": ("Serving", 0.88),
+    },
+}
+
+
+def derive_edge_relationships(
+    new_elements: list[dict[str, Any]],
+    existing_elements: list[dict[str, Any]],
+    graph_manager: "GraphManager",
+    element_type: str,
+    outbound_rules: list["RelationshipRule"],
+    inbound_rules: list["RelationshipRule"],
+) -> list[dict[str, Any]]:
+    """
+    Derive relationships by walking specific edge types (CALLS, IMPORTS, USES).
+
+    This is Tier 1.5 of the graph-first relationship derivation approach.
+    It provides higher confidence than generic neighbor relationships because
+    it uses explicit code dependency information.
+
+    Edge type mapping:
+    - CALLS edges -> Serving/Flow relationships (for service dependencies)
+    - IMPORTS edges -> Access relationships (for data/module dependencies)
+    - USES edges -> Serving relationships (for technology dependencies)
+
+    Args:
+        new_elements: Elements just created in this batch
+        existing_elements: Elements from previous derivation steps
+        graph_manager: GraphManager for querying graph structure
+        element_type: The ArchiMate element type just created
+        outbound_rules: Rules for relationships FROM this type
+        inbound_rules: Rules for relationships TO this type
+
+    Returns:
+        List of edge-based relationship dicts with confidence 0.85-0.95
+    """
+    relationships = []
+    created_pairs: set[tuple[str, str, str]] = set()
+
+    # Build lookup: source_id -> element for existing elements
+    existing_by_source: dict[str, dict[str, Any]] = {}
+    for elem in existing_elements:
+        source_id = elem.get("properties", {}).get("source")
+        if source_id:
+            existing_by_source[source_id] = elem
+
+    # Determine which edge types to query based on element type
+    edge_types_to_query: list[str] = []
+    if element_type in ("ApplicationService", "ApplicationInterface", "ApplicationComponent"):
+        edge_types_to_query.append("CALLS")
+    if element_type in ("DataObject", "ApplicationComponent"):
+        edge_types_to_query.append("IMPORTS")
+    if element_type in ("TechnologyService", "SystemSoftware", "Node"):
+        edge_types_to_query.append("USES")
+
+    if not edge_types_to_query:
+        return relationships
+
+    for new_elem in new_elements:
+        new_id = new_elem.get("identifier", "")
+        source_id = new_elem.get("properties", {}).get("source")
+
+        if not new_id or not source_id:
+            continue
+
+        for edge_type in edge_types_to_query:
+            try:
+                # Query graph for nodes connected via specific edge type
+                # Check both directions: source->target and target->source
+                connected_nodes = graph_manager.query(
+                    f"""
+                    MATCH (src)-[r:`Graph:{edge_type}`]->(target)
+                    WHERE src.id = $source_id AND target.active = true
+                    RETURN DISTINCT target.id as connected_id, 'outbound' as direction
+                    UNION
+                    MATCH (src)<-[r:`Graph:{edge_type}`]-(source_node)
+                    WHERE src.id = $source_id AND source_node.active = true
+                    RETURN DISTINCT source_node.id as connected_id, 'inbound' as direction
+                    """,
+                    {"source_id": source_id},
+                )
+
+                for conn in connected_nodes:
+                    connected_id = conn.get("connected_id")
+                    direction = conn.get("direction")
+
+                    if not connected_id:
+                        continue
+
+                    existing = existing_by_source.get(connected_id)
+                    if not existing:
+                        continue
+
+                    existing_elem_id = existing.get("identifier", "")
+                    existing_type = existing.get("element_type", "")
+
+                    # Look up relationship mapping for this edge type and target type
+                    edge_mapping = EDGE_RELATIONSHIP_MAP.get(edge_type, {})
+                    if existing_type not in edge_mapping:
+                        continue
+
+                    rel_type, confidence = edge_mapping[existing_type]
+
+                    # Verify this relationship type is allowed by the rules
+                    valid_outbound = any(
+                        r.target_type == existing_type and r.rel_type == rel_type
+                        for r in outbound_rules
+                    )
+                    valid_inbound = any(
+                        r.target_type == existing_type and r.rel_type == rel_type
+                        for r in inbound_rules
+                    )
+
+                    if direction == "outbound" and valid_outbound:
+                        pair_key = (new_id, existing_elem_id, rel_type)
+                        if pair_key not in created_pairs:
+                            created_pairs.add(pair_key)
+                            relationships.append(
+                                {
+                                    "source": new_id,
+                                    "target": existing_elem_id,
+                                    "relationship_type": rel_type,
+                                    "confidence": confidence,
+                                    "derived_from": f"{edge_type.lower()}_edge",
+                                }
+                            )
+                    elif direction == "inbound" and valid_inbound:
+                        pair_key = (existing_elem_id, new_id, rel_type)
+                        if pair_key not in created_pairs:
+                            created_pairs.add(pair_key)
+                            relationships.append(
+                                {
+                                    "source": existing_elem_id,
+                                    "target": new_id,
+                                    "relationship_type": rel_type,
+                                    "confidence": confidence,
+                                    "derived_from": f"{edge_type.lower()}_edge",
+                                }
+                            )
+
+            except Exception as e:
+                logger.warning(
+                    "Error querying %s edges for %s: %s", edge_type, source_id, e
+                )
+                continue
+
+    logger.debug(
+        "Edge-type derivation (%s): %d relationships",
+        ", ".join(edge_types_to_query),
+        len(relationships),
+    )
     return relationships
 
 
@@ -1708,14 +1919,13 @@ def build_element(
         "derived_at": current_timestamp(),
     }
 
-    # Add enrichment data if available (for graph-aware relationship derivation)
+    # Add enrichment data if available (for graph-aware relationship derivation and stability analysis)
     source_id = derived.get("source")
     if candidate_enrichments and source_id:
         enrichment = candidate_enrichments.get(source_id, {})
-        if "pagerank" in enrichment:
-            properties["source_pagerank"] = enrichment["pagerank"]
-        if "louvain_community" in enrichment:
-            properties["source_community"] = enrichment["louvain_community"]
+        for key in ["pagerank", "louvain_community", "kcore_level", "is_articulation_point", "in_degree", "out_degree"]:
+            if key in enrichment:
+                properties[f"source_{key}"] = enrichment[key]
 
     return {
         "success": True,
@@ -2041,6 +2251,7 @@ def derive_batch_relationships(
     # -------------------------------------------------------------------------
     # TIER 1b: Graph neighbor relationships (direct graph connections)
     # -------------------------------------------------------------------------
+    neighbor_rels = []
     if graph_manager:
         neighbor_rels = derive_neighbor_relationships(
             new_elements=new_elements,
@@ -2050,6 +2261,25 @@ def derive_batch_relationships(
             inbound_rules=inbound_rules,
         )
         for rel in neighbor_rels:
+            key = (rel["source"], rel["target"], rel["relationship_type"])
+            if key not in created_pairs:
+                all_relationships.append(rel)
+                created_pairs.add(key)
+
+    # -------------------------------------------------------------------------
+    # TIER 1.5: Edge-type relationships (CALLS, IMPORTS, USES)
+    # -------------------------------------------------------------------------
+    edge_rels = []
+    if graph_manager:
+        edge_rels = derive_edge_relationships(
+            new_elements=new_elements,
+            existing_elements=filtered_existing,
+            graph_manager=graph_manager,
+            element_type=element_type,
+            outbound_rules=outbound_rules,
+            inbound_rules=inbound_rules,
+        )
+        for rel in edge_rels:
             key = (rel["source"], rel["target"], rel["relationship_type"])
             if key not in created_pairs:
                 all_relationships.append(rel)
@@ -2074,10 +2304,11 @@ def derive_batch_relationships(
     # Log deterministic results
     logger.info(
         "Deterministic derivation: %d relationships "
-        "(%d community, %d neighbor, %d name/file) for %s",
+        "(%d community, %d neighbor, %d edge, %d name/file) for %s",
         len(all_relationships),
         len(community_rels),
-        len(neighbor_rels) if graph_manager else 0,
+        len(neighbor_rels),
+        len(edge_rels),
         len(deterministic_rels),
         element_type,
     )

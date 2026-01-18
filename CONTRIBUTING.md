@@ -109,6 +109,7 @@ deriva/
         ├── repository.py     - Repository node extraction
         ├── directory.py      - Directory node extraction
         ├── file.py           - File node extraction (with type/subtype)
+        ├── edges.py          - Unified edge extraction (IMPORTS, CALLS, REFERENCES, etc.)
         ├── type_definition.py - Classes/functions (AST for Python, LLM for others)
         ├── method.py         - Methods within type definitions
         ├── business_concept.py - Domain concepts (LLM)
@@ -119,6 +120,7 @@ deriva/
         └── input_sources.py  - Input source filtering
     └── derivation/
         ├── base.py           - Shared utilities (prompts, parsing, graph filtering)
+        ├── element_base.py   - HybridDerivation base class for all element modules
         ├── application_component.py - ApplicationComponent derivation
         ├── application_interface.py - ApplicationInterface derivation
         ├── application_service.py   - ApplicationService derivation
@@ -1130,23 +1132,58 @@ def extract_{node_type}s(...) -> Dict[str, Any]:
 
 ```python
 # Each LLM module exports:
-def build_extraction_prompt(files: List[Dict], config: Dict) -> str
+def build_system_prompt(instruction: str) -> str  # Static role/guidelines (cached)
+def build_user_prompt(file_content: str, file_path: str, example: str, ...) -> str  # Dynamic content
+def build_extraction_prompt(...) -> str  # Legacy combined format for backward compatibility
 def parse_llm_response(response: str) -> List[Dict]
 {NODE_TYPE}_SCHEMA: Dict  # JSON schema for validation
+{NODE_TYPE}_MULTI_SCHEMA: Dict  # Schema for multi-file batch extraction
 
-# Batch extraction for multiple files
-def extract_{type}s_batch(
-    files: List[Dict],
-    config: Dict,
-    llm_response: str  # LLM called by app.py, not module
-) -> Dict[str, Any]
+# Single file extraction
+def extract_{type}s(file_path, content, repo_name, llm_query_fn, config) -> Dict[str, Any]
+
+# Multi-file batch extraction (for token efficiency)
+def extract_{type}s_multi(files: List[Dict], repo_name, llm_query_fn, config) -> Dict[str, Any]
 ```
+
+**Token Efficiency Patterns:**
+
+- **System/User Prompt Separation**: `build_system_prompt()` returns static instructions (role, guidelines), `build_user_prompt()` returns dynamic file-specific content. This allows system prompts to be cached by providers.
+- **Compact JSON**: Use `json.dumps(..., separators=(",", ":"))` for context data to minimize tokens.
+- **Multi-file Batching**: The `batch_size` config column (in `extraction_config` table) controls how many files are processed per LLM call. When `batch_size > 1`, the service uses `extract_{type}s_multi()` for batched extraction.
 
 **Rules for LLM modules:**
 - Module builds prompt, app.py calls LLM, module parses response
 - Never call LLM directly from module (purity)
 - Include JSON schema for response validation
 - Handle malformed LLM responses gracefully (return errors, don't raise)
+
+#### Edge Extraction (`edges.py`)
+
+Unified Tree-sitter based relationship extraction that parses each file once and extracts all edge types:
+
+| Edge Type | Direction | Purpose |
+|-----------|-----------|---------|
+| `IMPORTS` | File → File | Internal module imports |
+| `USES` | File → ExternalDependency | External package imports |
+| `CALLS` | Method → Method | Function/method calls |
+| `DECORATED_BY` | Method → Method | Decorator relationships |
+| `REFERENCES` | Method → TypeDefinition | Type annotation references |
+
+```python
+from deriva.modules.extraction.edges import extract_edges_batch, EdgeType
+
+# Extract all edge types (default)
+result = extract_edges_batch(files, repo_name, repo_path)
+
+# Extract specific edge types only
+result = extract_edges_batch(
+    files, repo_name, repo_path,
+    edge_types={EdgeType.IMPORTS, EdgeType.CALLS}
+)
+```
+
+**Note:** This is 4x more efficient than running separate extraction passes since each file is parsed only once.
 
 #### `input_sources.py`
 **Goal:** Parse and filter input source specifications for extraction steps.
@@ -1174,7 +1211,31 @@ Derivation uses a hybrid approach combining graph algorithms with LLM:
 
 **Goal:** Transform Graph nodes into ArchiMate elements across Business, Application, and Technology layers.
 
-#### Base Module (`base.py`)
+#### Base Classes (`element_base.py`)
+
+All derivation modules inherit from `HybridDerivation`, which combines pattern-based and graph-based filtering:
+
+```python
+from deriva.modules.derivation.element_base import HybridDerivation
+
+class ApplicationComponentDerivation(HybridDerivation):
+    ELEMENT_TYPE = "ApplicationComponent"
+    OUTBOUND_RULES = [...]  # Relationships FROM this element
+    INBOUND_RULES = [...]   # Relationships TO this element
+
+    # Optional: customize filtering behavior via class constants
+    USE_COMMUNITY_ROOTS = True      # Prioritize community root nodes
+    MIN_PAGERANK = 0.001            # Filter low-importance nodes
+    COMMUNITY_ROOT_RATIO = 0.6      # 60% community roots in results
+```
+
+**Class Hierarchy:**
+- `ElementDerivationBase` - Abstract base with common `generate()` flow
+- `PatternBasedDerivation(ElementDerivationBase)` - Adds include/exclude pattern matching
+- `HybridFilteringMixin` - Adds graph-based filtering (PageRank, community roots)
+- `HybridDerivation(PatternBasedDerivation, HybridFilteringMixin)` - Recommended base class
+
+#### Utilities (`base.py`)
 
 Provides shared utilities for all derivation modules:
 

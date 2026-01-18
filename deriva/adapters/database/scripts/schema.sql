@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS extraction_config (
     extraction_method VARCHAR DEFAULT 'llm',  -- 'llm', 'ast', 'structural'
     temperature FLOAT,
     max_tokens INTEGER,
+    batch_size INTEGER DEFAULT 1,  -- Number of files to batch per LLM call (1 = no batching)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(node_type, version)
 );

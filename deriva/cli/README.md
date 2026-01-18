@@ -33,6 +33,9 @@ deriva config disable derivation Technology
 deriva config update extraction BusinessConcept \
     --instruction "Extract business concepts..." \
     --example '{"concepts": [...]}'
+
+# Update extraction batch size (files per LLM call)
+deriva config update extraction BusinessConcept --batch-size 5
 ```
 
 ### Pipeline Execution
@@ -80,6 +83,13 @@ deriva benchmark run \
     --repos flask_invoice_generator \
     --models azure-gpt4mini,ollama-llama \
     -n 3 -v
+
+# Run benchmark without enrichment caching
+deriva benchmark run --repos my-repo -n 3 --no-enrichment-cache
+
+# Skip enrichment cache for specific configs
+deriva benchmark run --repos my-repo -n 3 \
+    --nocache-enrichment-configs ApplicationComponent,ApplicationService
 
 # List sessions and analyze
 deriva benchmark list

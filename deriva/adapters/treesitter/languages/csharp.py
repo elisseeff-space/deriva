@@ -7,9 +7,164 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import tree_sitter
 
-from ..models import ExtractedImport, ExtractedMethod, ExtractedType
-from .base import LanguageExtractor
+from ..models import (
+    ExtractedCall,
+    ExtractedImport,
+    ExtractedMethod,
+    ExtractedType,
+    FilterConstants,
+)
 from . import register_extractor
+from .base import LanguageExtractor
+
+# =============================================================================
+# C# Filter Constants
+# =============================================================================
+
+# .NET standard library namespaces
+CSHARP_STDLIB = {
+    # Core System namespaces
+    "System", "System.Collections", "System.Collections.Generic",
+    "System.Collections.Concurrent", "System.Collections.Specialized",
+    "System.ComponentModel", "System.Configuration", "System.Data",
+    "System.Diagnostics", "System.Drawing", "System.Dynamic",
+    "System.Globalization", "System.IO", "System.Linq", "System.Net",
+    "System.Net.Http", "System.Numerics", "System.Reflection",
+    "System.Resources", "System.Runtime", "System.Runtime.CompilerServices",
+    "System.Runtime.InteropServices", "System.Security", "System.Text",
+    "System.Text.Json", "System.Text.RegularExpressions", "System.Threading",
+    "System.Threading.Tasks", "System.Timers", "System.Xml",
+    # Microsoft namespaces
+    "Microsoft.Extensions", "Microsoft.Extensions.Configuration",
+    "Microsoft.Extensions.DependencyInjection", "Microsoft.Extensions.Logging",
+    "Microsoft.Extensions.Options", "Microsoft.AspNetCore",
+    "Microsoft.EntityFrameworkCore", "Microsoft.CSharp",
+    # Common third-party (often treated as standard)
+    "Newtonsoft.Json",
+}
+
+# C# built-in methods and common methods to skip
+CSHARP_BUILTINS = {
+    # Object methods
+    "ToString", "GetHashCode", "Equals", "GetType", "MemberwiseClone",
+    "ReferenceEquals",
+    # Common methods
+    "Add", "Remove", "Contains", "Clear", "Count", "IndexOf", "Insert",
+    "RemoveAt", "ToList", "ToArray", "ToDictionary", "ToHashSet",
+    # String methods
+    "Length", "Substring", "IndexOf", "LastIndexOf", "StartsWith", "EndsWith",
+    "Trim", "TrimStart", "TrimEnd", "ToLower", "ToUpper", "Split", "Join",
+    "Replace", "Contains", "IsNullOrEmpty", "IsNullOrWhiteSpace", "Format",
+    "Concat", "Compare", "CompareTo", "PadLeft", "PadRight",
+    # LINQ methods
+    "Where", "Select", "SelectMany", "OrderBy", "OrderByDescending",
+    "ThenBy", "ThenByDescending", "GroupBy", "Join", "GroupJoin",
+    "First", "FirstOrDefault", "Last", "LastOrDefault", "Single",
+    "SingleOrDefault", "Any", "All", "Count", "Sum", "Average", "Min", "Max",
+    "Take", "Skip", "TakeWhile", "SkipWhile", "Distinct", "Union",
+    "Intersect", "Except", "Concat", "Aggregate", "Zip", "ToLookup",
+    # Async methods
+    "GetAwaiter", "GetResult", "ConfigureAwait", "ContinueWith",
+    "WhenAll", "WhenAny", "Run", "FromResult", "Delay",
+    # IDisposable
+    "Dispose", "Close",
+    # Events
+    "Invoke", "BeginInvoke", "EndInvoke",
+    # Common static methods
+    "Parse", "TryParse", "Create", "CreateInstance", "GetInstance",
+    "Empty", "Default",
+    # Console/Debug
+    "WriteLine", "Write", "ReadLine", "Read", "Log", "Debug", "Trace",
+}
+
+# C# attributes (decorators)
+CSHARP_DECORATOR_BUILTINS = {
+    # Core attributes
+    "Serializable", "NonSerialized", "Obsolete", "Conditional",
+    "AttributeUsage", "Flags", "CLSCompliant", "ComVisible",
+    # Compiler attributes
+    "CallerMemberName", "CallerFilePath", "CallerLineNumber",
+    "MethodImpl", "CompilerGenerated", "DebuggerStepThrough",
+    "DebuggerDisplay", "DebuggerBrowsable", "DebuggerHidden",
+    # Data annotations
+    "Required", "StringLength", "MaxLength", "MinLength", "Range",
+    "RegularExpression", "Compare", "EmailAddress", "Phone", "Url",
+    "CreditCard", "DataType", "Display", "DisplayName", "DisplayFormat",
+    "Key", "Editable", "ScaffoldColumn", "UIHint",
+    # Entity Framework
+    "Table", "Column", "Key", "ForeignKey", "InverseProperty",
+    "NotMapped", "DatabaseGenerated", "Index", "MaxLength",
+    "Required", "ConcurrencyCheck", "Timestamp",
+    # ASP.NET Core
+    "Route", "HttpGet", "HttpPost", "HttpPut", "HttpDelete", "HttpPatch",
+    "FromBody", "FromQuery", "FromRoute", "FromHeader", "FromForm",
+    "ApiController", "Controller", "Area", "Authorize", "AllowAnonymous",
+    "ValidateAntiForgeryToken", "Produces", "Consumes", "ProducesResponseType",
+    # Dependency Injection
+    "Inject", "Service", "Singleton", "Scoped", "Transient",
+    # Testing
+    "TestClass", "TestMethod", "TestInitialize", "TestCleanup",
+    "Fact", "Theory", "InlineData", "ClassData", "MemberData",
+    "SetUp", "TearDown", "Test", "TestCase", "TestFixture",
+    # JSON
+    "JsonProperty", "JsonIgnore", "JsonConverter", "JsonPropertyName",
+    "JsonInclude", "JsonExtensionData",
+    # XML
+    "XmlRoot", "XmlElement", "XmlAttribute", "XmlIgnore", "XmlArray",
+}
+
+# C# built-in types
+CSHARP_BUILTIN_TYPES = {
+    # Value types
+    "int", "long", "short", "byte", "sbyte", "uint", "ulong", "ushort",
+    "float", "double", "decimal", "bool", "char", "void",
+    # Reference types
+    "string", "object", "dynamic",
+    # Nullable
+    "Nullable",
+    # System types
+    "Int32", "Int64", "Int16", "Byte", "SByte", "UInt32", "UInt64", "UInt16",
+    "Single", "Double", "Decimal", "Boolean", "Char", "String", "Object",
+    "Void", "Guid", "DateTime", "DateTimeOffset", "TimeSpan", "DateOnly",
+    "TimeOnly",
+    # Collections
+    "List", "Dictionary", "HashSet", "Queue", "Stack", "LinkedList",
+    "SortedList", "SortedDictionary", "SortedSet", "ConcurrentDictionary",
+    "ConcurrentQueue", "ConcurrentStack", "ConcurrentBag",
+    "IEnumerable", "ICollection", "IList", "IDictionary", "ISet",
+    "IReadOnlyList", "IReadOnlyCollection", "IReadOnlyDictionary",
+    "Collection", "ReadOnlyCollection", "ObservableCollection",
+    # Arrays
+    "Array",
+    # Task types
+    "Task", "ValueTask", "IAsyncEnumerable", "IAsyncEnumerator",
+    # Func/Action
+    "Func", "Action", "Predicate", "Comparison", "Converter",
+    "EventHandler", "Delegate",
+    # Exceptions
+    "Exception", "ArgumentException", "ArgumentNullException",
+    "ArgumentOutOfRangeException", "InvalidOperationException",
+    "NotImplementedException", "NotSupportedException", "NullReferenceException",
+    "IndexOutOfRangeException", "KeyNotFoundException", "FormatException",
+    # IO types
+    "Stream", "MemoryStream", "FileStream", "StreamReader", "StreamWriter",
+    "TextReader", "TextWriter", "BinaryReader", "BinaryWriter",
+    # Others
+    "StringBuilder", "Regex", "Match", "Group", "Capture",
+    "Type", "Attribute", "Enum",
+    # Generics
+    "T", "TKey", "TValue", "TResult", "TSource", "TElement",
+}
+
+CSHARP_GENERIC_CONTAINERS = {
+    "List", "Dictionary", "HashSet", "Queue", "Stack", "LinkedList",
+    "SortedList", "SortedDictionary", "SortedSet",
+    "IEnumerable", "ICollection", "IList", "IDictionary", "ISet",
+    "IReadOnlyList", "IReadOnlyCollection", "IReadOnlyDictionary",
+    "Task", "ValueTask", "Nullable",
+    "Func", "Action", "Predicate", "Lazy",
+    "IAsyncEnumerable", "IAsyncEnumerator",
+}
 
 
 class CSharpExtractor(LanguageExtractor):
@@ -18,6 +173,16 @@ class CSharpExtractor(LanguageExtractor):
     @property
     def language_name(self) -> str:
         return "csharp"
+
+    def get_filter_constants(self) -> FilterConstants:
+        """Return C#-specific filter constants."""
+        return FilterConstants(
+            stdlib_modules=CSHARP_STDLIB,
+            builtin_functions=CSHARP_BUILTINS,
+            builtin_decorators=CSHARP_DECORATOR_BUILTINS,
+            builtin_types=CSHARP_BUILTIN_TYPES,
+            generic_containers=CSHARP_GENERIC_CONTAINERS,
+        )
 
     def get_language(self) -> Any:
         """Return the tree-sitter C# language."""
@@ -93,6 +258,206 @@ class CSharpExtractor(LanguageExtractor):
             imports.append(self._extract_using(node, source))
 
         return imports
+
+    def extract_calls(
+        self, tree: tree_sitter.Tree, source: bytes
+    ) -> list[ExtractedCall]:
+        """Extract method and constructor calls from C# source code.
+
+        Walks through all type declarations (class, interface, struct, record)
+        and extracts calls made from methods and constructors.
+
+        Returns:
+            List of ExtractedCall objects representing method/constructor invocations.
+        """
+        calls: list[ExtractedCall] = []
+        root = tree.root_node
+
+        type_nodes = {
+            "class_declaration",
+            "interface_declaration",
+            "struct_declaration",
+            "record_declaration",
+            "record_struct_declaration",
+        }
+
+        for type_node in self.walk_tree(root, type_nodes):
+            class_name = self._get_type_name(type_node, source)
+            body = self.find_child_by_field(type_node, "body")
+            if not body:
+                body = self.find_child_by_type(type_node, "declaration_list")
+
+            if body:
+                for child in body.children:
+                    if child.type == "method_declaration":
+                        name_node = self.find_child_by_field(child, "name")
+                        method_name = (
+                            self.get_node_text(name_node, source) if name_node else ""
+                        )
+                        calls.extend(
+                            self._extract_calls_from_body(
+                                child, source, method_name, class_name
+                            )
+                        )
+                    elif child.type == "constructor_declaration":
+                        calls.extend(
+                            self._extract_calls_from_body(
+                                child, source, class_name, class_name
+                            )
+                        )
+
+        return calls
+
+    def _extract_calls_from_body(
+        self,
+        method_node: tree_sitter.Node,
+        source: bytes,
+        caller_name: str,
+        caller_class: str | None,
+    ) -> list[ExtractedCall]:
+        """Extract all calls from a method or constructor body."""
+        calls: list[ExtractedCall] = []
+
+        # Find the method body block
+        body = self.find_child_by_field(method_node, "body")
+        if not body:
+            return calls
+
+        # Walk the body looking for call expressions
+        call_types = {"invocation_expression", "object_creation_expression"}
+
+        for call_node in self.walk_tree(body, call_types):
+            call = self._extract_single_call(
+                call_node, source, caller_name, caller_class
+            )
+            if call:
+                calls.append(call)
+
+        return calls
+
+    def _extract_single_call(
+        self,
+        call_node: tree_sitter.Node,
+        source: bytes,
+        caller_name: str,
+        caller_class: str | None,
+    ) -> ExtractedCall | None:
+        """Extract a single call from an invocation or object creation expression."""
+        if call_node.type == "invocation_expression":
+            # Method call: obj.Method() or Method()
+            callee_name = self._get_invocation_name(call_node, source)
+            if not callee_name:
+                return None
+
+            # Try to determine the target class from member access
+            callee_class = self._get_invocation_target_class(call_node, source)
+
+            # Determine if this is a method call on an object
+            is_method_call = callee_class is not None
+
+            return ExtractedCall(
+                caller_name=caller_name,
+                caller_class=caller_class,
+                callee_name=callee_name,
+                callee_qualifier=callee_class,  # Object/class qualifier
+                line=self.get_line_start(call_node),
+                is_method_call=is_method_call,
+            )
+
+        elif call_node.type == "object_creation_expression":
+            # Constructor call: new ClassName()
+            type_node = self.find_child_by_field(call_node, "type")
+            if not type_node:
+                return None
+
+            type_name = self._get_type_name_from_node(type_node, source)
+            if not type_name:
+                return None
+
+            return ExtractedCall(
+                caller_name=caller_name,
+                caller_class=caller_class,
+                callee_name=type_name,
+                callee_qualifier=type_name,  # Constructor call uses type as qualifier
+                line=self.get_line_start(call_node),
+                is_method_call=True,  # Constructor calls are like method calls
+            )
+
+        return None
+
+    def _get_invocation_name(self, node: tree_sitter.Node, source: bytes) -> str | None:
+        """Get the method name from an invocation expression.
+
+        Handles:
+        - Simple calls: Method()
+        - Member access: obj.Method()
+        - Chained calls: obj.Method1().Method2()
+        """
+        func_node = self.find_child_by_field(node, "function")
+        if not func_node:
+            # Try first child
+            if node.children:
+                func_node = node.children[0]
+            else:
+                return None
+
+        if func_node.type == "member_access_expression":
+            # Get the method name (rightmost identifier)
+            name_node = self.find_child_by_field(func_node, "name")
+            if name_node:
+                return self.get_node_text(name_node, source)
+        elif func_node.type == "identifier":
+            return self.get_node_text(func_node, source)
+        elif func_node.type == "generic_name":
+            # Generic method: Method<T>()
+            name_node = self.find_child_by_type(func_node, "identifier")
+            if name_node:
+                return self.get_node_text(name_node, source)
+
+        return None
+
+    def _get_invocation_target_class(
+        self, node: tree_sitter.Node, source: bytes
+    ) -> str | None:
+        """Try to determine the target class from an invocation.
+
+        For member access like `obj.Method()`, returns the object/type name.
+        Returns None if it's a simple function call.
+        """
+        func_node = self.find_child_by_field(node, "function")
+        if not func_node:
+            return None
+
+        if func_node.type == "member_access_expression":
+            expr_node = self.find_child_by_field(func_node, "expression")
+            if expr_node:
+                if expr_node.type == "identifier":
+                    # Could be object name or class name (for static calls)
+                    return self.get_node_text(expr_node, source)
+                elif expr_node.type == "this_expression":
+                    return None  # Call on self
+                elif expr_node.type == "base_expression":
+                    return None  # Call on base class
+
+        return None
+
+    def _get_type_name_from_node(
+        self, type_node: tree_sitter.Node, source: bytes
+    ) -> str | None:
+        """Extract type name from a type node (for object creation)."""
+        if type_node.type == "identifier":
+            return self.get_node_text(type_node, source)
+        elif type_node.type == "qualified_name":
+            # Full namespace path - get the last part
+            parts = self.get_node_text(type_node, source).split(".")
+            return parts[-1] if parts else None
+        elif type_node.type == "generic_name":
+            # Generic type: List<T> - get base name
+            name_node = self.find_child_by_type(type_node, "identifier")
+            if name_node:
+                return self.get_node_text(name_node, source)
+
+        return None
 
     # =========================================================================
     # Private extraction helpers

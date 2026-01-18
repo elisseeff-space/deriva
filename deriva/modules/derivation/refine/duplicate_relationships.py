@@ -56,8 +56,12 @@ class DuplicateRelationshipsStep:
         )
 
         try:
-            # Find exact duplicates: same source, target, type
             ns = archimate_manager.namespace
+
+            # First, remove self-referential relationships (source == target)
+            self._remove_self_loops(archimate_manager, result)
+
+            # Find exact duplicates: same source, target, type
             duplicate_query = f"""
                 MATCH (a)-[r1]->(b), (a)-[r2]->(b)
                 WHERE any(lbl IN labels(a) WHERE lbl STARTS WITH '{ns}:')
@@ -189,3 +193,52 @@ class DuplicateRelationshipsStep:
                                 "reason": "redundant_relationship_pair",
                             }
                         )
+
+    def _remove_self_loops(
+        self,
+        archimate_manager: ArchimateManager,
+        result: RefineResult,
+    ) -> None:
+        """Remove self-referential relationships (where source == target).
+
+        Self-loops are invalid in ArchiMate models and should never exist.
+        This cleanup catches any that may have been created incorrectly.
+        """
+        ns = archimate_manager.namespace
+
+        self_loop_query = f"""
+            MATCH (a)-[r]->(a)
+            WHERE any(lbl IN labels(a) WHERE lbl STARTS WITH '{ns}:')
+              AND type(r) STARTS WITH '{ns}:'
+            RETURN r.identifier as rel_id,
+                   a.identifier as element_id,
+                   a.name as element_name,
+                   type(r) as rel_type
+        """
+
+        self_loops = archimate_manager.query(self_loop_query)
+
+        if not self_loops:
+            return
+
+        logger.info(f"Found {len(self_loops)} self-referential relationships to remove")
+
+        to_delete = []
+        for loop in self_loops:
+            to_delete.append(loop["rel_id"])
+            result.details.append(
+                {
+                    "action": "deleted",
+                    "deleted": loop["rel_id"],
+                    "element": loop["element_id"],
+                    "element_name": loop["element_name"],
+                    "rel_type": loop["rel_type"].split(":")[-1],
+                    "reason": "self_referential",
+                }
+            )
+
+        if to_delete:
+            deleted_count = archimate_manager.delete_relationships(to_delete)
+            result.relationships_deleted += deleted_count
+            result.issues_fixed += deleted_count
+            logger.info(f"Deleted {deleted_count} self-referential relationships")

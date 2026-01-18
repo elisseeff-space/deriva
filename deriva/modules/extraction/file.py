@@ -44,9 +44,10 @@ def build_file_node(file_metadata: dict[str, Any], repo_name: str) -> dict[str, 
         }
 
     # Build the node structure
+    # Use :: separator to avoid conflicts with repo names containing underscores
     path_value = str(file_metadata["path"])
     safe_path = path_value.replace("/", "_").replace("\\", "_")
-    node_id = f"file_{repo_name}_{safe_path}"
+    node_id = f"file::{repo_name}::{safe_path}"
 
     node_data = {
         "node_id": node_id,
@@ -188,7 +189,7 @@ def extract_files(
                 "stats": {"total_nodes": 0, "total_edges": 0},
             }
 
-        repo_id = f"repo_{repo_name}"
+        repo_id = f"repo::{repo_name}"
 
         # First pass: collect all file paths for test matching
         for file_path in repo_path_obj.rglob("*"):
@@ -240,7 +241,7 @@ def extract_files(
                     else:
                         parent_path = str(rel_path.parent).replace("\\", "/")
                         from_node_id = (
-                            f"dir_{repo_name}_{parent_path.replace('/', '_')}"
+                            f"dir::{repo_name}::{parent_path.replace('/', '_')}"
                         )
 
                     edge = {
@@ -259,7 +260,7 @@ def extract_files(
                         tested_path = _infer_tested_file(rel_path_str, file_paths_set)
                         if tested_path:
                             safe_tested = tested_path.replace("/", "_")
-                            tested_node_id = f"file_{repo_name}_{safe_tested}"
+                            tested_node_id = f"file::{repo_name}::{safe_tested}"
                             test_edge = {
                                 "edge_id": generate_edge_id(
                                     node_data["node_id"], tested_node_id, "TESTS"

@@ -219,10 +219,10 @@ def build_type_definition_node(
         snippet_lines = lines[start_line - 1 : end_line]
         code_snippet = "\n".join(snippet_lines)
 
-    # Generate unique node ID
+    # Generate unique node ID using :: separator to avoid repo name conflicts
     type_name_slug = type_data["typeName"].replace(" ", "_").replace("-", "_")
     file_path_slug = file_path.replace("/", "_").replace("\\", "_")
-    node_id = f"typedef_{repo_name}_{file_path_slug}_{type_name_slug}"
+    node_id = f"typedef::{repo_name}::{file_path_slug}::{type_name_slug}"
 
     # Build the node structure
     node_data = {
@@ -366,7 +366,7 @@ def extract_type_definitions(
         # Strip chunk suffix from file_path to get original file node ID
         original_path = strip_chunk_suffix(file_path)
         safe_path = original_path.replace("/", "_").replace("\\", "_")
-        file_node_id = f"file_{repo_name}_{safe_path}"
+        file_node_id = f"file::{repo_name}::{safe_path}"
 
         for type_data in parse_result["data"]:
             node_result = build_type_definition_node(
@@ -531,7 +531,7 @@ def extract_types_from_source(
         # Build file node ID for CONTAINS edges
         original_path = strip_chunk_suffix(file_path)
         safe_path = original_path.replace("/", "_").replace("\\", "_")
-        file_node_id = f"file_{repo_name}_{safe_path}"
+        file_node_id = f"file::{repo_name}::{safe_path}"
 
         for ext_type in extracted_types:
             node_data = _build_type_node_from_treesitter(
@@ -560,7 +560,7 @@ def extract_types_from_source(
                 base_slug = (
                     base_name.replace(" ", "_").replace("-", "_").replace(".", "_")
                 )
-                base_node_id = f"typedef_{repo_name}_{safe_path}_{base_slug}"
+                base_node_id = f"typedef::{repo_name}::{safe_path}::{base_slug}"
                 inherits_edge = {
                     "edge_id": generate_edge_id(
                         node_data["node_id"], base_node_id, "INHERITS"
@@ -632,10 +632,10 @@ def _build_type_node_from_treesitter(
     lines = file_content.split("\n")
     code_snippet = "\n".join(lines[ext_type.line_start - 1 : ext_type.line_end])
 
-    # Generate node ID
+    # Generate node ID using :: separator to avoid repo name conflicts
     type_name_slug = ext_type.name.replace(" ", "_").replace("-", "_")
     file_path_slug = file_path.replace("/", "_").replace("\\", "_")
-    node_id = f"typedef_{repo_name}_{file_path_slug}_{type_name_slug}"
+    node_id = f"typedef::{repo_name}::{file_path_slug}::{type_name_slug}"
 
     return {
         "node_id": node_id,

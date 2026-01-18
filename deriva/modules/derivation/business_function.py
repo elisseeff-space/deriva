@@ -34,28 +34,24 @@ Typical Sources:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from deriva.modules.derivation.base import (
-    Candidate,
-    RelationshipRule,
-    enrich_candidate,
-    filter_by_pagerank,
-)
-from deriva.modules.derivation.element_base import PatternBasedDerivation
+from deriva.modules.derivation.base import RelationshipRule
+from deriva.modules.derivation.element_base import HybridDerivation
 
 logger = logging.getLogger(__name__)
 
 
-class BusinessFunctionDerivation(PatternBasedDerivation):
+class BusinessFunctionDerivation(HybridDerivation):
     """
     BusinessFunction element derivation.
 
-    Uses pattern-based filtering to identify business functions
-    from Module and Package nodes representing business capabilities.
+    Uses hybrid filtering (patterns + graph metrics) to identify business
+    functions from Module and Package nodes representing business capabilities.
     """
 
     ELEMENT_TYPE = "BusinessFunction"
+    MIN_PAGERANK = 0.001  # Filter low-importance modules
+    USE_COMMUNITY_ROOTS = True  # Prioritize modules that are community centers
 
     OUTBOUND_RULES: list[RelationshipRule] = [
         RelationshipRule(
@@ -78,57 +74,6 @@ class BusinessFunctionDerivation(PatternBasedDerivation):
         ),
     ]
 
-    def filter_candidates(
-        self,
-        candidates: list[Candidate],
-        enrichments: dict[str, dict[str, Any]],
-        max_candidates: int,
-        include_patterns: set[str] | None = None,
-        exclude_patterns: set[str] | None = None,
-        **kwargs: Any,
-    ) -> list[Candidate]:
-        """
-        Filter candidates for BusinessFunction derivation.
-
-        Strategy:
-        1. Enrich with graph metrics
-        2. Filter by function/capability patterns
-        3. Exclude utility/infrastructure modules
-        4. Use PageRank to find most important functions
-        """
-        include_patterns = include_patterns or set()
-        exclude_patterns = exclude_patterns or set()
-
-        for c in candidates:
-            enrich_candidate(c, enrichments)
-
-        filtered = [c for c in candidates if c.name]
-
-        likely_functions = [
-            c
-            for c in filtered
-            if self.matches_patterns(c.name, include_patterns, exclude_patterns)
-        ]
-        others = [
-            c
-            for c in filtered
-            if not self.matches_patterns(c.name, include_patterns, exclude_patterns)
-        ]
-
-        likely_functions = filter_by_pagerank(
-            likely_functions, top_n=max_candidates // 2
-        )
-
-        remaining_slots = max_candidates - len(likely_functions)
-        if remaining_slots > 0 and others:
-            others = filter_by_pagerank(others, top_n=remaining_slots)
-            likely_functions.extend(others)
-
-        self.logger.debug(
-            "BusinessFunction filter: %d total -> %d after null -> %d final candidates",
-            len(candidates),
-            len(filtered),
-            len(likely_functions),
-        )
-
-        return likely_functions[:max_candidates]
+    # Uses HybridDerivation.filter_candidates() which handles:
+    # - Pattern matching (include/exclude from config)
+    # - Graph filtering (PageRank threshold, community roots)

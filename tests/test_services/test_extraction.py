@@ -285,6 +285,7 @@ class TestExtractLLMBased:
             mock_cfg.input_sources = json_module.dumps({"files": [{"type": "source", "subtype": "python"}]})
             mock_cfg.instruction = "Extract business concepts"
             mock_cfg.example = None
+            mock_cfg.batch_size = 1
 
             mock_repo = MagicMock()
             mock_repo.name = "myproject"

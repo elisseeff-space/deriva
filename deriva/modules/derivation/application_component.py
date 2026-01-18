@@ -28,29 +28,29 @@ Typical Sources:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from deriva.modules.derivation.base import (
-    Candidate,
-    RelationshipRule,
-    filter_by_pagerank,
-    get_community_roots,
-)
-from deriva.modules.derivation.element_base import ElementDerivationBase
+from deriva.modules.derivation.base import RelationshipRule
+from deriva.modules.derivation.element_base import HybridDerivation
 
 logger = logging.getLogger(__name__)
 
 
-class ApplicationComponentDerivation(ElementDerivationBase):
+class ApplicationComponentDerivation(HybridDerivation):
     """
     ApplicationComponent element derivation.
 
-    Uses graph-based filtering (community roots + PageRank) rather than
-    pattern-based filtering. This identifies natural component boundaries
-    from the graph structure itself.
+    Uses hybrid filtering with emphasis on graph structure:
+    - Prioritizes community roots (natural component boundaries)
+    - High PageRank nodes (important directories)
+    - Optional pattern filtering from config
     """
 
     ELEMENT_TYPE = "ApplicationComponent"
+
+    # Graph filtering configuration - prioritize community roots
+    USE_COMMUNITY_ROOTS = True
+    COMMUNITY_ROOT_RATIO = 0.6  # 60% community roots
+    MIN_PAGERANK = 0.001
 
     OUTBOUND_RULES: list[RelationshipRule] = [
         RelationshipRule(
@@ -83,58 +83,7 @@ class ApplicationComponentDerivation(ElementDerivationBase):
         ),
     ]
 
-    # No get_filter_kwargs override needed - uses default empty dict
-    # ApplicationComponent uses graph structure, not config patterns
-
-    def filter_candidates(
-        self,
-        candidates: list[Candidate],
-        enrichments: dict[str, dict[str, Any]],
-        max_candidates: int,
-        **kwargs: Any,
-    ) -> list[Candidate]:
-        """
-        Apply graph-based filtering to reduce candidates for LLM.
-
-        Strategy:
-        1. Prioritize community roots (natural component boundaries)
-        2. Include high-pagerank non-roots (important directories)
-        3. Sort by pagerank and limit
-
-        Args:
-            candidates: List of candidates to filter
-            enrichments: Graph enrichment data (pagerank, community, etc.)
-            max_candidates: Maximum number of candidates to return
-            **kwargs: Unused additional arguments
-
-        Returns:
-            Filtered list of candidates
-        """
-        if not candidates:
-            return []
-
-        # Get community roots - these are natural component boundaries
-        roots = get_community_roots(candidates)
-
-        # Also include high-pagerank nodes that aren't roots
-        # (they might be important subdirectories)
-        non_roots = [c for c in candidates if c not in roots]
-        high_pagerank = filter_by_pagerank(non_roots, top_n=10)
-
-        # Combine and deduplicate
-        combined = list(roots)
-        for c in high_pagerank:
-            if c not in combined:
-                combined.append(c)
-
-        # Sort by pagerank (most important first) and limit
-        combined = filter_by_pagerank(combined, top_n=max_candidates)
-
-        self.logger.debug(
-            "ApplicationComponent filter: %d total -> %d roots -> %d combined",
-            len(candidates),
-            len(roots),
-            len(combined),
-        )
-
-        return combined
+    # Uses HybridDerivation.filter_candidates() which applies:
+    # 1. Pattern matching (if patterns configured)
+    # 2. Graph filtering with community roots prioritized (USE_COMMUNITY_ROOTS=True)
+    # 3. PageRank threshold filtering (MIN_PAGERANK=0.001)

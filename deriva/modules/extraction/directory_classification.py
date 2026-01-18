@@ -129,7 +129,7 @@ def build_business_concept_node(
 ) -> dict[str, Any]:
     """Build a BusinessConcept node from classification result."""
     concept_name = classification["conceptName"]
-    node_id = f"concept_{repo_name}_{concept_name.lower().replace(' ', '_')}"
+    node_id = f"concept::{repo_name}::{concept_name.lower().replace(' ', '_')}"
 
     return {
         "id": node_id,
@@ -154,7 +154,7 @@ def build_technology_node(
 ) -> dict[str, Any]:
     """Build a Technology node from classification result."""
     concept_name = classification["conceptName"]
-    node_id = f"tech_{repo_name}_{concept_name.lower().replace(' ', '_')}"
+    node_id = f"tech::{repo_name}::{concept_name.lower().replace(' ', '_')}"
 
     return {
         "id": node_id,

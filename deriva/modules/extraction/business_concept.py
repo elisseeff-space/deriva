@@ -249,59 +249,49 @@ BUSINESS_CONCEPT_SCHEMA = {
 }
 
 
-def build_extraction_prompt(
-    file_content: str,
-    file_path: str,
-    instruction: str,
-    example: str,
-    existing_concepts: list[dict[str, str]] | None = None,
-) -> str:
+# Multi-file batch schema - wraps concepts in per-file results
+BUSINESS_CONCEPT_MULTI_SCHEMA = {
+    "name": "business_concepts_multi_extraction",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path of the file these concepts were extracted from",
+                        },
+                        "concepts": BUSINESS_CONCEPT_SCHEMA["schema"]["properties"]["concepts"],  # type: ignore[index]
+                    },
+                    "required": ["file_path", "concepts"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["results"],
+        "additionalProperties": False,
+    },
+}
+
+
+def build_system_prompt(instruction: str) -> str:
     """
-    Build the LLM prompt for business concept extraction.
+    Build system prompt with static instructions for business concept extraction.
+
+    This separates static role/guideline content (sent once) from dynamic
+    file-specific content (sent per file), reducing token usage.
 
     Args:
-        file_content: Content of the file to analyze
-        file_path: Path to the file being analyzed
-        instruction: Extraction instruction from config
-        example: Example output from config
-        existing_concepts: Optional list of existing concepts from graph/code structure.
-            Each dict should have at minimum 'conceptName' and 'conceptType'.
-            When provided, guides the LLM to reuse existing names for consistency.
+        instruction: Additional extraction instruction from config
 
     Returns:
-        Formatted prompt string
+        System prompt string
     """
-    import json
-
-    from deriva.common.chunking import truncate_content
-
-    # Truncate large files to reduce token usage
-    content, was_truncated = truncate_content(file_content, max_tokens=2000)
-    truncation_note = ""
-    if was_truncated:
-        truncation_note = (
-            "\n**Note:** File content has been truncated. Focus on visible content.\n"
-        )
-
-    # Build existing concepts context section (for consistency across documents)
-    existing_context = ""
-    if existing_concepts:
-        # Only include high-confidence existing concepts as reference
-        high_conf = [
-            c for c in existing_concepts if float(c.get("confidence", 0.8)) >= 0.8
-        ]
-        if high_conf:
-            existing_json = json.dumps(high_conf, indent=2)
-            existing_context = f"""
-## Previously Identified Concepts (for naming consistency)
-If mentioning these concepts, use the exact names shown:
-```json
-{existing_json}
-```
-
-"""
-
-    prompt = f"""Extract BUSINESS DOMAIN concepts from this documentation.
+    return f"""You are an expert at extracting business domain concepts from code documentation.
 
 ## What ARE Business Concepts (extract these):
 - **Actors**: People/roles (Customer, Admin, User, Manager)
@@ -323,18 +313,162 @@ If mentioning these concepts, use the exact names shown:
 
 Only return concepts with confidence >= 0.6
 
-## File: {file_path}
-{truncation_note}
 {instruction}
-{existing_context}
+
+IMPORTANT: Output stable, deterministic results. Always use the same naming conventions."""
+
+
+def build_user_prompt(
+    file_content: str,
+    file_path: str,
+    example: str,
+    existing_concepts: list[dict[str, str]] | None = None,
+) -> str:
+    """
+    Build user prompt with dynamic file-specific content only.
+
+    This contains the file content and context that changes per extraction call.
+    Used together with build_system_prompt() for token-efficient extraction.
+
+    Args:
+        file_content: Content of the file to analyze
+        file_path: Path to the file being analyzed
+        example: Example output from config
+        existing_concepts: Optional list of existing concepts from graph/code structure.
+
+    Returns:
+        User prompt string
+    """
+    import json
+
+    from deriva.common.chunking import truncate_content
+
+    # Truncate large files to reduce token usage
+    content, was_truncated = truncate_content(file_content, max_tokens=2000)
+    truncation_note = ""
+    if was_truncated:
+        truncation_note = (
+            "\n**Note:** File content has been truncated. Focus on visible content.\n"
+        )
+
+    # Build existing concepts context section (compact JSON for token efficiency)
+    existing_context = ""
+    if existing_concepts:
+        high_conf = [
+            c for c in existing_concepts if float(c.get("confidence", 0.8)) >= 0.8
+        ]
+        if high_conf:
+            existing_json = json.dumps(high_conf, separators=(",", ":"))
+            existing_context = f"""
+## Previously Identified Concepts (use these exact names):
+{existing_json}
+
+"""
+
+    return f"""Extract BUSINESS DOMAIN concepts from this file.
+
+## File: {file_path}
+{truncation_note}{existing_context}
 ## Content
 ```
 {content}
 ```
 
-Return JSON: {{"concepts": [{{"conceptName": "Name", "conceptType": "actor|entity|process|event|rule|goal|other", "description": "Brief desc", "confidence": 0.85}}]}}
+Return JSON matching this format: {example}"""
+
+
+def build_extraction_prompt(
+    file_content: str,
+    file_path: str,
+    instruction: str,
+    example: str,
+    existing_concepts: list[dict[str, str]] | None = None,
+) -> str:
+    """
+    Build the LLM prompt for business concept extraction (legacy combined format).
+
+    This combines system and user prompts for backward compatibility with
+    callers that don't support separate system prompts.
+
+    For token-efficient extraction, use build_system_prompt() and build_user_prompt()
+    separately with an LLM that supports system prompts.
+
+    Args:
+        file_content: Content of the file to analyze
+        file_path: Path to the file being analyzed
+        instruction: Extraction instruction from config
+        example: Example output from config
+        existing_concepts: Optional list of existing concepts from graph/code structure.
+
+    Returns:
+        Combined prompt string (system + user content)
+    """
+    system = build_system_prompt(instruction)
+    user = build_user_prompt(file_content, file_path, example, existing_concepts)
+    return f"{system}\n\n{user}"
+
+
+def build_multi_file_user_prompt(
+    files: list[dict[str, str]],
+    example: str,
+    existing_concepts: list[dict[str, str]] | None = None,
+) -> str:
+    """
+    Build user prompt for extracting concepts from multiple files in one LLM call.
+
+    This batches multiple small files together to reduce per-call overhead.
+
+    Args:
+        files: List of dicts with 'path' and 'content' keys
+        example: Example output from config
+        existing_concepts: Optional list of existing concepts from graph/code structure.
+
+    Returns:
+        User prompt string for multi-file extraction
+    """
+    import json
+
+    from deriva.common.chunking import truncate_content
+
+    # Build existing concepts context section (compact JSON for token efficiency)
+    existing_context = ""
+    if existing_concepts:
+        high_conf = [
+            c for c in existing_concepts if float(c.get("confidence", 0.8)) >= 0.8
+        ]
+        if high_conf:
+            existing_json = json.dumps(high_conf, separators=(",", ":"))
+            existing_context = f"""
+## Previously Identified Concepts (use these exact names):
+{existing_json}
+
 """
-    return prompt
+
+    # Build file sections
+    file_sections = []
+    for file_info in files:
+        file_path = file_info["path"]
+        file_content = file_info["content"]
+
+        # Truncate large files
+        content, was_truncated = truncate_content(file_content, max_tokens=1500)
+        truncation_note = " (truncated)" if was_truncated else ""
+
+        file_sections.append(f"""### File: {file_path}{truncation_note}
+```
+{content}
+```""")
+
+    files_content = "\n\n".join(file_sections)
+
+    return f"""Extract BUSINESS DOMAIN concepts from these files.
+{existing_context}
+## Files to Analyze
+
+{files_content}
+
+Return JSON with a "results" array. Each result must have "file_path" and "concepts" array.
+Example format for a single file's concepts: {example}"""
 
 
 def build_business_concept_node(
@@ -390,11 +524,11 @@ def build_business_concept_node(
     if concept_type not in valid_types:
         concept_type = "other"
 
-    # Generate unique node ID
+    # Generate unique node ID using :: separator to avoid repo name conflicts
     concept_name_slug = (
         concept_data["conceptName"].lower().replace(" ", "_").replace("-", "_")
     )
-    node_id = f"concept_{repo_name}_{concept_name_slug}"
+    node_id = f"concept::{repo_name}::{concept_name_slug}"
 
     # Build the node structure
     node_data = {
@@ -536,7 +670,7 @@ def extract_business_concepts(
         # Strip chunk suffix from file_path to get original file node ID
         original_path = strip_chunk_suffix(file_path)
         safe_path = original_path.replace("/", "_").replace("\\", "_")
-        file_node_id = f"file_{repo_name}_{safe_path}"
+        file_node_id = f"file::{repo_name}::{safe_path}"
 
         for concept_data in parse_result["data"]:
             node_result = build_business_concept_node(
@@ -581,6 +715,143 @@ def extract_business_concepts(
             "success": False,
             "data": {"nodes": [], "edges": []},
             "errors": [f"Fatal error during business concept extraction: {str(e)}"],
+            "stats": {"total_nodes": 0, "total_edges": 0},
+            "llm_details": llm_details,
+        }
+
+
+def extract_business_concepts_multi(
+    files: list[dict[str, str]],
+    repo_name: str,
+    llm_query_fn,
+    config: dict[str, Any],
+    existing_concepts: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    """
+    Extract business concepts from multiple files in a single LLM call.
+
+    This is used for batch extraction where multiple small files are sent
+    together to reduce overhead and improve token efficiency.
+
+    Args:
+        files: List of dicts with 'path' and 'content' keys
+        repo_name: Repository name
+        llm_query_fn: Function to call LLM (signature: (prompt, schema, system_prompt) -> response)
+        config: Extraction config with 'instruction' and 'example' keys
+        existing_concepts: Optional list of existing concepts from graph/code structure.
+
+    Returns:
+        Dictionary with success, data (nodes/edges), errors, stats, and llm_details
+    """
+    errors: list[str] = []
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+
+    # Initialize LLM details for logging
+    llm_details = create_empty_llm_details()
+
+    try:
+        instruction = config.get("instruction", "")
+        example = config.get("example", "{}")
+
+        # Build prompts
+        system_prompt = build_system_prompt(instruction)
+        user_prompt = build_multi_file_user_prompt(files, example, existing_concepts)
+
+        llm_details["prompt"] = f"{system_prompt}\n\n{user_prompt}"
+
+        # Call LLM with multi-file schema
+        response = llm_query_fn(user_prompt, BUSINESS_CONCEPT_MULTI_SCHEMA, system_prompt)
+
+        # Extract LLM details from response
+        if hasattr(response, "content"):
+            llm_details["response"] = response.content
+        if hasattr(response, "usage") and response.usage:
+            llm_details["tokens_in"] = response.usage.get("prompt_tokens", 0)
+            llm_details["tokens_out"] = response.usage.get("completion_tokens", 0)
+        if hasattr(response, "response_type"):
+            llm_details["cache_used"] = (
+                str(response.response_type) == "ResponseType.CACHED"
+            )
+
+        # Check for failed response
+        if hasattr(response, "error"):
+            return {
+                "success": False,
+                "data": {"nodes": [], "edges": []},
+                "errors": [f"LLM error: {response.error}"],
+                "stats": {"total_nodes": 0, "total_edges": 0, "llm_error": True},
+                "llm_details": llm_details,
+            }
+
+        # Parse the multi-file response
+        import json
+
+        try:
+            response_data = json.loads(response.content)
+            file_results = response_data.get("results", [])
+        except json.JSONDecodeError as e:
+            return {
+                "success": False,
+                "data": {"nodes": [], "edges": []},
+                "errors": [f"Failed to parse multi-file response: {str(e)}"],
+                "stats": {"total_nodes": 0, "total_edges": 0, "parse_error": True},
+                "llm_details": llm_details,
+            }
+
+        # Process each file's results
+        for file_result in file_results:
+            file_path = file_result.get("file_path", "")
+            concepts = file_result.get("concepts", [])
+
+            # Build file node ID for edges
+            original_path = strip_chunk_suffix(file_path)
+            safe_path = original_path.replace("/", "_").replace("\\", "_")
+            file_node_id = f"file::{repo_name}::{safe_path}"
+
+            for concept_data in concepts:
+                node_result = build_business_concept_node(
+                    concept_data=concept_data, origin_source=file_path, repo_name=repo_name
+                )
+
+                if node_result["success"]:
+                    node_data = node_result["data"]
+                    nodes.append(node_data)
+
+                    # Create REFERENCES edge: File -> BusinessConcept
+                    edge = {
+                        "edge_id": f"references_{file_node_id}_to_{node_data['node_id']}",
+                        "from_node_id": file_node_id,
+                        "to_node_id": node_data["node_id"],
+                        "relationship_type": "REFERENCES",
+                        "properties": {
+                            "created_at": current_timestamp(),
+                            "confidence": concept_data.get("confidence", 0.8),
+                        },
+                    }
+                    edges.append(edge)
+                else:
+                    errors.extend(node_result["errors"])
+
+        return {
+            "success": len(nodes) > 0 or len(errors) == 0,
+            "data": {"nodes": nodes, "edges": edges},
+            "errors": errors,
+            "stats": {
+                "total_nodes": len(nodes),
+                "total_edges": len(edges),
+                "node_types": {"BusinessConcept": len(nodes)},
+                "concepts_found": len(nodes),
+                "files_in_batch": len(files),
+            },
+            "llm_details": llm_details,
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "data": {"nodes": [], "edges": []},
+            "errors": [f"Fatal error during multi-file extraction: {str(e)}"],
             "stats": {"total_nodes": 0, "total_edges": 0},
             "llm_details": llm_details,
         }

@@ -6,13 +6,38 @@ Deriving ArchiMate models from code using knowledge graphs, heuristics, and LLMs
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
+Version 0.6.x is the first robust, end-to-end implementation of Deriva, but still very unstable. The goal for 0.6.x is to be fully feature complete, and have good performance in quality, efficiency, consistency and generalizability. Versions 0.7.x will be all about stability, portability, user experience, documenation and clean architecture/code standards, making those values low priority for 0.6.x.
 
 ## v0.6.9 - (Unreleased)
 
-### Changes
+Running benchmarks on flask_invoice_generator, full-stack-fastapi-template and taiga-back. Focus on consistency and breaking the 60% barrier for relationships.
 
-- **Added Extraction Step**: Added a new step after creating directories, to create technology and business concept nodes, which can be used to guide llm extraction afterwards
-- **Lock and loaded**: Database can now be used during a benchmark or pipeline run without a full lock, runs will use versions, but new ones can be added without issues
+### Extraction
+
+- **Edge Extraction Module**: New `edges.py` for Tree-sitter based relationship extraction. Extracts IMPORTS, USES, CALLS, DECORATED_BY, and REFERENCES edges with single AST parse per file. Language-specific filter constants added for Python, JavaScript, Java, and C#
+- **Directory Classification Step**: New extraction step after directories to create technology and business concept nodes, guiding subsequent LLM extraction
+- **Token Efficiency**: Compact JSON serialization (~15% savings), system/user prompt separation, and multi-file batching (`--batch-size N`). Estimated 40-60% total reduction
+- **Fixed REFERENCES Edges**: Corrected type node ID format mismatch in `edges.py` that caused edge creation failures
+
+### LLM Adapter
+
+- **Pydantic Structured Output**: New `schemas.py` with Pydantic models for all extraction types. LLM manager auto-resolves JSON schemas to models, enforcing structure via PydanticAI
+- **Rate Limiting**: Adaptive throttling (auto-reduces RPM on 429s), circuit breaker pattern, Retry-After header respect, error classification, and model-specific rate limits via env vars
+
+### Derivation
+
+- **HybridDerivation Base**: All 13 modules use hybrid filtering combining pattern-based AND graph-based candidate selection
+- **Edge-Aware Relationships**: New Tier 1.5 derivation using CALLS, IMPORTS, USES edges with high confidence (0.90-0.95)
+- **Pre-Generation Dedup**: Fuzzy matching against existing elements before LLM calls
+- **Business Layer**: BusinessProcess detects orchestrator methods (3+ CALLS), BusinessEvent detects webhooks/signals, BusinessActor detects auth decorators
+- **Relationship Consolidation**: Refine step boosts confidence on multi-signal agreement, prunes low-confidence without corroboration
+- **Self-Loop Prevention**: Fixed self-referential relationships in graph_relationships with query filters and cleanup
+- **Enrichment Cache**: Aligned with LLM cache patterns, CLI control via `--no-enrichment-cache`
+
+### Infrastructure
+
+- **Graph Metadata**: Element properties now include all graph metrics (kcore, articulation points, degree); propagated to relationships
+- **Database Locking**: Non-blocking during benchmarks/pipeline runs, versions used for isolation
 
 ## v0.6.8 - Library Migration & Overall Cleanup (January 16, 2026)
 

@@ -77,11 +77,88 @@ TECHNOLOGY_SCHEMA = {
 }
 
 
+def build_system_prompt(instruction: str) -> str:
+    """
+    Build system prompt with static instructions for technology extraction.
+
+    Separates static context from dynamic file content to improve token efficiency
+    when using LLM caching - the system prompt is sent once per session.
+
+    Args:
+        instruction: Extraction instruction from config
+
+    Returns:
+        System prompt string with static instructions
+    """
+    return f"""You are an expert at analyzing configuration and build files to extract technology infrastructure components.
+
+## Technology Categories:
+- **service**: External services, APIs, cloud services (AWS S3, Stripe, SendGrid)
+- **system_software**: Databases, caches, message queues (PostgreSQL, Redis, RabbitMQ)
+- **infrastructure**: Containerization, orchestration (Docker, Kubernetes)
+- **platform**: Runtime platforms, frameworks (Node.js, .NET, JVM)
+- **network**: Load balancers, proxies, CDNs (Nginx, Cloudflare)
+- **security**: Auth, encryption, secrets (OAuth, Vault, SSL)
+
+## Confidence Scoring:
+- 0.9-1.0: Explicitly configured with version/settings
+- 0.8-0.9: Clearly referenced as dependency
+- 0.7-0.8: Implied by configuration patterns
+- 0.6-0.7: Possibly used based on file type
+
+Only return technologies with confidence >= 0.6
+
+{instruction}
+
+IMPORTANT: Output stable, deterministic results. Use official technology names."""
+
+
+def build_user_prompt(
+    file_content: str,
+    file_path: str,
+    example: str,
+) -> str:
+    """
+    Build user prompt with dynamic file-specific content only.
+
+    Contains only the file-specific parts that change per extraction.
+    Used with build_system_prompt() for token-efficient LLM calls.
+
+    Args:
+        file_content: Content of the file to analyze
+        file_path: Path to the file being analyzed
+        example: Example output from config
+
+    Returns:
+        User prompt string with file content
+    """
+    from deriva.common.chunking import truncate_content
+
+    # Truncate large files to reduce token usage
+    content, was_truncated = truncate_content(file_content, max_tokens=2000)
+    truncation_note = ""
+    if was_truncated:
+        truncation_note = "**Note:** Content truncated. Focus on visible content.\n\n"
+
+    return f"""## File: {file_path}
+{truncation_note}## Content
+```
+{content}
+```
+
+Example output format: {example}
+
+Extract technology infrastructure components. Return ONLY a JSON object with a "technologies" array. If no technologies are found, return {{"technologies": []}}."""
+
+
 def build_extraction_prompt(
     file_content: str, file_path: str, instruction: str, example: str
 ) -> str:
     """
     Build the LLM prompt for technology extraction.
+
+    Legacy combined format for backward compatibility.
+    Internally calls build_system_prompt() and build_user_prompt().
 
     Args:
         file_content: Content of the file to analyze
@@ -90,37 +167,11 @@ def build_extraction_prompt(
         example: Example output from config
 
     Returns:
-        Formatted prompt string
+        Formatted prompt string (system + user combined)
     """
-    from deriva.common.chunking import truncate_content
-
-    # Truncate large files to reduce token usage
-    content, was_truncated = truncate_content(file_content, max_tokens=2000)
-    truncation_note = ""
-    if was_truncated:
-        truncation_note = (
-            "\n**Note:** File content has been truncated. Focus on visible content.\n"
-        )
-
-    prompt = f"""You are analyzing a configuration/build file to extract technology infrastructure.
-
-## Context
-- **File Path:** {file_path}
-{truncation_note}
-## Instructions
-{instruction}
-
-## Example Output
-{example}
-
-## File Content
-```
-{content}
-```
-
-Extract technology infrastructure components. Return ONLY a JSON object with a "technologies" array. If no technologies are found, return {{"technologies": []}}.
-"""
-    return prompt
+    system = build_system_prompt(instruction)
+    user = build_user_prompt(file_content, file_path, example)
+    return f"{system}\n\n{user}"
 
 
 def build_technology_node(
@@ -166,9 +217,9 @@ def build_technology_node(
     if category not in valid_categories:
         category = "infrastructure"
 
-    # Generate unique node ID
+    # Generate unique node ID using :: separator to avoid repo name conflicts
     tech_name_slug = tech_data["techName"].lower().replace(" ", "_").replace("-", "_")
-    node_id = f"tech_{repo_name}_{tech_name_slug}"
+    node_id = f"tech::{repo_name}::{tech_name_slug}"
 
     # Build the node structure
     node_data = {
@@ -295,7 +346,7 @@ def extract_technologies(
         # Build file node ID for IMPLEMENTS edges
         original_path = strip_chunk_suffix(file_path)
         safe_path = original_path.replace("/", "_").replace("\\", "_")
-        file_node_id = f"file_{repo_name}_{safe_path}"
+        file_node_id = f"file::{repo_name}::{safe_path}"
 
         # Build nodes for each technology
         for tech_data in parse_result["data"]:

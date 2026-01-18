@@ -37,28 +37,24 @@ Typical Sources:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from deriva.modules.derivation.base import (
-    Candidate,
-    RelationshipRule,
-    enrich_candidate,
-    filter_by_pagerank,
-)
-from deriva.modules.derivation.element_base import PatternBasedDerivation
+from deriva.modules.derivation.base import RelationshipRule
+from deriva.modules.derivation.element_base import HybridDerivation
 
 logger = logging.getLogger(__name__)
 
 
-class TechnologyServiceDerivation(PatternBasedDerivation):
+class TechnologyServiceDerivation(HybridDerivation):
     """
     TechnologyService element derivation.
 
-    Uses pattern-based filtering to identify technology services
-    from ExternalDependency nodes.
+    Uses hybrid filtering (patterns + graph metrics) to identify technology
+    services from ExternalDependency nodes.
     """
 
     ELEMENT_TYPE = "TechnologyService"
+    MIN_PAGERANK = 0.001  # Higher threshold for tech services
+    USE_COMMUNITY_ROOTS = False  # External deps don't have communities
 
     OUTBOUND_RULES = [
         RelationshipRule(
@@ -81,63 +77,6 @@ class TechnologyServiceDerivation(PatternBasedDerivation):
         ),
     ]
 
-    def filter_candidates(
-        self,
-        candidates: list[Candidate],
-        enrichments: dict[str, dict[str, Any]],
-        max_candidates: int,
-        include_patterns: set[str] | None = None,
-        exclude_patterns: set[str] | None = None,
-        **kwargs: Any,
-    ) -> list[Candidate]:
-        """
-        Filter candidates for TechnologyService derivation.
-
-        Strategy:
-        1. Enrich candidates with graph metrics
-        2. Identify likely tech services using patterns
-        3. Prioritize by PageRank
-        4. Fill remaining slots from non-matches
-        """
-        include_patterns = include_patterns or set()
-        exclude_patterns = exclude_patterns or set()
-
-        # Enrich all candidates with graph metrics
-        for c in candidates:
-            enrich_candidate(c, enrichments)
-
-        # Filter to candidates with names
-        filtered = [c for c in candidates if c.name]
-
-        # Split into likely tech services and others
-        likely_tech = [
-            c
-            for c in filtered
-            if self.matches_patterns(c.name, include_patterns, exclude_patterns)
-        ]
-        others = [
-            c
-            for c in filtered
-            if not self.matches_patterns(c.name, include_patterns, exclude_patterns)
-        ]
-
-        # Prioritize likely matches by PageRank
-        likely_tech = filter_by_pagerank(
-            likely_tech, top_n=max_candidates // 2, min_pagerank=0.001
-        )
-
-        # Fill remaining slots from others
-        remaining_slots = max_candidates - len(likely_tech)
-        if remaining_slots > 0 and others:
-            others = filter_by_pagerank(
-                others, top_n=remaining_slots, min_pagerank=0.001
-            )
-            likely_tech.extend(others)
-
-        self.logger.debug(
-            "TechnologyService filter: %d total -> %d final",
-            len(candidates),
-            len(likely_tech),
-        )
-
-        return likely_tech[:max_candidates]
+    # Uses HybridDerivation.filter_candidates() which handles:
+    # - Pattern matching (include/exclude from config)
+    # - Graph filtering (PageRank threshold, community roots)

@@ -44,22 +44,25 @@ from deriva.modules.derivation.base import (
     Candidate,
     RelationshipRule,
     enrich_candidate,
-    filter_by_pagerank,
 )
-from deriva.modules.derivation.element_base import PatternBasedDerivation
+from deriva.modules.derivation.element_base import HybridDerivation
 
 logger = logging.getLogger(__name__)
 
 
-class BusinessObjectDerivation(PatternBasedDerivation):
+class BusinessObjectDerivation(HybridDerivation):
     """
     BusinessObject element derivation.
 
-    Uses pattern-based filtering to identify business-relevant types
-    and concepts from TypeDefinition and BusinessConcept nodes.
+    Uses hybrid filtering combining:
+    - Pattern-based filtering (include/exclude patterns from config)
+    - Graph-based filtering (PageRank threshold, community structure)
     """
 
     ELEMENT_TYPE = "BusinessObject"
+
+    # Graph filtering configuration
+    MIN_PAGERANK = 0.001  # Filter out low-importance types
 
     OUTBOUND_RULES = [
         RelationshipRule(
@@ -99,21 +102,24 @@ class BusinessObjectDerivation(PatternBasedDerivation):
         """
         Filter candidates for BusinessObject derivation.
 
-        Strategy:
+        Uses hybrid filtering:
         1. Enrich with graph metrics
-        2. Pre-filter by name patterns (exclude utilities)
-        3. Prioritize likely business objects
-        4. Use PageRank/in-degree to find most important types
+        2. Apply pattern matching (include/exclude patterns)
+        3. Apply graph filtering (PageRank threshold)
+        4. Prioritize likely business objects (looks like a noun class)
         5. Limit to max_candidates for LLM
         """
         include_patterns = include_patterns or set()
         exclude_patterns = exclude_patterns or set()
 
+        # Enrich all candidates with graph metrics
         for c in candidates:
             enrich_candidate(c, enrichments)
 
+        # Filter out nulls
         filtered = [c for c in candidates if c.name]
 
+        # Separate likely business objects from others
         likely_business = [
             c
             for c in filtered
@@ -121,33 +127,29 @@ class BusinessObjectDerivation(PatternBasedDerivation):
                 c.name, include_patterns, exclude_patterns
             )
         ]
-        others = [
-            c
-            for c in filtered
-            if not self._is_likely_business_object(
-                c.name, include_patterns, exclude_patterns
-            )
-        ]
+        others = [c for c in filtered if c not in likely_business]
 
-        likely_business = filter_by_pagerank(
-            likely_business, top_n=max_candidates // 2, min_pagerank=0.001
+        # Apply graph filtering to likely business objects
+        likely_filtered = self.apply_graph_filtering(
+            likely_business, enrichments, max_candidates // 2
         )
 
-        remaining_slots = max_candidates - len(likely_business)
+        # Fill remaining slots with other candidates
+        remaining_slots = max_candidates - len(likely_filtered)
         if remaining_slots > 0 and others:
-            others = filter_by_pagerank(
-                others, top_n=remaining_slots, min_pagerank=0.001
+            others_filtered = self.apply_graph_filtering(
+                others, enrichments, remaining_slots
             )
-            likely_business.extend(others)
+            likely_filtered.extend(others_filtered)
 
         self.logger.debug(
-            "BusinessObject filter: %d total -> %d after null check -> %d final candidates",
+            "BusinessObject filter: %d total -> %d after null check -> %d final",
             len(candidates),
             len(filtered),
-            len(likely_business),
+            len(likely_filtered),
         )
 
-        return likely_business[:max_candidates]
+        return likely_filtered[:max_candidates]
 
     def _is_likely_business_object(
         self, name: str, include_patterns: set[str], exclude_patterns: set[str]
@@ -156,16 +158,9 @@ class BusinessObjectDerivation(PatternBasedDerivation):
         if not name:
             return False
 
-        name_lower = name.lower()
-
-        # Check exclusion patterns first
-        for pattern in exclude_patterns:
-            if pattern in name_lower:
-                return False
-
-        # Check for business patterns
-        for pattern in include_patterns:
-            if pattern in name_lower:
+        # Use pattern matching from base class
+        if include_patterns or exclude_patterns:
+            if self.matches_patterns(name, include_patterns, exclude_patterns):
                 return True
 
         # Default: include if it looks like a noun (starts with capital, no underscores)

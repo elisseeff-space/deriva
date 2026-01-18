@@ -14,8 +14,11 @@ from pydantic import BaseModel
 # Re-export exceptions for backwards compatibility
 from deriva.common.exceptions import APIError as APIError
 from deriva.common.exceptions import CacheError as CacheError
+from deriva.common.exceptions import CircuitOpenError as CircuitOpenError
 from deriva.common.exceptions import ConfigurationError as ConfigurationError
 from deriva.common.exceptions import LLMError as LLMError
+from deriva.common.exceptions import RateLimitError as RateLimitError
+from deriva.common.exceptions import TransientError as TransientError
 from deriva.common.exceptions import ValidationError as ValidationError
 
 from .model_registry import VALID_PROVIDERS
@@ -24,8 +27,11 @@ __all__ = [
     # Exceptions (re-exported)
     "APIError",
     "CacheError",
+    "CircuitOpenError",
     "ConfigurationError",
     "LLMError",
+    "RateLimitError",
+    "TransientError",
     "ValidationError",
     # Models
     "BenchmarkModelConfig",

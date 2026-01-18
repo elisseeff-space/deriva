@@ -145,7 +145,7 @@ class TestBuildBusinessConceptNode:
 
         node = build_business_concept_node(classification, "dir_customers", "testrepo")
 
-        assert node["id"] == "concept_testrepo_customermanagement"
+        assert node["id"] == "concept::testrepo::customermanagement"
 
     def test_handles_spaces_in_concept_name(self):
         """Should convert spaces to underscores in ID."""
@@ -159,7 +159,7 @@ class TestBuildBusinessConceptNode:
 
         node = build_business_concept_node(classification, "dir_users", "repo")
 
-        assert node["id"] == "concept_repo_user_management"
+        assert node["id"] == "concept::repo::user_management"
 
 
 class TestBuildTechnologyNode:
@@ -212,7 +212,7 @@ class TestBuildTechnologyNode:
 
         node = build_technology_node(classification, "dir_es", "repo")
 
-        assert node["id"] == "tech_repo_elasticsearch"
+        assert node["id"] == "tech::repo::elasticsearch"
 
 
 class TestClassifyDirectories:

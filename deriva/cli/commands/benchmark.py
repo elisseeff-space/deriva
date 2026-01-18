@@ -87,6 +87,16 @@ def benchmark_run(
     per_repo: Annotated[
         bool, typer.Option("--per-repo", help="Run each repo separately")
     ] = False,
+    no_enrichment_cache: Annotated[
+        bool, typer.Option("--no-enrichment-cache", help="Disable enrichment caching")
+    ] = False,
+    nocache_enrichment_configs: Annotated[
+        str | None,
+        typer.Option(
+            "--nocache-enrichment-configs",
+            help="Configs to skip enrichment cache for (comma-separated)",
+        ),
+    ] = None,
 ) -> None:
     """Run benchmark matrix."""
     repos_list = [r.strip() for r in repos.split(",")]
@@ -95,8 +105,14 @@ def benchmark_run(
     nocache_configs_list = (
         [c.strip() for c in nocache_configs.split(",")] if nocache_configs else None
     )
+    nocache_enrichment_configs_list = (
+        [c.strip() for c in nocache_enrichment_configs.split(",")]
+        if nocache_enrichment_configs
+        else None
+    )
 
     use_cache = not no_cache
+    use_enrichment_cache_flag = not no_enrichment_cache
     export_models = not no_export_models
     clear_between_runs = not no_clear
 
@@ -125,6 +141,9 @@ def benchmark_run(
         typer.echo("Defer relationships: enabled (two-phase derivation)")
     if nocache_configs_list:
         typer.echo(f"No-cache configs: {nocache_configs_list}")
+    typer.echo(f"Enrichment cache: {'enabled' if use_enrichment_cache_flag else 'disabled'}")
+    if nocache_enrichment_configs_list:
+        typer.echo(f"No-cache enrichment configs: {nocache_enrichment_configs_list}")
     typer.echo(f"{'=' * 60}\n")
 
     with PipelineSession() as session:
@@ -148,6 +167,8 @@ def benchmark_run(
                 bench_hash=bench_hash,
                 defer_relationships=defer_relationships,
                 per_repo=per_repo,
+                use_enrichment_cache=use_enrichment_cache_flag,
+                nocache_enrichment_configs=nocache_enrichment_configs_list,
             )
 
         typer.echo(f"\n{'=' * 60}")

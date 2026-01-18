@@ -37,28 +37,24 @@ Typical Sources:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from deriva.modules.derivation.base import (
-    Candidate,
-    RelationshipRule,
-    enrich_candidate,
-    filter_by_pagerank,
-)
-from deriva.modules.derivation.element_base import PatternBasedDerivation
+from deriva.modules.derivation.base import RelationshipRule
+from deriva.modules.derivation.element_base import HybridDerivation
 
 logger = logging.getLogger(__name__)
 
 
-class DataObjectDerivation(PatternBasedDerivation):
+class DataObjectDerivation(HybridDerivation):
     """
     DataObject element derivation.
 
-    Uses pattern-based filtering to identify data files and
-    structured data artifacts from File nodes.
+    Uses hybrid filtering (patterns + graph metrics) to identify data files
+    and structured data artifacts from File nodes.
     """
 
     ELEMENT_TYPE = "DataObject"
+    MIN_PAGERANK = 0.001  # Filter very low importance files
+    USE_COMMUNITY_ROOTS = False  # Data files don't form communities
 
     OUTBOUND_RULES = [
         RelationshipRule(
@@ -86,59 +82,6 @@ class DataObjectDerivation(PatternBasedDerivation):
         ),
     ]
 
-    def filter_candidates(
-        self,
-        candidates: list[Candidate],
-        enrichments: dict[str, dict[str, Any]],
-        max_candidates: int,
-        include_patterns: set[str] | None = None,
-        exclude_patterns: set[str] | None = None,
-        **kwargs: Any,
-    ) -> list[Candidate]:
-        """
-        Filter candidates for DataObject derivation.
-
-        Strategy:
-        1. Enrich with graph metrics
-        2. Filter by data file patterns
-        3. Exclude source code and templates
-        4. Use PageRank to find most important data files
-        """
-        include_patterns = include_patterns or set()
-        exclude_patterns = exclude_patterns or set()
-
-        for c in candidates:
-            enrich_candidate(c, enrichments)
-
-        filtered = [c for c in candidates if c.name]
-
-        likely_data = [
-            c
-            for c in filtered
-            if self.matches_patterns(c.name, include_patterns, exclude_patterns)
-        ]
-        others = [
-            c
-            for c in filtered
-            if not self.matches_patterns(c.name, include_patterns, exclude_patterns)
-        ]
-
-        likely_data = filter_by_pagerank(
-            likely_data, top_n=max_candidates // 2, min_pagerank=0.001
-        )
-
-        remaining_slots = max_candidates - len(likely_data)
-        if remaining_slots > 0 and others:
-            others = filter_by_pagerank(
-                others, top_n=remaining_slots, min_pagerank=0.001
-            )
-            likely_data.extend(others)
-
-        self.logger.debug(
-            "DataObject filter: %d total -> %d after null -> %d final candidates",
-            len(candidates),
-            len(filtered),
-            len(likely_data),
-        )
-
-        return likely_data[:max_candidates]
+    # Uses HybridDerivation.filter_candidates() which handles:
+    # - Pattern matching (include/exclude from config)
+    # - Graph filtering (PageRank threshold, community roots)

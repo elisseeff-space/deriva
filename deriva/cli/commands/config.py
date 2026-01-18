@@ -87,6 +87,7 @@ def config_show(
             typer.echo(f"  Sequence: {cfg.sequence}")
             typer.echo(f"  Enabled:  {cfg.enabled}")
             typer.echo(f"  Sources:  {cfg.input_sources or 'None'}")
+            typer.echo(f"  Batch Size: {getattr(cfg, 'batch_size', 1)}")
             typer.echo(f"  Instruction: {(cfg.instruction or '')[:100]}...")
             typer.echo(f"  Example: {(cfg.example or '')[:100]}...")
 
@@ -173,6 +174,10 @@ def config_update(
     params_file: Annotated[
         str | None, typer.Option("--params-file", help="Read params JSON from file")
     ] = None,
+    batch_size: Annotated[
+        int | None,
+        typer.Option("--batch-size", help="Files per LLM call for extraction (1=no batching)"),
+    ] = None,
 ) -> None:
     """Update a configuration with versioning."""
     if step_type not in ("extraction", "derivation"):
@@ -231,6 +236,7 @@ def config_update(
                 instruction=instruction,
                 example=example,
                 input_sources=sources,
+                batch_size=batch_size,
             )
         else:
             typer.echo(f"Versioned updates not yet supported for: {step_type}")
@@ -243,6 +249,63 @@ def config_update(
                 typer.echo("  Params: updated")
         else:
             typer.echo(f"Error: {result.get('error', 'Unknown error')}", err=True)
+            raise typer.Exit(1)
+
+
+@app.command("sequence")
+def config_sequence(
+    step_type: Annotated[str, typer.Argument(help="Type: 'derivation' (extraction not supported)")],
+    order: Annotated[
+        str,
+        typer.Option(
+            "--order",
+            help="Comma-separated list of step names in desired order",
+        ),
+    ],
+    phase: Annotated[
+        str | None,
+        typer.Option("--phase", help="Only update steps in this phase (e.g., 'generate')"),
+    ] = None,
+) -> None:
+    """Update the execution sequence of derivation steps.
+
+    Reorders steps based on the provided order list. Each step's sequence
+    number is set to its position in the list (1-indexed).
+
+    Example (ArchiMate bottom-up: Technology -> Application -> Business):
+
+        deriva config sequence derivation --phase generate --order "TechnologyService,SystemSoftware,Node,Device,ApplicationComponent,ApplicationService,ApplicationInterface,DataObject,BusinessObject,BusinessProcess,BusinessFunction,BusinessActor,BusinessEvent"
+    """
+    if step_type != "derivation":
+        typer.echo("Error: Only 'derivation' step type supports sequence updates", err=True)
+        raise typer.Exit(1)
+
+    # Parse the order list
+    step_order = [s.strip() for s in order.split(",") if s.strip()]
+    if not step_order:
+        typer.echo("Error: --order must contain at least one step name", err=True)
+        raise typer.Exit(1)
+
+    typer.echo(f"\nUpdating derivation sequence ({len(step_order)} steps)...")
+    if phase:
+        typer.echo(f"Phase filter: {phase}")
+
+    with PipelineSession() as session:
+        result = config.update_derivation_sequence(
+            session._engine, step_order, phase=phase
+        )
+
+        if result["success"]:
+            typer.echo(f"\nUpdated {result['total_updated']} steps:")
+            for step in result["updated"]:
+                typer.echo(f"  [{step['sequence']}] {step['step_name']}")
+            typer.echo("\nSequence update complete.")
+        else:
+            typer.echo(f"\nPartially updated {result['total_updated']} steps")
+            if result["errors"]:
+                typer.echo("Errors:")
+                for err in result["errors"]:
+                    typer.echo(f"  - {err}")
             raise typer.Exit(1)
 
 

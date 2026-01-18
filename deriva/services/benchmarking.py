@@ -259,6 +259,9 @@ class BenchmarkConfig:
     bench_hash: bool = False  # Include repo/model/run in cache key for per-run isolation
     defer_relationships: bool = True  # Two-phase derivation: elements first, then relationships (recommended)
     per_repo: bool = False  # Run each repo as separate benchmark (vs combined)
+    # Enrichment cache settings (mirrors LLM cache patterns)
+    use_enrichment_cache: bool = True  # Global enrichment cache setting
+    nocache_enrichment_configs: list[str] = field(default_factory=list)  # Configs to skip enrichment cache
 
     def total_runs(self) -> int:
         """Calculate total number of runs in the matrix.
@@ -804,6 +807,9 @@ class BenchmarkOrchestrator:
                     defer_relationships=self.config.defer_relationships,
                     phases=["prep", "generate", "refine"],  # Include refine for graph_relationships
                     config_versions=getattr(self, "_config_versions_snapshot", None),
+                    use_enrichment_cache=self.config.use_enrichment_cache,
+                    nocache_enrichment_configs=self.config.nocache_enrichment_configs or None,
+                    enrichment_bench_hash=bench_hash_str if self.config.bench_hash else None,
                 )
                 stats["derivation"] = result.get("stats", {})
                 self._log_derivation_results(result)
@@ -908,6 +914,7 @@ class BenchmarkOrchestrator:
             schema: dict,
             temperature: float | None = None,
             max_tokens: int | None = None,
+            system_prompt: str | None = None,
         ) -> Any:
             # Check if current config should skip cache
             current_config = run_logger.current_config
@@ -933,6 +940,7 @@ class BenchmarkOrchestrator:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 bench_hash=bench_hash,
+                system_prompt=system_prompt,
             )
 
             # Log the query as an OCEL event (metadata only)

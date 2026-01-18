@@ -117,6 +117,27 @@ class LLMError(BaseError):
     """Base exception for LLM operations."""
 
 
+class RateLimitError(LLMError):
+    """Raised when rate limited by provider (HTTP 429)."""
+
+    def __init__(
+        self,
+        message: str,
+        retry_after: float | None = None,
+        context: dict[str, Any] | None = None,
+    ):
+        super().__init__(message, context)
+        self.retry_after = retry_after
+
+
+class TransientError(LLMError):
+    """Raised for transient errors that should be retried (5xx, timeouts)."""
+
+
+class CircuitOpenError(LLMError):
+    """Raised when circuit breaker is open and requests are being rejected."""
+
+
 # =============================================================================
 # Convenience aliases for backwards compatibility
 # =============================================================================
@@ -144,4 +165,7 @@ __all__ = [
     "MetadataError",
     # LLM
     "LLMError",
+    "RateLimitError",
+    "TransientError",
+    "CircuitOpenError",
 ]

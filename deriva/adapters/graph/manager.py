@@ -261,8 +261,11 @@ class GraphManager:
                 set_clauses.append(f"n.{key} = ${param_name}")
                 params[param_name] = value
 
+            # Use two separate labels: namespace (Graph) + type (Directory)
+            # This allows queries like MATCH (d:Directory) to work
+            # while still having namespace isolation via the Graph label
             query = f"""
-                MERGE (n:`{label}` {{id: $id}})
+                MERGE (n:`{self.namespace}`:`{node_label}` {{id: $id}})
                 SET {", ".join(set_clauses)}
                 RETURN n.id as id
             """
@@ -342,7 +345,7 @@ class GraphManager:
                 )
 
         except Exception as e:
-            logger.error(f"Failed to add edge {edge_id}: {e}")
+            logger.warning(f"Failed to add edge {edge_id}: {e}")
             raise
 
     def update_node_property(
@@ -553,11 +556,10 @@ class GraphManager:
             raise RuntimeError("Not connected to Neo4j. Call connect() first.")
 
         try:
-            # Use namespace-aware label
-            label = self.neo4j.get_label(node_type)
-
+            # Query by node type label directly
+            # Nodes have two labels: namespace (Graph) + type (Repository, Directory, etc.)
             query = f"""
-                MATCH (n:`{label}`)
+                MATCH (n:`{node_type}`)
                 RETURN n.id as id,
                        n.label as label,
                        n.properties_json as properties_json

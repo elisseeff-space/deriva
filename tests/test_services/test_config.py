@@ -146,10 +146,10 @@ class TestGetExtractionConfigs:
         """Should return all active extraction configs."""
         engine = MagicMock()
         # Columns: node_type, sequence, enabled, input_sources, instruction, example,
-        #          extraction_method, temperature, max_tokens
+        #          extraction_method, temperature, max_tokens, batch_size
         engine.execute.return_value.fetchall.return_value = [
-            ("BusinessConcept", 1, True, '{"files": []}', "instruction1", "example1", "llm", None, None),
-            ("TypeDefinition", 2, True, '{"files": []}', "instruction2", "example2", "ast", 0.5, 2000),
+            ("BusinessConcept", 1, True, '{"files": []}', "instruction1", "example1", "llm", None, None, 1),
+            ("TypeDefinition", 2, True, '{"files": []}', "instruction2", "example2", "ast", 0.5, 2000, 5),
         ]
 
         configs = get_extraction_configs(engine)
@@ -158,16 +158,18 @@ class TestGetExtractionConfigs:
         assert configs[0].node_type == "BusinessConcept"
         assert configs[0].temperature is None
         assert configs[0].max_tokens is None
+        assert configs[0].batch_size == 1
         assert configs[1].node_type == "TypeDefinition"
         assert configs[1].extraction_method == "ast"
         assert configs[1].temperature == 0.5
         assert configs[1].max_tokens == 2000
+        assert configs[1].batch_size == 5
 
     def test_filters_enabled_only(self):
         """Should filter to enabled configs when requested."""
         engine = MagicMock()
         engine.execute.return_value.fetchall.return_value = [
-            ("BusinessConcept", 1, True, None, None, None, "llm", None, None),
+            ("BusinessConcept", 1, True, None, None, None, "llm", None, None, 1),
         ]
 
         configs = get_extraction_configs(engine, enabled_only=True)
@@ -190,12 +192,13 @@ class TestGetExtractionConfigs:
         """Should default extraction_method to llm when None."""
         engine = MagicMock()
         engine.execute.return_value.fetchall.return_value = [
-            ("BusinessConcept", 1, True, None, None, None, None, None, None),
+            ("BusinessConcept", 1, True, None, None, None, None, None, None, None),
         ]
 
         configs = get_extraction_configs(engine)
 
         assert configs[0].extraction_method == "llm"
+        assert configs[0].batch_size == 1  # Default when None
 
 
 class TestGetExtractionConfig:
@@ -205,8 +208,8 @@ class TestGetExtractionConfig:
         """Should return config when found."""
         engine = MagicMock()
         # Columns: node_type, sequence, enabled, input_sources, instruction, example,
-        #          extraction_method, temperature, max_tokens
-        engine.execute.return_value.fetchone.return_value = ("BusinessConcept", 1, True, '{"files": []}', "instruction", "example", "llm", 0.7, 4096)
+        #          extraction_method, temperature, max_tokens, batch_size
+        engine.execute.return_value.fetchone.return_value = ("BusinessConcept", 1, True, '{"files": []}', "instruction", "example", "llm", 0.7, 4096, 3)
 
         config = get_extraction_config(engine, "BusinessConcept")
 
@@ -215,6 +218,7 @@ class TestGetExtractionConfig:
         assert config.enabled is True
         assert config.temperature == 0.7
         assert config.max_tokens == 4096
+        assert config.batch_size == 3
 
     def test_returns_none_when_not_found(self):
         """Should return None when config not found."""
@@ -1029,9 +1033,9 @@ class TestCreateExtractionConfigVersion:
         from deriva.services.config import create_extraction_config_version
 
         engine = MagicMock()
-        # Current config: (id, version, sequence, enabled, input_sources, instruction, example, temperature, max_tokens)
+        # Current config: (id, version, sequence, enabled, input_sources, instruction, example, temperature, max_tokens, batch_size)
         engine.execute.return_value.fetchone.side_effect = [
-            (1, 1, 1, True, '{"files": []}', "instruction", "example", 0.7, 4096),
+            (1, 1, 1, True, '{"files": []}', "instruction", "example", 0.7, 4096, 1),
             (2,),  # Next ID
         ]
 

@@ -46,6 +46,7 @@ from deriva.common.types import PipelineResult, ProgressUpdate
 if TYPE_CHECKING:
     from deriva.common.types import ProgressReporter, RunLoggerProtocol
 from deriva.adapters.graph import GraphManager
+from deriva.adapters.graph.cache import EnrichmentCacheManager
 from deriva.modules.derivation import prep
 from deriva.modules.derivation.application_component import ApplicationComponentDerivation
 from deriva.modules.derivation.application_interface import ApplicationInterfaceDerivation
@@ -108,6 +109,17 @@ def _collect_relationship_rules() -> dict[str, tuple[list[Any], list[Any]]]:
     return rules
 
 
+def _get_element_props(elements: list[dict[str, Any]], identifier: str) -> dict[str, Any]:
+    """Get properties for an element by identifier.
+
+    Used to propagate graph properties to relationships for stability analysis.
+    """
+    for elem in elements:
+        if elem.get("identifier") == identifier:
+            return elem.get("properties", {})
+    return {}
+
+
 def generate_element(
     graph_manager: GraphManager,
     archimate_manager: ArchimateManager,
@@ -123,6 +135,7 @@ def generate_element(
     temperature: float | None = None,
     max_tokens: int | None = None,
     defer_relationships: bool = True,
+    cache_manager: EnrichmentCacheManager | None = None,
 ) -> dict[str, Any]:
     """
     Generate ArchiMate elements of a specific type (and optionally their relationships).
@@ -148,6 +161,7 @@ def generate_element(
         temperature: Optional LLM temperature override
         max_tokens: Optional LLM max_tokens override
         defer_relationships: If True, skip relationship derivation (for separated phases mode)
+        cache_manager: Optional EnrichmentCacheManager for controlled caching
 
     Returns:
         Dict with success, elements_created, relationships_created, created_elements, errors
@@ -177,6 +191,7 @@ def generate_element(
             temperature=temperature,
             max_tokens=max_tokens,
             defer_relationships=defer_relationships,
+            cache_manager=cache_manager,
         )
         return {
             "success": result.success,
@@ -227,15 +242,15 @@ def _get_graph_edges(
             If provided, only returns edges where both nodes belong to this repo.
             This enables per-repository enrichment isolation in multi-repo setups.
 
-    Note: Labels in Neo4j are namespaced (e.g., "Graph:Directory", "Graph:File").
-    We match any node with a label starting with "Graph:" to get all graph nodes.
+    Note: Labels in Neo4j are separate (e.g., ['Graph', 'Directory'], not 'Graph:Directory').
+    We match any node with the 'Graph' label to get all graph nodes.
     """
     if repository_name:
         # Filter to edges within a single repository
         query = """
             MATCH (a)-[r]->(b)
-            WHERE any(label IN labels(a) WHERE label STARTS WITH 'Graph:')
-              AND any(label IN labels(b) WHERE label STARTS WITH 'Graph:')
+            WHERE 'Graph' IN labels(a)
+              AND 'Graph' IN labels(b)
               AND a.active = true AND b.active = true
               AND a.repository_name = $repo_name
               AND b.repository_name = $repo_name
@@ -246,8 +261,8 @@ def _get_graph_edges(
         # Default: get all edges
         query = """
             MATCH (a)-[r]->(b)
-            WHERE any(label IN labels(a) WHERE label STARTS WITH 'Graph:')
-              AND any(label IN labels(b) WHERE label STARTS WITH 'Graph:')
+            WHERE 'Graph' IN labels(a)
+              AND 'Graph' IN labels(b)
               AND a.active = true AND b.active = true
             RETURN a.id as source, b.id as target
         """
@@ -348,6 +363,9 @@ def run_derivation(
     progress: ProgressReporter | None = None,
     defer_relationships: bool = True,
     config_versions: dict[str, dict[str, int]] | None = None,
+    use_enrichment_cache: bool = True,
+    nocache_enrichment_configs: list[str] | None = None,
+    enrichment_bench_hash: str | None = None,
 ) -> dict[str, Any]:
     """
     Run the derivation pipeline.
@@ -371,6 +389,9 @@ def run_derivation(
                             be derived. Use for A/B testing or separated phases.
         config_versions: Optional config version snapshot (for benchmark consistency).
                         Dict with {"derivation": {step_name: version}}
+        use_enrichment_cache: Enable/disable graph enrichment caching (default True).
+        nocache_enrichment_configs: List of config names to skip enrichment cache for.
+        enrichment_bench_hash: Optional benchmark hash for per-run cache isolation.
 
     Returns:
         Dict with success, stats, errors
@@ -386,6 +407,13 @@ def run_derivation(
     }
     errors: list[str] = []
     all_created_elements: list[dict] = []
+
+    # Create enrichment cache manager with control settings
+    enrichment_cache = EnrichmentCacheManager(
+        use_cache=use_enrichment_cache,
+        nocache_configs=nocache_enrichment_configs,
+        bench_hash=enrichment_bench_hash,
+    )
 
     # Accumulate graph metadata from prep phase for use in refine steps
     graph_metadata: dict[str, Any] = {}
@@ -532,6 +560,7 @@ def run_derivation(
                     batch_size=cfg.batch_size,
                     existing_elements=all_created_elements,  # Pass accumulated elements
                     defer_relationships=defer_relationships,
+                    cache_manager=enrichment_cache,
                 )
 
                 elements_created = step_result.get("elements_created", 0)
@@ -599,13 +628,24 @@ def run_derivation(
                 graph_manager=graph_manager,
             )
 
-            # Persist relationships to archimate model
+            # Persist relationships to archimate model with graph metadata for stability analysis
             for rel_data in relationships:
+                source_props = _get_element_props(all_created_elements, rel_data["source"])
+                target_props = _get_element_props(all_created_elements, rel_data["target"])
+
                 relationship = Relationship(
                     source=rel_data["source"],
                     target=rel_data["target"],
                     relationship_type=rel_data["relationship_type"],
-                    properties={"confidence": rel_data.get("confidence", 0.5)},
+                    properties={
+                        "confidence": rel_data.get("confidence", 0.5),
+                        "source_pagerank": source_props.get("source_pagerank"),
+                        "source_kcore": source_props.get("source_kcore_level"),
+                        "source_community": source_props.get("source_louvain_community"),
+                        "target_pagerank": target_props.get("source_pagerank"),
+                        "target_kcore": target_props.get("source_kcore_level"),
+                        "target_community": target_props.get("source_louvain_community"),
+                    },
                 )
                 archimate_manager.add_relationship(relationship)
 
@@ -739,6 +779,9 @@ def run_derivation_iter(
     verbose: bool = False,
     phases: list[str] | None = None,
     defer_relationships: bool = True,
+    use_enrichment_cache: bool = True,
+    nocache_enrichment_configs: list[str] | None = None,
+    enrichment_bench_hash: str | None = None,
 ) -> Iterator[ProgressUpdate]:
     """
     Run derivation pipeline as a generator, yielding progress updates.
@@ -755,6 +798,9 @@ def run_derivation_iter(
         enabled_only: Only run enabled derivation steps
         verbose: Print progress to stdout
         phases: List of phases to run ("prep", "generate", "refine")
+        use_enrichment_cache: Enable/disable graph enrichment caching (default True).
+        nocache_enrichment_configs: List of config names to skip enrichment cache for.
+        enrichment_bench_hash: Optional benchmark hash for per-run cache isolation.
 
     Yields:
         ProgressUpdate objects for each step in the pipeline
@@ -770,6 +816,13 @@ def run_derivation_iter(
     }
     errors: list[str] = []
     all_created_elements: list[dict] = []
+
+    # Create enrichment cache manager with control settings
+    enrichment_cache = EnrichmentCacheManager(
+        use_cache=use_enrichment_cache,
+        nocache_configs=nocache_enrichment_configs,
+        bench_hash=enrichment_bench_hash,
+    )
 
     # Calculate total steps for progress
     prep_configs = config.get_derivation_configs(engine, enabled_only=enabled_only, phase="prep")
@@ -887,6 +940,7 @@ def run_derivation_iter(
                     batch_size=cfg.batch_size,
                     existing_elements=all_created_elements,
                     defer_relationships=defer_relationships,
+                    cache_manager=enrichment_cache,
                 )
 
                 elements_created = step_result.get("elements_created", 0)

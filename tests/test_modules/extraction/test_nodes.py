@@ -1085,7 +1085,7 @@ class TestExtractMethodsFromPython:
         assert result["success"] is True
         edge = result["data"]["edges"][0]
         assert edge["relationship_type"] == "CONTAINS"
-        assert "file_" in edge["from_node_id"]
+        assert "file::" in edge["from_node_id"]
 
     @patch("deriva.modules.extraction.method.TreeSitterManager")
     def test_handles_syntax_error(self, mock_treesitter_manager_class):
@@ -1325,7 +1325,7 @@ class TestBuildRepositoryNode:
         result = build_repository_node(metadata)
 
         assert result["success"] is True
-        assert result["data"]["node_id"] == "repo_myproject"
+        assert result["data"]["node_id"] == "repo::myproject"
         assert result["data"]["label"] == "Repository"
         assert result["data"]["properties"]["name"] == "myproject"
 
@@ -1364,7 +1364,7 @@ class TestBuildDirectoryNode:
         result = build_directory_node(metadata, "myrepo")
 
         assert result["success"] is True
-        assert result["data"]["node_id"] == "dir_myrepo_src_utils"
+        assert result["data"]["node_id"] == "dir::myrepo::src_utils"
         assert result["data"]["label"] == "Directory"
 
     def test_missing_required_fields(self):
@@ -1470,7 +1470,7 @@ class TestBuildFileNode:
         result = build_file_node(metadata, "myrepo")
 
         assert result["success"] is True
-        assert result["data"]["node_id"] == "file_myrepo_src_main.py"
+        assert result["data"]["node_id"] == "file::myrepo::src_main.py"
         assert result["data"]["label"] == "File"
 
     def test_missing_required_fields(self):
@@ -1540,8 +1540,8 @@ class TestExtractFiles:
             assert result["success"] is True
             test_edges = [e for e in result["data"]["edges"] if e["relationship_type"] == "TESTS"]
             assert len(test_edges) == 1
-            assert test_edges[0]["from_node_id"] == "file_myrepo_test_main.py"
-            assert test_edges[0]["to_node_id"] == "file_myrepo_main.py"
+            assert test_edges[0]["from_node_id"] == "file::myrepo::test_main.py"
+            assert test_edges[0]["to_node_id"] == "file::myrepo::main.py"
 
 
 class TestInferSourceFileForTest:

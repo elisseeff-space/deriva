@@ -364,7 +364,7 @@ def _extract_from_requirements_txt(
 
     original_path = strip_chunk_suffix(file_path)
     safe_path = original_path.replace("/", "_").replace("\\", "_")
-    file_node_id = f"file_{repo_name}_{safe_path}"
+    file_node_id = f"file::{repo_name}::{safe_path}"
 
     seen: set[str] = set()
 
@@ -446,7 +446,7 @@ def _extract_from_pyproject_toml(
 
     original_path = strip_chunk_suffix(file_path)
     safe_path = original_path.replace("/", "_").replace("\\", "_")
-    file_node_id = f"file_{repo_name}_{safe_path}"
+    file_node_id = f"file::{repo_name}::{safe_path}"
 
     seen: set[str] = set()
 
@@ -499,7 +499,7 @@ def _extract_from_package_json(
 
     original_path = strip_chunk_suffix(file_path)
     safe_path = original_path.replace("/", "_").replace("\\", "_")
-    file_node_id = f"file_{repo_name}_{safe_path}"
+    file_node_id = f"file::{repo_name}::{safe_path}"
 
     seen: set[str] = set()
 
@@ -553,7 +553,7 @@ def _extract_from_python_ast(
 
     original_path = strip_chunk_suffix(file_path)
     safe_path = original_path.replace("/", "_").replace("\\", "_")
-    file_node_id = f"file_{repo_name}_{safe_path}"
+    file_node_id = f"file::{repo_name}::{safe_path}"
 
     seen: set[str] = set()
 
@@ -751,7 +751,7 @@ def _extract_from_llm_single(
 
         original_path = strip_chunk_suffix(file_path)
         safe_path = original_path.replace("/", "_").replace("\\", "_")
-        file_node_id = f"file_{repo_name}_{safe_path}"
+        file_node_id = f"file::{repo_name}::{safe_path}"
 
         for dep_data in parse_result["data"]:
             node_result = build_external_dependency_node(dep_data, file_path, repo_name)
@@ -837,9 +837,10 @@ def build_external_dependency_node(
     if category not in valid_categories:
         category = "library"
 
+    # Generate unique node ID using :: separator to avoid repo name conflicts
     dep_name_slug = dep_data["dependencyName"].lower()
     dep_name_slug = dep_name_slug.replace(" ", "_").replace("-", "_").replace("/", "_")
-    node_id = f"extdep_{repo_name}_{dep_name_slug}"
+    node_id = f"extdep::{repo_name}::{dep_name_slug}"
 
     node_data = {
         "node_id": node_id,
@@ -874,8 +875,9 @@ def _build_dependency_node_and_edge(
     extraction_method: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Build a dependency node and its USES edge."""
+    # Generate unique node ID using :: separator to avoid repo name conflicts
     dep_name_slug = name.lower().replace("-", "_").replace(" ", "_").replace("/", "_")
-    node_id = f"extdep_{repo_name}_{dep_name_slug}"
+    node_id = f"extdep::{repo_name}::{dep_name_slug}"
 
     node = {
         "node_id": node_id,

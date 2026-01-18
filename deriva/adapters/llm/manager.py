@@ -42,6 +42,8 @@ from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.settings import ModelSettings
 
+from deriva.common.exceptions import CircuitOpenError
+
 from .cache import CacheManager
 from .model_registry import VALID_PROVIDERS, get_pydantic_ai_model
 from .models import (
@@ -54,11 +56,81 @@ from .models import (
     ValidationError,
 )
 from .rate_limiter import RateLimitConfig, RateLimiter, get_default_rate_limit
+from .retry import classify_exception
+from .schemas import EXTRACTION_SCHEMAS
 
 logger = logging.getLogger(__name__)
 
+# Map JSON schema names to Pydantic models
+_SCHEMA_NAME_TO_MODEL: dict[str, type[BaseModel]] = {
+    "business_concepts_extraction": EXTRACTION_SCHEMAS["BusinessConcept"],
+    "business_concepts_multi_extraction": EXTRACTION_SCHEMAS["BusinessConceptMulti"],
+    "type_definitions_extraction": EXTRACTION_SCHEMAS["TypeDefinition"],
+    "technology_extraction": EXTRACTION_SCHEMAS["Technology"],
+    "external_dependency_extraction": EXTRACTION_SCHEMAS["ExternalDependency"],
+    "test_extraction": EXTRACTION_SCHEMAS["Test"],
+    "methods_extraction": EXTRACTION_SCHEMAS["Method"],
+    "directory_classification": EXTRACTION_SCHEMAS["DirectoryClassification"],
+}
+
+
+def _resolve_schema_to_model(schema: dict[str, Any] | None) -> type[BaseModel] | None:
+    """
+    Resolve a JSON schema dict to its corresponding Pydantic model.
+
+    Args:
+        schema: JSON schema dict with 'name' field
+
+    Returns:
+        Corresponding Pydantic model class, or None if not found
+    """
+    if not schema:
+        return None
+
+    schema_name = schema.get("name")
+    if not schema_name:
+        return None
+
+    return _SCHEMA_NAME_TO_MODEL.get(schema_name)
+
 # Type variable for structured output
 T = TypeVar("T", bound=BaseModel)
+
+
+def get_model_rpm(model_name: str, provider: str) -> int:
+    """
+    Get RPM for a specific model, falling back to provider default.
+
+    Checks for model-specific env var: LLM_{MODEL_NAME}_RPM
+    Falls back to global LLM_RATE_LIMIT_RPM, then provider default.
+
+    Args:
+        model_name: The model name (e.g., "mistral-devstral")
+        provider: The provider name (e.g., "mistral")
+
+    Returns:
+        Requests per minute limit
+    """
+    # Check for model-specific RPM: LLM_{MODEL_NAME}_RPM
+    model_key = model_name.upper().replace("-", "_")
+    model_rpm_str = os.getenv(f"LLM_{model_key}_RPM")
+    if model_rpm_str:
+        try:
+            return int(model_rpm_str)
+        except ValueError:
+            pass
+
+    # Check global RPM setting
+    global_rpm_str = os.getenv("LLM_RATE_LIMIT_RPM", "0")
+    try:
+        global_rpm = int(global_rpm_str)
+        if global_rpm > 0:
+            return global_rpm
+    except ValueError:
+        pass
+
+    # Fall back to provider default
+    return get_default_rate_limit(provider)
 
 
 def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
@@ -159,14 +231,24 @@ class LLMManager:
             cache_path = project_root / cache_path
         self.cache = CacheManager(str(cache_path))
 
-        # Initialize rate limiter
-        rpm = self.config.get("requests_per_minute", 0)
-        if rpm <= 0:
-            rpm = get_default_rate_limit(self.config["provider"])
+        # Initialize rate limiter with model-specific RPM and adaptive features
+        rpm = get_model_rpm(self.config["model"], self.config["provider"])
         self._rate_limiter = RateLimiter(
             config=RateLimitConfig(
                 requests_per_minute=rpm,
                 min_request_delay=self.config.get("min_request_delay", 0.0),
+                # Adaptive throttling
+                throttle_enabled=self.config.get("throttle_enabled", True),
+                throttle_min_factor=self.config.get("throttle_min_factor", 0.25),
+                throttle_recovery_time=self.config.get("throttle_recovery_time", 60.0),
+                # Circuit breaker
+                circuit_breaker_enabled=self.config.get(
+                    "circuit_breaker_enabled", True
+                ),
+                circuit_failure_threshold=self.config.get(
+                    "circuit_failure_threshold", 5
+                ),
+                circuit_recovery_time=self.config.get("circuit_recovery_time", 30.0),
             )
         )
 
@@ -235,13 +317,29 @@ class LLMManager:
             cache_path = project_root / cache_path
         instance.cache = CacheManager(str(cache_path))
 
-        rpm = int(os.getenv("LLM_RATE_LIMIT_RPM", "0"))
-        if rpm <= 0:
-            rpm = get_default_rate_limit(config.provider)
+        rpm = get_model_rpm(config.model, config.provider)
         instance._rate_limiter = RateLimiter(
             config=RateLimitConfig(
                 requests_per_minute=rpm,
                 min_request_delay=float(os.getenv("LLM_RATE_LIMIT_DELAY", "0.0")),
+                # Adaptive throttling
+                throttle_enabled=os.getenv("LLM_THROTTLE_ENABLED", "true").lower()
+                == "true",
+                throttle_min_factor=float(os.getenv("LLM_THROTTLE_MIN_FACTOR", "0.25")),
+                throttle_recovery_time=float(
+                    os.getenv("LLM_THROTTLE_RECOVERY_TIME", "60.0")
+                ),
+                # Circuit breaker
+                circuit_breaker_enabled=os.getenv(
+                    "LLM_CIRCUIT_BREAKER_ENABLED", "true"
+                ).lower()
+                == "true",
+                circuit_failure_threshold=int(
+                    os.getenv("LLM_CIRCUIT_FAILURE_THRESHOLD", "5")
+                ),
+                circuit_recovery_time=float(
+                    os.getenv("LLM_CIRCUIT_RECOVERY_TIME", "30.0")
+                ),
             )
         )
 
@@ -329,6 +427,27 @@ class LLMManager:
             "nocache": os.getenv("LLM_NOCACHE", "false").strip("'\"").lower() == "true",
             "requests_per_minute": int(os.getenv("LLM_RATE_LIMIT_RPM", "0")),
             "min_request_delay": float(os.getenv("LLM_RATE_LIMIT_DELAY", "0.0")),
+            # Retry configuration
+            "retry_base_delay": float(os.getenv("LLM_RETRY_BASE_DELAY", "2.0")),
+            "retry_max_delay": float(os.getenv("LLM_RETRY_MAX_DELAY", "60.0")),
+            # Adaptive throttling
+            "throttle_enabled": os.getenv("LLM_THROTTLE_ENABLED", "true").lower()
+            == "true",
+            "throttle_min_factor": float(os.getenv("LLM_THROTTLE_MIN_FACTOR", "0.25")),
+            "throttle_recovery_time": float(
+                os.getenv("LLM_THROTTLE_RECOVERY_TIME", "60.0")
+            ),
+            # Circuit breaker
+            "circuit_breaker_enabled": os.getenv(
+                "LLM_CIRCUIT_BREAKER_ENABLED", "true"
+            ).lower()
+            == "true",
+            "circuit_failure_threshold": int(
+                os.getenv("LLM_CIRCUIT_FAILURE_THRESHOLD", "5")
+            ),
+            "circuit_recovery_time": float(
+                os.getenv("LLM_CIRCUIT_RECOVERY_TIME", "30.0")
+            ),
         }
 
     def _validate_config(self) -> None:
@@ -452,8 +571,17 @@ class LLMManager:
             # Rate limit
             self._rate_limiter.wait_if_needed()
 
+            # Resolve output type:
+            # 1. Use explicit response_model if provided
+            # 2. Otherwise, try to resolve schema dict to Pydantic model
+            # 3. Fall back to str (unstructured) if neither works
+            resolved_model = response_model or _resolve_schema_to_model(schema)
+            output_type = resolved_model if resolved_model else str
+
+            # Track if we're using schema-resolved model (for response handling)
+            using_schema_model = resolved_model is not None and response_model is None
+
             # Create PydanticAI agent
-            output_type = response_model if response_model else str
             agent: Agent[None, Any] = Agent(
                 model=self._pydantic_model,
                 output_type=output_type,
@@ -484,7 +612,7 @@ class LLMManager:
 
             # Handle response
             if response_model:
-                # Cache the serialized model
+                # Explicit response_model: return the Pydantic instance
                 if write_cache:
                     content = (
                         result.output.model_dump_json()
@@ -495,7 +623,26 @@ class LLMManager:
                         cache_key, content, prompt, self.model, usage
                     )
                 return result.output
+            elif using_schema_model:
+                # Schema-resolved model: serialize to JSON for backwards compatibility
+                content = (
+                    result.output.model_dump_json()
+                    if hasattr(result.output, "model_dump_json")
+                    else str(result.output)
+                )
+                if write_cache:
+                    self.cache.set_response(
+                        cache_key, content, prompt, self.model, usage
+                    )
+                return LiveResponse(
+                    prompt=prompt,
+                    model=self.model,
+                    content=content,
+                    usage=usage,
+                    finish_reason="stop",
+                )
             else:
+                # Unstructured string output
                 content = str(result.output) if result.output else ""
                 if write_cache:
                     self.cache.set_response(
@@ -509,8 +656,21 @@ class LLMManager:
                     finish_reason="stop",
                 )
 
+        except CircuitOpenError as e:
+            # Circuit breaker is open - fail fast without attempting request
+            logger.warning(
+                "LLM query blocked by circuit breaker: %s",
+                e,
+            )
+            return FailedResponse(
+                prompt=prompt,
+                model=self.model,
+                error=str(e),
+                error_type="CircuitOpenError",
+            )
+
         except ValidationError as e:
-            logger.warning(f"LLM query failed with ValidationError: {e}")
+            logger.warning("LLM query failed with ValidationError: %s", e)
             return FailedResponse(
                 prompt=prompt,
                 model=self.model,
@@ -519,7 +679,27 @@ class LLMManager:
             )
 
         except Exception as e:
-            logger.warning(f"LLM query failed with {type(e).__name__}: {e}")
+            # Classify the error and update rate limiter state
+            category, retry_after = classify_exception(e)
+
+            if category == "rate_limited":
+                self._rate_limiter.record_rate_limit(retry_after)
+                logger.warning(
+                    "LLM query rate limited: %s (retry_after: %s)",
+                    e,
+                    retry_after,
+                )
+            elif category == "transient":
+                self._rate_limiter.record_failure()
+                logger.warning("LLM query failed with transient error: %s", e)
+            else:
+                # Permanent error - don't update failure counters
+                logger.warning(
+                    "LLM query failed with permanent error (%s): %s",
+                    type(e).__name__,
+                    e,
+                )
+
             return FailedResponse(
                 prompt=prompt,
                 model=self.model,

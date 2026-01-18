@@ -8,7 +8,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import tree_sitter
 
-from ..models import ExtractedImport, ExtractedMethod, ExtractedType
+from ..models import (
+    ExtractedCall,
+    ExtractedImport,
+    ExtractedMethod,
+    ExtractedType,
+    FilterConstants,
+)
 
 
 class LanguageExtractor(ABC):
@@ -72,6 +78,34 @@ class LanguageExtractor(ABC):
         Returns:
             List of ExtractedImport objects
         """
+
+    def extract_calls(
+        self, tree: tree_sitter.Tree, source: bytes
+    ) -> list[ExtractedCall]:
+        """Extract function/method calls from parsed tree.
+
+        This is optional - languages can override to provide call extraction.
+
+        Args:
+            tree: Parsed tree-sitter tree
+            source: Original source code as bytes
+
+        Returns:
+            List of ExtractedCall objects
+        """
+        return []
+
+    def get_filter_constants(self) -> FilterConstants:
+        """Return language-specific filter constants for edge extraction.
+
+        Override in language-specific extractors to provide constants for
+        filtering standard library, builtins, and framework code during
+        edge extraction.
+
+        Returns:
+            FilterConstants with language-specific sets
+        """
+        return FilterConstants()
 
     # =========================================================================
     # Helper methods available to all extractors
