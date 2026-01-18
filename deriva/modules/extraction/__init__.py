@@ -89,6 +89,7 @@ from .business_concept import (
     build_business_concept_node,
     extract_business_concepts,
     extract_business_concepts_batch,
+    extract_business_concepts_multi,
 )
 from .business_concept import (
     build_extraction_prompt as build_business_concept_prompt,
@@ -230,6 +231,7 @@ __all__ = [
     "build_business_concept_node",
     "extract_business_concepts",
     "extract_business_concepts_batch",
+    "extract_business_concepts_multi",
     "build_business_concept_prompt",
     "parse_business_concept_response",
     "BUSINESS_CONCEPT_SCHEMA",

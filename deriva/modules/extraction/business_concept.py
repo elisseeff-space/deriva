@@ -191,6 +191,52 @@ def get_existing_concepts_from_graph(
         return []
 
 
+# Shared concepts array schema - used by both single and multi-file extraction
+_CONCEPTS_ARRAY_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "conceptName": {
+                "type": "string",
+                "description": "Name of the business concept",
+            },
+            "conceptType": {
+                "type": "string",
+                "enum": [
+                    "actor",
+                    "service",
+                    "process",
+                    "entity",
+                    "event",
+                    "rule",
+                    "goal",
+                    "channel",
+                    "product",
+                    "capability",
+                    "other",
+                ],
+                "description": "Type of business concept",
+            },
+            "description": {
+                "type": "string",
+                "description": "Brief description of the concept",
+            },
+            "confidence": {
+                "type": "number",
+                "description": "Confidence score between 0.0 and 1.0",
+            },
+        },
+        "required": [
+            "conceptName",
+            "conceptType",
+            "description",
+            "confidence",
+        ],
+        "additionalProperties": False,
+    },
+}
+
 # JSON schema for LLM structured output
 BUSINESS_CONCEPT_SCHEMA = {
     "name": "business_concepts_extraction",
@@ -198,50 +244,7 @@ BUSINESS_CONCEPT_SCHEMA = {
     "schema": {
         "type": "object",
         "properties": {
-            "concepts": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "conceptName": {
-                            "type": "string",
-                            "description": "Name of the business concept",
-                        },
-                        "conceptType": {
-                            "type": "string",
-                            "enum": [
-                                "actor",
-                                "service",
-                                "process",
-                                "entity",
-                                "event",
-                                "rule",
-                                "goal",
-                                "channel",
-                                "product",
-                                "capability",
-                                "other",
-                            ],
-                            "description": "Type of business concept",
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Brief description of the concept",
-                        },
-                        "confidence": {
-                            "type": "number",
-                            "description": "Confidence score between 0.0 and 1.0",
-                        },
-                    },
-                    "required": [
-                        "conceptName",
-                        "conceptType",
-                        "description",
-                        "confidence",
-                    ],
-                    "additionalProperties": False,
-                },
-            }
+            "concepts": _CONCEPTS_ARRAY_SCHEMA,
         },
         "required": ["concepts"],
         "additionalProperties": False,
@@ -265,9 +268,7 @@ BUSINESS_CONCEPT_MULTI_SCHEMA = {
                             "type": "string",
                             "description": "Path of the file these concepts were extracted from",
                         },
-                        "concepts": BUSINESS_CONCEPT_SCHEMA["schema"]["properties"][
-                            "concepts"
-                        ],  # type: ignore[index]
+                        "concepts": _CONCEPTS_ARRAY_SCHEMA,
                     },
                     "required": ["file_path", "concepts"],
                     "additionalProperties": False,

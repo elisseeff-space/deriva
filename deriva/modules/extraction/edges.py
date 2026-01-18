@@ -592,19 +592,22 @@ def extract_edges_batch(
     """
     all_edges: list[dict[str, Any]] = []
     all_errors: list[str] = []
-    stats = {
-        "files_processed": 0,
-        "total_edges": 0,
-        "imports": {"internal": 0, "external": 0, "unresolved": 0},
-        "calls": {"total": 0, "resolved": 0, "unresolved": 0},
-        "decorators": {"total": 0, "resolved": 0, "builtin": 0, "unresolved": 0},
-        "references": {
-            "total_annotations": 0,
-            "resolved": 0,
-            "builtin": 0,
-            "unresolved": 0,
-        },
+    # Define nested stats dicts explicitly for type checker
+    imports_stats: dict[str, int] = {"internal": 0, "external": 0, "unresolved": 0}
+    calls_stats: dict[str, int] = {"total": 0, "resolved": 0, "unresolved": 0}
+    decorators_stats: dict[str, int] = {
+        "total": 0,
+        "resolved": 0,
+        "builtin": 0,
+        "unresolved": 0,
     }
+    references_stats: dict[str, int] = {
+        "total_annotations": 0,
+        "resolved": 0,
+        "builtin": 0,
+        "unresolved": 0,
+    }
+    files_processed = 0
 
     repo_path = Path(repo_path)
     edge_types = edge_types or ALL_EDGE_TYPES
@@ -654,20 +657,31 @@ def extract_edges_batch(
 
         all_edges.extend(result["data"]["edges"])
         all_errors.extend(result["errors"])
-        stats["files_processed"] += 1
+        files_processed += 1
 
-        # Aggregate stats
-        for key in ["imports", "calls", "decorators", "references"]:
-            for subkey, value in result["stats"].get(key, {}).items():
-                stats[key][subkey] = stats[key].get(subkey, 0) + value
-
-    stats["total_edges"] = len(all_edges)
+        # Aggregate stats from result
+        result_stats = result["stats"]
+        for subkey, value in result_stats.get("imports", {}).items():
+            imports_stats[subkey] = imports_stats.get(subkey, 0) + value
+        for subkey, value in result_stats.get("calls", {}).items():
+            calls_stats[subkey] = calls_stats.get(subkey, 0) + value
+        for subkey, value in result_stats.get("decorators", {}).items():
+            decorators_stats[subkey] = decorators_stats.get(subkey, 0) + value
+        for subkey, value in result_stats.get("references", {}).items():
+            references_stats[subkey] = references_stats.get(subkey, 0) + value
 
     return {
         "success": True,
         "data": {"edges": all_edges},
         "errors": all_errors,
-        "stats": stats,
+        "stats": {
+            "files_processed": files_processed,
+            "total_edges": len(all_edges),
+            "imports": imports_stats,
+            "calls": calls_stats,
+            "decorators": decorators_stats,
+            "references": references_stats,
+        },
     }
 
 
