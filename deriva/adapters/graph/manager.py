@@ -345,7 +345,8 @@ class GraphManager:
                 )
 
         except Exception as e:
-            logger.warning(f"Failed to add edge {edge_id}: {e}")
+            # Log at debug level - edge failures are expected when targets don't exist yet
+            logger.debug(f"Failed to add edge {edge_id}: {e}")
             raise
 
     def update_node_property(

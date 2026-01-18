@@ -250,7 +250,10 @@ def run_extraction(
                     if "LLM required" in err or "No input sources" in err:
                         warnings.append(err)
                     else:
-                        errors.append(err)
+                        # Add step context to error messages
+                        error_with_context = f"[Extraction - {node_type}] {err}"
+                        errors.append(error_with_context)
+                        logger.error(error_with_context)
 
             except Exception as e:
                 error_msg = f"Error in {node_type}: {str(e)}"

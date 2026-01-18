@@ -469,7 +469,11 @@ def run_derivation(
                 graph_metadata.update(result["stats"]["graph_metadata"])
 
             if result.get("errors"):
-                errors.extend(result["errors"])
+                # Add step context to errors
+                contextualized = [f"[Derivation - {cfg.step_name}] {e}" for e in result["errors"]]
+                errors.extend(contextualized)
+                for err in contextualized:
+                    logger.error(err)
                 if step_ctx:
                     step_ctx.error("; ".join(result["errors"]))
                 if progress:
@@ -598,11 +602,16 @@ def run_derivation(
                     print(f"    + {relationships_created} relationships")
 
                 if step_result.get("errors"):
-                    errors.extend(step_result["errors"])
+                    # Add step context to errors
+                    contextualized = [f"[Derivation - {cfg.step_name}] {e}" for e in step_result["errors"]]
+                    errors.extend(contextualized)
+                    for err in contextualized:
+                        logger.error(err)
 
             except Exception as e:
-                error_msg = f"Error in {cfg.step_name}: {str(e)}"
+                error_msg = f"[Derivation - {cfg.step_name}] {str(e)}"
                 errors.append(error_msg)
+                logger.error(error_msg)
                 stats["steps_skipped"] += 1
                 if step_ctx:
                     step_ctx.error(str(e))
