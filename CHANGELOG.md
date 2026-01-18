@@ -10,7 +10,7 @@ Version 0.6.x is the first robust, end-to-end implementation of Deriva, but stil
 
 ## v0.6.9 - (Unreleased)
 
-Running benchmarks on flask_invoice_generator, full-stack-fastapi-template and taiga-back. Focus on consistency and breaking the 60% barrier for relationships.
+I have been running a lot of benchmarks on flask_invoice_generator, full-stack-fastapi-template and taiga-back/taiga-front. Besides a lot of new config versions, I also added a few improvements to further reduce tokens per run and added some things to make my life easier while benchmarking and trying to get the % up without any overly cannonical or repository specific prompts. Currently not breaking the 60% barrier, for relationships (the hardest one).
 
 ### Extraction
 
@@ -18,11 +18,6 @@ Running benchmarks on flask_invoice_generator, full-stack-fastapi-template and t
 - **Directory Classification Step**: New extraction step after directories to create technology and business concept nodes, guiding subsequent LLM extraction
 - **Token Efficiency**: Compact JSON serialization (~15% savings), system/user prompt separation, and multi-file batching (`--batch-size N`). Estimated 40-60% total reduction
 - **Fixed REFERENCES Edges**: Corrected type node ID format mismatch in `edges.py` that caused edge creation failures
-
-### LLM Adapter
-
-- **Pydantic Structured Output**: New `schemas.py` with Pydantic models for all extraction types. LLM manager auto-resolves JSON schemas to models, enforcing structure via PydanticAI
-- **Rate Limiting**: Adaptive throttling (auto-reduces RPM on 429s), circuit breaker pattern, Retry-After header respect, error classification, and model-specific rate limits via env vars
 
 ### Derivation
 
@@ -34,8 +29,10 @@ Running benchmarks on flask_invoice_generator, full-stack-fastapi-template and t
 - **Self-Loop Prevention**: Fixed self-referential relationships in graph_relationships with query filters and cleanup
 - **Enrichment Cache**: Aligned with LLM cache patterns, CLI control via `--no-enrichment-cache`
 
-### Infrastructure
+### Adapters
 
+- **Pydantic Structured Output**: New `schemas.py` with Pydantic models for all extraction types. LLM manager auto-resolves JSON schemas to models, enforcing structure via PydanticAI
+- **Rate Limiting**: Adaptive throttling (auto-reduces RPM on 429s), circuit breaker pattern, Retry-After header respect, error classification, and model-specific rate limits via env vars
 - **Graph Metadata**: Element properties now include all graph metrics (kcore, articulation points, degree); propagated to relationships
 - **Database Locking**: Non-blocking during benchmarks/pipeline runs, versions used for isolation
 
