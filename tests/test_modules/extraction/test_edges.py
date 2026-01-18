@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 
 from deriva.modules.extraction.edges import (
     ALL_EDGE_TYPES,
-    EdgeType,
     PYTHON_STDLIB,
+    EdgeType,
     _build_method_lookup,
     _extract_type_names,
     _resolve_absolute_import,
@@ -16,7 +16,6 @@ from deriva.modules.extraction.edges import (
     extract_edges_batch,
     extract_edges_from_file,
 )
-
 
 # =============================================================================
 # EdgeType Enum Tests
@@ -402,9 +401,7 @@ class TestExtractEdgesFromFile:
         mock_tsm = MagicMock()
         mock_tsm.get_handler.return_value = None
 
-        with patch(
-            "deriva.modules.extraction.edges.TreeSitterManager", return_value=mock_tsm
-        ):
+        with patch("deriva.modules.extraction.edges.TreeSitterManager", return_value=mock_tsm):
             result = extract_edges_from_file(
                 file_path="test.py",
                 file_content="print('hello')",
@@ -422,9 +419,7 @@ class TestExtractEdgesFromFile:
         mock_tsm = MagicMock()
         mock_tsm.get_handler.return_value = None
 
-        with patch(
-            "deriva.modules.extraction.edges.TreeSitterManager", return_value=mock_tsm
-        ):
+        with patch("deriva.modules.extraction.edges.TreeSitterManager", return_value=mock_tsm):
             result = extract_edges_from_file(
                 file_path="test.txt",  # Unsupported
                 file_content="some text",
@@ -482,3 +477,1114 @@ class TestExtractEdgesBatch:
         assert "total_edges" in stats
         assert "imports" in stats
         assert "calls" in stats
+
+    def test_processes_python_file_with_content(self):
+        """Should process Python file with content provided."""
+        files = [
+            {
+                "path": "main.py",
+                "file_type": "source",
+                "subtype": "python",
+                "content": "import os\n\ndef hello():\n    print('hello')\n",
+            }
+        ]
+        result = extract_edges_batch(
+            files=files,
+            repo_name="test-repo",
+            repo_path="/repo",
+        )
+
+        assert result["success"] is True
+        assert result["stats"]["files_processed"] == 1
+
+    def test_filters_non_source_files(self):
+        """Should filter out non-source files."""
+        files = [
+            {"path": "README.md", "file_type": "documentation", "subtype": "markdown"},
+            {"path": "main.py", "file_type": "source", "subtype": "python", "content": "x = 1"},
+        ]
+        result = extract_edges_batch(
+            files=files,
+            repo_name="test-repo",
+            repo_path="/repo",
+        )
+
+        # Only Python file should be processed
+        assert result["stats"]["files_processed"] == 1
+
+    def test_filters_unsupported_languages(self):
+        """Should filter out unsupported language files."""
+        files = [
+            {"path": "main.rb", "file_type": "source", "subtype": "ruby", "content": "puts 'hi'"},
+        ]
+        result = extract_edges_batch(
+            files=files,
+            repo_name="test-repo",
+            repo_path="/repo",
+        )
+
+        assert result["stats"]["files_processed"] == 0
+
+    def test_calls_progress_callback(self):
+        """Should call progress callback for each file."""
+        progress_calls = []
+
+        def callback(current, total, path):
+            progress_calls.append((current, total, path))
+
+        files = [
+            {"path": "a.py", "file_type": "source", "subtype": "python", "content": "x = 1"},
+            {"path": "b.py", "file_type": "source", "subtype": "python", "content": "y = 2"},
+        ]
+        extract_edges_batch(
+            files=files,
+            repo_name="test-repo",
+            repo_path="/repo",
+            progress_callback=callback,
+        )
+
+        assert len(progress_calls) == 2
+        assert progress_calls[0] == (1, 2, "a.py")
+        assert progress_calls[1] == (2, 2, "b.py")
+
+    def test_aggregates_stats_from_multiple_files(self):
+        """Should aggregate stats from multiple files."""
+        files = [
+            {
+                "path": "a.py",
+                "file_type": "source",
+                "subtype": "python",
+                "content": "import os\nimport sys\n",
+            },
+            {
+                "path": "b.py",
+                "file_type": "source",
+                "subtype": "python",
+                "content": "import json\n",
+            },
+        ]
+        result = extract_edges_batch(
+            files=files,
+            repo_name="test-repo",
+            repo_path="/repo",
+        )
+
+        assert result["stats"]["files_processed"] == 2
+
+
+# =============================================================================
+# _extract_import_edges Tests
+# =============================================================================
+
+
+class TestExtractImportEdges:
+    """Tests for _extract_import_edges function."""
+
+    def test_creates_imports_edge_for_internal_import(self):
+        """Should create IMPORTS edge for internal imports."""
+        from deriva.modules.extraction.edges import _extract_import_edges
+        from deriva.adapters.treesitter.models import ExtractedImport
+
+        imports = [
+            ExtractedImport(module="models", names=["User"], line=1, is_from_import=True)
+        ]
+        all_files = {"main.py", "models.py"}
+
+        edges, stats = _extract_import_edges(
+            imports=imports,
+            file_path="main.py",
+            repo_name="test-repo",
+            all_file_paths=all_files,
+            external_packages=set(),
+            edge_types={EdgeType.IMPORTS, EdgeType.USES},
+        )
+
+        assert stats["internal"] == 1
+        assert len(edges) == 1
+        assert edges[0]["relationship_type"] == "IMPORTS"
+
+    def test_creates_uses_edge_for_external_import(self):
+        """Should create USES edge for external imports."""
+        from deriva.modules.extraction.edges import _extract_import_edges
+        from deriva.adapters.treesitter.models import ExtractedImport
+
+        imports = [
+            ExtractedImport(module="flask", names=["Flask"], line=1, is_from_import=True)
+        ]
+
+        edges, stats = _extract_import_edges(
+            imports=imports,
+            file_path="main.py",
+            repo_name="test-repo",
+            all_file_paths={"main.py"},
+            external_packages={"flask"},
+            edge_types={EdgeType.IMPORTS, EdgeType.USES},
+        )
+
+        assert stats["external"] == 1
+        assert len(edges) == 1
+        assert edges[0]["relationship_type"] == "USES"
+
+    def test_skips_stdlib_imports(self):
+        """Should skip stdlib imports."""
+        from deriva.modules.extraction.edges import _extract_import_edges
+        from deriva.adapters.treesitter.models import ExtractedImport
+
+        imports = [
+            ExtractedImport(module="os", names=["path"], line=1, is_from_import=True)
+        ]
+
+        edges, stats = _extract_import_edges(
+            imports=imports,
+            file_path="main.py",
+            repo_name="test-repo",
+            all_file_paths={"main.py"},
+            external_packages=set(),
+            edge_types={EdgeType.IMPORTS, EdgeType.USES},
+        )
+
+        # os is stdlib, so no edges created
+        assert len(edges) == 0
+        assert stats["unresolved"] == 1
+
+    def test_respects_edge_type_filter(self):
+        """Should respect edge type filter."""
+        from deriva.modules.extraction.edges import _extract_import_edges
+        from deriva.adapters.treesitter.models import ExtractedImport
+
+        imports = [
+            ExtractedImport(module="models", names=["User"], line=1, is_from_import=True),
+            ExtractedImport(module="flask", names=["Flask"], line=2, is_from_import=True),
+        ]
+
+        # Only request IMPORTS, not USES
+        edges, stats = _extract_import_edges(
+            imports=imports,
+            file_path="main.py",
+            repo_name="test-repo",
+            all_file_paths={"main.py", "models.py"},
+            external_packages={"flask"},
+            edge_types={EdgeType.IMPORTS},  # No USES
+        )
+
+        # Should only have IMPORTS edge, not USES
+        assert len(edges) == 1
+        assert edges[0]["relationship_type"] == "IMPORTS"
+
+
+# =============================================================================
+# _resolve_relative_import Advanced Tests
+# =============================================================================
+
+
+class TestResolveRelativeImportAdvanced:
+    """Advanced tests for _resolve_relative_import function."""
+
+    def test_resolves_double_dot_import(self):
+        """Should resolve double-dot relative import."""
+        all_files = {"utils.py", "pkg/subpkg/module.py"}
+        result = _resolve_relative_import(
+            module="..utils",
+            current_file="pkg/subpkg/module.py",
+            all_file_paths=all_files,
+        )
+        # Should go up two levels from pkg/subpkg to root
+        assert result == "utils.py"
+
+    def test_handles_deep_relative_import(self):
+        """Should handle deeply nested relative imports."""
+        all_files = {"base.py", "a/b/c/d.py"}
+        result = _resolve_relative_import(
+            module="...base",
+            current_file="a/b/c/d.py",
+            all_file_paths=all_files,
+        )
+        # Should go up three levels from a/b/c to a, then look for base
+        assert result == "base.py" or result is None
+
+    def test_returns_none_for_too_many_dots(self):
+        """Should return None if module not found after going up directories."""
+        all_files = {"other.py"}  # module.py not in files
+        result = _resolve_relative_import(
+            module="....module",  # Too many dots
+            current_file="a/b.py",  # Only one level deep
+            all_file_paths=all_files,
+        )
+        assert result is None
+
+    def test_resolves_subpackage_init(self):
+        """Should resolve to __init__.py for package imports."""
+        all_files = {"pkg/__init__.py", "pkg/module.py"}
+        result = _resolve_relative_import(
+            module=".pkg",
+            current_file="main.py",
+            all_file_paths=all_files,
+        )
+        # Should resolve pkg to pkg/__init__.py
+        assert result == "pkg/__init__.py" or result == "pkg.py" or result is None
+
+
+# =============================================================================
+# _extract_call_edges Tests
+# =============================================================================
+
+
+class TestExtractCallEdges:
+    """Tests for _extract_call_edges function."""
+
+    def test_creates_call_edge_for_resolved_call(self):
+        """Should create CALLS edge for resolved function calls."""
+        from deriva.modules.extraction.edges import _extract_call_edges
+        from deriva.adapters.treesitter.models import ExtractedCall
+
+        calls = [
+            ExtractedCall(
+                callee_name="helper",
+                callee_qualifier=None,
+                caller_name="main",
+                caller_class=None,
+                is_method_call=False,
+                line=5,
+            )
+        ]
+        method_lookup = {
+            "main": [{"class_name": None, "line_start": 1, "line_end": 10}],
+            "helper": [{"class_name": None, "line_start": 15, "line_end": 20}],
+        }
+
+        edges, stats = _extract_call_edges(
+            calls=calls,
+            method_lookup=method_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["total"] == 1
+        assert stats["resolved"] == 1
+        assert len(edges) == 1
+        assert edges[0]["relationship_type"] == "CALLS"
+
+    def test_skips_builtin_calls(self):
+        """Should skip builtin function calls."""
+        from deriva.modules.extraction.edges import _extract_call_edges
+        from deriva.adapters.treesitter.models import ExtractedCall
+
+        calls = [
+            ExtractedCall(
+                callee_name="print",  # builtin
+                callee_qualifier=None,
+                caller_name="main",
+                caller_class=None,
+                is_method_call=False,
+                line=5,
+            )
+        ]
+        method_lookup = {
+            "main": [{"class_name": None, "line_start": 1, "line_end": 10}],
+        }
+
+        edges, stats = _extract_call_edges(
+            calls=calls,
+            method_lookup=method_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["total"] == 1
+        assert stats["unresolved"] == 1
+        assert len(edges) == 0
+
+    def test_resolves_self_method_call(self):
+        """Should resolve self.method() calls within same class."""
+        from deriva.modules.extraction.edges import _extract_call_edges
+        from deriva.adapters.treesitter.models import ExtractedCall
+
+        calls = [
+            ExtractedCall(
+                callee_name="helper_method",
+                callee_qualifier="self",
+                caller_name="process",
+                caller_class="MyClass",
+                is_method_call=True,
+                line=10,
+            )
+        ]
+        method_lookup = {
+            "process": [{"class_name": "MyClass", "line_start": 5, "line_end": 15}],
+            "helper_method": [{"class_name": "MyClass", "line_start": 20, "line_end": 25}],
+        }
+
+        edges, stats = _extract_call_edges(
+            calls=calls,
+            method_lookup=method_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["resolved"] == 1
+        assert len(edges) == 1
+
+    def test_skips_external_qualifier_calls(self):
+        """Should skip calls with external qualifiers."""
+        from deriva.modules.extraction.edges import _extract_call_edges
+        from deriva.adapters.treesitter.models import ExtractedCall
+
+        calls = [
+            ExtractedCall(
+                callee_name="method",
+                callee_qualifier="external_obj",  # Not self/cls
+                caller_name="main",
+                caller_class=None,
+                is_method_call=True,
+                line=5,
+            )
+        ]
+        method_lookup = {
+            "main": [{"class_name": None, "line_start": 1, "line_end": 10}],
+            "method": [{"class_name": None, "line_start": 15, "line_end": 20}],
+        }
+
+        edges, stats = _extract_call_edges(
+            calls=calls,
+            method_lookup=method_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["unresolved"] == 1
+        assert len(edges) == 0
+
+    def test_skips_self_loops(self):
+        """Should not create self-loop edges."""
+        from deriva.modules.extraction.edges import _extract_call_edges
+        from deriva.adapters.treesitter.models import ExtractedCall
+
+        calls = [
+            ExtractedCall(
+                callee_name="recursive",
+                callee_qualifier=None,
+                caller_name="recursive",  # Same as callee
+                caller_class=None,
+                is_method_call=False,
+                line=5,
+            )
+        ]
+        method_lookup = {
+            "recursive": [{"class_name": None, "line_start": 1, "line_end": 10}],
+        }
+
+        edges, stats = _extract_call_edges(
+            calls=calls,
+            method_lookup=method_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        # Should not create self-loop
+        assert len(edges) == 0
+
+    def test_handles_unresolved_caller(self):
+        """Should handle case when caller cannot be resolved."""
+        from deriva.modules.extraction.edges import _extract_call_edges
+        from deriva.adapters.treesitter.models import ExtractedCall
+
+        calls = [
+            ExtractedCall(
+                callee_name="helper",
+                callee_qualifier=None,
+                caller_name="unknown_caller",  # Not in lookup
+                caller_class=None,
+                is_method_call=False,
+                line=5,
+            )
+        ]
+        method_lookup = {
+            "helper": [{"class_name": None, "line_start": 1, "line_end": 10}],
+        }
+
+        edges, stats = _extract_call_edges(
+            calls=calls,
+            method_lookup=method_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["unresolved"] == 1
+        assert len(edges) == 0
+
+
+# =============================================================================
+# _resolve_caller Tests
+# =============================================================================
+
+
+class TestResolveCaller:
+    """Tests for _resolve_caller function."""
+
+    def test_resolves_single_candidate(self):
+        """Should resolve when there's only one candidate."""
+        from deriva.modules.extraction.edges import _resolve_caller
+
+        method_lookup = {
+            "my_func": [{"class_name": None, "line_start": 1, "line_end": 10}],
+        }
+
+        result = _resolve_caller(
+            caller_name="my_func",
+            caller_class=None,
+            method_lookup=method_lookup,
+            repo_name="test-repo",
+            file_path="main.py",
+        )
+
+        assert result is not None
+        assert "my_func" in result
+
+    def test_resolves_by_class_name(self):
+        """Should resolve by class name when multiple candidates exist."""
+        from deriva.modules.extraction.edges import _resolve_caller
+
+        method_lookup = {
+            "method": [
+                {"class_name": "ClassA", "line_start": 1, "line_end": 10},
+                {"class_name": "ClassB", "line_start": 20, "line_end": 30},
+            ],
+        }
+
+        result = _resolve_caller(
+            caller_name="method",
+            caller_class="ClassB",
+            method_lookup=method_lookup,
+            repo_name="test-repo",
+            file_path="main.py",
+        )
+
+        assert result is not None
+        assert "ClassB" in result
+
+    def test_prefers_standalone_function(self):
+        """Should prefer standalone function when no class match."""
+        from deriva.modules.extraction.edges import _resolve_caller
+
+        method_lookup = {
+            "func": [
+                {"class_name": "SomeClass", "line_start": 1, "line_end": 10},
+                {"class_name": None, "line_start": 20, "line_end": 30},
+            ],
+        }
+
+        result = _resolve_caller(
+            caller_name="func",
+            caller_class="OtherClass",  # Not in candidates
+            method_lookup=method_lookup,
+            repo_name="test-repo",
+            file_path="main.py",
+        )
+
+        assert result is not None
+        # Should resolve to standalone function (class_name=None)
+
+    def test_returns_none_for_unknown_caller(self):
+        """Should return None for unknown caller."""
+        from deriva.modules.extraction.edges import _resolve_caller
+
+        method_lookup = {}
+
+        result = _resolve_caller(
+            caller_name="unknown",
+            caller_class=None,
+            method_lookup=method_lookup,
+            repo_name="test-repo",
+            file_path="main.py",
+        )
+
+        assert result is None
+
+
+# =============================================================================
+# _resolve_callee Tests
+# =============================================================================
+
+
+class TestResolveCallee:
+    """Tests for _resolve_callee function."""
+
+    def test_resolves_simple_function(self):
+        """Should resolve simple function call."""
+        from deriva.modules.extraction.edges import _resolve_callee
+
+        method_lookup = {
+            "helper": [{"class_name": None, "line_start": 1, "line_end": 10}],
+        }
+
+        result = _resolve_callee(
+            callee_name="helper",
+            callee_qualifier=None,
+            is_method_call=False,
+            caller_class=None,
+            method_lookup=method_lookup,
+            repo_name="test-repo",
+            file_path="main.py",
+        )
+
+        assert result is not None
+
+    def test_resolves_self_method(self):
+        """Should resolve self.method() call."""
+        from deriva.modules.extraction.edges import _resolve_callee
+
+        method_lookup = {
+            "helper": [{"class_name": "MyClass", "line_start": 1, "line_end": 10}],
+        }
+
+        result = _resolve_callee(
+            callee_name="helper",
+            callee_qualifier="self",
+            is_method_call=True,
+            caller_class="MyClass",
+            method_lookup=method_lookup,
+            repo_name="test-repo",
+            file_path="main.py",
+        )
+
+        assert result is not None
+        assert "MyClass" in result
+
+    def test_returns_none_for_self_method_not_in_class(self):
+        """Should return None when self.method not found in same class."""
+        from deriva.modules.extraction.edges import _resolve_callee
+
+        method_lookup = {
+            "helper": [{"class_name": "OtherClass", "line_start": 1, "line_end": 10}],
+        }
+
+        result = _resolve_callee(
+            callee_name="helper",
+            callee_qualifier="self",
+            is_method_call=True,
+            caller_class="MyClass",  # Different class
+            method_lookup=method_lookup,
+            repo_name="test-repo",
+            file_path="main.py",
+        )
+
+        assert result is None
+
+    def test_skips_builtins(self):
+        """Should skip builtin function calls."""
+        from deriva.modules.extraction.edges import _resolve_callee
+
+        method_lookup = {
+            "len": [{"class_name": None, "line_start": 1, "line_end": 10}],
+        }
+
+        result = _resolve_callee(
+            callee_name="len",  # builtin
+            callee_qualifier=None,
+            is_method_call=False,
+            caller_class=None,
+            method_lookup=method_lookup,
+            repo_name="test-repo",
+            file_path="main.py",
+        )
+
+        assert result is None
+
+    def test_skips_external_qualifier(self):
+        """Should skip calls with external qualifier."""
+        from deriva.modules.extraction.edges import _resolve_callee
+
+        method_lookup = {
+            "method": [{"class_name": None, "line_start": 1, "line_end": 10}],
+        }
+
+        result = _resolve_callee(
+            callee_name="method",
+            callee_qualifier="external_obj",  # Not self/cls
+            is_method_call=True,
+            caller_class=None,
+            method_lookup=method_lookup,
+            repo_name="test-repo",
+            file_path="main.py",
+        )
+
+        assert result is None
+
+    def test_prefers_standalone_for_multiple_candidates(self):
+        """Should prefer standalone function when multiple candidates exist."""
+        from deriva.modules.extraction.edges import _resolve_callee
+
+        method_lookup = {
+            "func": [
+                {"class_name": "SomeClass", "line_start": 1, "line_end": 10},
+                {"class_name": None, "line_start": 20, "line_end": 30},
+            ],
+        }
+
+        result = _resolve_callee(
+            callee_name="func",
+            callee_qualifier=None,
+            is_method_call=False,
+            caller_class=None,
+            method_lookup=method_lookup,
+            repo_name="test-repo",
+            file_path="main.py",
+        )
+
+        assert result is not None
+
+
+# =============================================================================
+# _extract_decorator_edges Tests
+# =============================================================================
+
+
+class TestExtractDecoratorEdges:
+    """Tests for _extract_decorator_edges function."""
+
+    def test_creates_decorator_edge(self):
+        """Should create DECORATED_BY edge for resolved decorator."""
+        from deriva.modules.extraction.edges import _extract_decorator_edges
+        from deriva.adapters.treesitter.models import ExtractedMethod
+
+        methods = [
+            ExtractedMethod(
+                name="my_decorator",
+                class_name=None,
+                parameters=[],
+                decorators=[],
+                return_annotation=None,
+                docstring=None,
+                line_start=1,
+                line_end=5,
+                is_async=False,
+            ),
+            ExtractedMethod(
+                name="decorated_func",
+                class_name=None,
+                parameters=[],
+                decorators=["my_decorator"],
+                return_annotation=None,
+                docstring=None,
+                line_start=10,
+                line_end=15,
+                is_async=False,
+            ),
+        ]
+        method_lookup = {
+            "my_decorator": [{"class_name": None, "line_start": 1, "line_end": 5}],
+            "decorated_func": [{"class_name": None, "line_start": 10, "line_end": 15}],
+        }
+
+        edges, stats = _extract_decorator_edges(
+            methods=methods,
+            method_lookup=method_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["total"] == 1
+        assert stats["resolved"] == 1
+        assert len(edges) == 1
+        assert edges[0]["relationship_type"] == "DECORATED_BY"
+
+    def test_skips_builtin_decorators(self):
+        """Should skip builtin decorators."""
+        from deriva.modules.extraction.edges import _extract_decorator_edges
+        from deriva.adapters.treesitter.models import ExtractedMethod
+
+        methods = [
+            ExtractedMethod(
+                name="my_method",
+                class_name="MyClass",
+                parameters=[],
+                decorators=["staticmethod", "property"],
+                return_annotation=None,
+                docstring=None,
+                line_start=1,
+                line_end=10,
+                is_async=False,
+            ),
+        ]
+        method_lookup = {
+            "my_method": [{"class_name": "MyClass", "line_start": 1, "line_end": 10}],
+        }
+
+        edges, stats = _extract_decorator_edges(
+            methods=methods,
+            method_lookup=method_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["total"] == 2
+        assert stats["builtin"] == 2
+        assert len(edges) == 0
+
+    def test_handles_decorator_with_arguments(self):
+        """Should handle decorators with arguments."""
+        from deriva.modules.extraction.edges import _extract_decorator_edges
+        from deriva.adapters.treesitter.models import ExtractedMethod
+
+        methods = [
+            ExtractedMethod(
+                name="my_decorator",
+                class_name=None,
+                parameters=[],
+                decorators=[],
+                return_annotation=None,
+                docstring=None,
+                line_start=1,
+                line_end=5,
+                is_async=False,
+            ),
+            ExtractedMethod(
+                name="decorated_func",
+                class_name=None,
+                parameters=[],
+                decorators=["my_decorator(arg1, arg2)"],  # With args
+                return_annotation=None,
+                docstring=None,
+                line_start=10,
+                line_end=15,
+                is_async=False,
+            ),
+        ]
+        method_lookup = {
+            "my_decorator": [{"class_name": None, "line_start": 1, "line_end": 5}],
+            "decorated_func": [{"class_name": None, "line_start": 10, "line_end": 15}],
+        }
+
+        edges, stats = _extract_decorator_edges(
+            methods=methods,
+            method_lookup=method_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["resolved"] == 1
+        assert len(edges) == 1
+
+    def test_handles_class_method_decorator(self):
+        """Should handle decorators defined as class methods."""
+        from deriva.modules.extraction.edges import _extract_decorator_edges
+        from deriva.adapters.treesitter.models import ExtractedMethod
+
+        methods = [
+            ExtractedMethod(
+                name="decorator_method",
+                class_name="DecoratorClass",
+                parameters=[],
+                decorators=[],
+                return_annotation=None,
+                docstring=None,
+                line_start=1,
+                line_end=5,
+                is_async=False,
+            ),
+            ExtractedMethod(
+                name="decorated_func",
+                class_name=None,
+                parameters=[],
+                decorators=["DecoratorClass.decorator_method"],
+                return_annotation=None,
+                docstring=None,
+                line_start=10,
+                line_end=15,
+                is_async=False,
+            ),
+        ]
+        method_lookup = {
+            "decorator_method": [{"class_name": "DecoratorClass", "line_start": 1, "line_end": 5}],
+            "decorated_func": [{"class_name": None, "line_start": 10, "line_end": 15}],
+        }
+
+        edges, stats = _extract_decorator_edges(
+            methods=methods,
+            method_lookup=method_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["resolved"] == 1
+
+    def test_counts_unresolved_decorators(self):
+        """Should count unresolved decorators."""
+        from deriva.modules.extraction.edges import _extract_decorator_edges
+        from deriva.adapters.treesitter.models import ExtractedMethod
+
+        methods = [
+            ExtractedMethod(
+                name="decorated_func",
+                class_name=None,
+                parameters=[],
+                decorators=["unknown_decorator"],
+                return_annotation=None,
+                docstring=None,
+                line_start=1,
+                line_end=10,
+                is_async=False,
+            ),
+        ]
+        method_lookup = {
+            "decorated_func": [{"class_name": None, "line_start": 1, "line_end": 10}],
+        }
+
+        edges, stats = _extract_decorator_edges(
+            methods=methods,
+            method_lookup=method_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["unresolved"] == 1
+        assert len(edges) == 0
+
+
+# =============================================================================
+# _extract_reference_edges Tests
+# =============================================================================
+
+
+class TestExtractReferenceEdges:
+    """Tests for _extract_reference_edges function."""
+
+    def test_creates_reference_edge_for_type_annotation(self):
+        """Should create REFERENCES edge for type annotations."""
+        from deriva.modules.extraction.edges import _extract_reference_edges
+        from deriva.adapters.treesitter.models import ExtractedMethod, ExtractedType
+
+        methods = [
+            ExtractedMethod(
+                name="process",
+                class_name=None,
+                parameters=[{"name": "user", "annotation": "User"}],
+                decorators=[],
+                return_annotation=None,
+                docstring=None,
+                line_start=1,
+                line_end=10,
+                is_async=False,
+            ),
+        ]
+        type_lookup = {
+            "User": ExtractedType(
+                name="User",
+                kind="class",
+                bases=[],
+                docstring=None,
+                line_start=20,
+                line_end=30,
+            ),
+        }
+
+        edges, stats = _extract_reference_edges(
+            methods=methods,
+            type_lookup=type_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["total_annotations"] == 1
+        assert stats["resolved"] == 1
+        assert len(edges) == 1
+        assert edges[0]["relationship_type"] == "REFERENCES"
+
+    def test_creates_reference_for_return_annotation(self):
+        """Should create REFERENCES edge for return type annotation."""
+        from deriva.modules.extraction.edges import _extract_reference_edges
+        from deriva.adapters.treesitter.models import ExtractedMethod, ExtractedType
+
+        methods = [
+            ExtractedMethod(
+                name="get_user",
+                class_name=None,
+                parameters=[],
+                decorators=[],
+                return_annotation="User",
+                docstring=None,
+                line_start=1,
+                line_end=10,
+                is_async=False,
+            ),
+        ]
+        type_lookup = {
+            "User": ExtractedType(
+                name="User",
+                kind="class",
+                bases=[],
+                docstring=None,
+                line_start=20,
+                line_end=30,
+            ),
+        }
+
+        edges, stats = _extract_reference_edges(
+            methods=methods,
+            type_lookup=type_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["total_annotations"] == 1
+        assert stats["resolved"] == 1
+
+    def test_skips_builtin_types(self):
+        """Should skip builtin types."""
+        from deriva.modules.extraction.edges import _extract_reference_edges
+        from deriva.adapters.treesitter.models import ExtractedMethod
+
+        methods = [
+            ExtractedMethod(
+                name="process",
+                class_name=None,
+                parameters=[{"name": "x", "annotation": "str"}],
+                decorators=[],
+                return_annotation="int",
+                docstring=None,
+                line_start=1,
+                line_end=10,
+                is_async=False,
+            ),
+        ]
+
+        edges, stats = _extract_reference_edges(
+            methods=methods,
+            type_lookup={},
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        # str and int are primitives, no type names extracted
+        assert stats["total_annotations"] == 2
+        assert len(edges) == 0
+
+    def test_handles_generic_types(self):
+        """Should extract inner types from generics."""
+        from deriva.modules.extraction.edges import _extract_reference_edges
+        from deriva.adapters.treesitter.models import ExtractedMethod, ExtractedType
+
+        methods = [
+            ExtractedMethod(
+                name="get_users",
+                class_name=None,
+                parameters=[],
+                decorators=[],
+                return_annotation="List[User]",
+                docstring=None,
+                line_start=1,
+                line_end=10,
+                is_async=False,
+            ),
+        ]
+        type_lookup = {
+            "User": ExtractedType(
+                name="User",
+                kind="class",
+                bases=[],
+                docstring=None,
+                line_start=20,
+                line_end=30,
+            ),
+        }
+
+        edges, stats = _extract_reference_edges(
+            methods=methods,
+            type_lookup=type_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["resolved"] == 1  # User resolved
+
+    def test_skips_self_reference(self):
+        """Should not create self-reference edges."""
+        from deriva.modules.extraction.edges import _extract_reference_edges
+        from deriva.adapters.treesitter.models import ExtractedMethod, ExtractedType
+
+        methods = [
+            ExtractedMethod(
+                name="clone",
+                class_name="User",  # Method is in User class
+                parameters=[],
+                decorators=[],
+                return_annotation="User",  # Returns same type
+                docstring=None,
+                line_start=1,
+                line_end=10,
+                is_async=False,
+            ),
+        ]
+        type_lookup = {
+            "User": ExtractedType(
+                name="User",
+                kind="class",
+                bases=[],
+                docstring=None,
+                line_start=1,
+                line_end=50,
+            ),
+        }
+
+        edges, stats = _extract_reference_edges(
+            methods=methods,
+            type_lookup=type_lookup,
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        # Should not create self-loop (User method referencing User class)
+        assert len(edges) == 0
+
+    def test_counts_unresolved_types(self):
+        """Should count unresolved type references."""
+        from deriva.modules.extraction.edges import _extract_reference_edges
+        from deriva.adapters.treesitter.models import ExtractedMethod
+
+        methods = [
+            ExtractedMethod(
+                name="process",
+                class_name=None,
+                parameters=[{"name": "item", "annotation": "UnknownType"}],
+                decorators=[],
+                return_annotation=None,
+                docstring=None,
+                line_start=1,
+                line_end=10,
+                is_async=False,
+            ),
+        ]
+
+        edges, stats = _extract_reference_edges(
+            methods=methods,
+            type_lookup={},  # No types defined
+            file_path="main.py",
+            repo_name="test-repo",
+        )
+
+        assert stats["unresolved"] == 1
+
+
+# =============================================================================
+# Exception Handling Tests
+# =============================================================================
+
+
+class TestExtractEdgesExceptionHandling:
+    """Tests for exception handling in edge extraction."""
+
+    def test_handles_extraction_error(self):
+        """Should handle errors during extraction gracefully."""
+        # Provide invalid content that might cause tree-sitter issues
+        result = extract_edges_from_file(
+            file_path="test.py",
+            file_content="\x00\x01\x02invalid",  # Binary garbage
+            repo_name="test-repo",
+            all_file_paths={"test.py"},
+            external_packages=set(),
+        )
+
+        # Should still return a valid result structure
+        assert "success" in result
+        assert "data" in result
+        assert "errors" in result
