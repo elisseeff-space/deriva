@@ -9,10 +9,21 @@ from backoff._typing import Details
 
 from deriva.adapters.llm.retry import (
     RETRIABLE_EXCEPTIONS,
+    _extract_retry_after_from_exception,
+    classify_exception,
     create_retry_decorator,
+    create_retry_with_classification,
+    is_transient,
     on_backoff,
     on_giveup,
     retry_on_rate_limit,
+    should_giveup,
+    wait_with_retry_after,
+)
+from deriva.common.exceptions import (
+    CircuitOpenError,
+    RateLimitError,
+    TransientError,
 )
 
 
@@ -274,3 +285,524 @@ class TestRetryOnRateLimit:
 
         with pytest.raises(ConnectionError):
             always_fails()
+
+
+class TestClassifyException:
+    """Tests for classify_exception function."""
+
+    def test_classifies_rate_limit_error(self):
+        """Should classify RateLimitError as rate_limited."""
+        exc = RateLimitError("Rate limited", retry_after=30.0)
+        category, retry_after = classify_exception(exc)
+        assert category == "rate_limited"
+        assert retry_after == 30.0
+
+    def test_classifies_transient_error(self):
+        """Should classify TransientError as transient."""
+        exc = TransientError("Temporary failure")
+        category, retry_after = classify_exception(exc)
+        assert category == "transient"
+        assert retry_after is None
+
+    def test_classifies_circuit_open_error(self):
+        """Should classify CircuitOpenError as permanent."""
+        exc = CircuitOpenError("Circuit is open")
+        category, retry_after = classify_exception(exc)
+        assert category == "permanent"
+        assert retry_after is None
+
+    def test_classifies_connection_error(self):
+        """Should classify ConnectionError as transient."""
+        exc = ConnectionError("Connection refused")
+        category, retry_after = classify_exception(exc)
+        assert category == "transient"
+        assert retry_after is None
+
+    def test_classifies_timeout_error(self):
+        """Should classify TimeoutError as transient."""
+        exc = TimeoutError("Request timed out")
+        category, retry_after = classify_exception(exc)
+        assert category == "transient"
+        assert retry_after is None
+
+    def test_classifies_os_error(self):
+        """Should classify OSError as transient."""
+        exc = OSError("Network unreachable")
+        category, retry_after = classify_exception(exc)
+        assert category == "transient"
+        assert retry_after is None
+
+    def test_classifies_unknown_exception_as_transient(self):
+        """Should classify unknown exceptions as transient by default."""
+        exc = RuntimeError("Unknown error")
+        category, retry_after = classify_exception(exc)
+        assert category == "transient"
+        assert retry_after is None
+
+
+class TestExtractRetryAfterFromException:
+    """Tests for _extract_retry_after_from_exception function."""
+
+    def test_returns_none_for_no_body(self):
+        """Should return None when exception has no body."""
+        exc = Exception("No body")
+        result = _extract_retry_after_from_exception(exc)
+        assert result is None
+
+    def test_extracts_retry_after_from_dict_body(self):
+        """Should extract retry_after from dict body."""
+        exc = Exception("Has body")
+        exc.body = {"retry_after": 30.0}  # type: ignore
+        result = _extract_retry_after_from_exception(exc)
+        assert result == 30.0
+
+    def test_extracts_retry_after_with_hyphen(self):
+        """Should extract retry-after with hyphen."""
+        exc = Exception("Has body")
+        exc.body = {"retry-after": 45.0}  # type: ignore
+        result = _extract_retry_after_from_exception(exc)
+        assert result == 45.0
+
+    def test_extracts_retry_after_camel_case(self):
+        """Should extract retryAfter in camelCase."""
+        exc = Exception("Has body")
+        exc.body = {"retryAfter": 60.0}  # type: ignore
+        result = _extract_retry_after_from_exception(exc)
+        assert result == 60.0
+
+    def test_extracts_from_nested_error_object(self):
+        """Should extract retry_after from nested error object."""
+        exc = Exception("Has nested body")
+        exc.body = {"error": {"retry_after": 15.0}}  # type: ignore
+        result = _extract_retry_after_from_exception(exc)
+        assert result == 15.0
+
+    def test_returns_none_for_invalid_value(self):
+        """Should return None for non-numeric values."""
+        exc = Exception("Has body")
+        exc.body = {"retry_after": "not-a-number"}  # type: ignore
+        result = _extract_retry_after_from_exception(exc)
+        assert result is None
+
+    def test_returns_none_for_non_dict_body(self):
+        """Should return None for non-dict body."""
+        exc = Exception("Has body")
+        exc.body = "string body"  # type: ignore
+        result = _extract_retry_after_from_exception(exc)
+        assert result is None
+
+
+class TestIsTransient:
+    """Tests for is_transient function."""
+
+    def test_returns_true_for_transient_error(self):
+        """Should return True for transient errors."""
+        exc = TransientError("Temporary")
+        assert is_transient(exc) is True
+
+    def test_returns_true_for_rate_limit_error(self):
+        """Should return True for rate limit errors."""
+        exc = RateLimitError("Rate limited")
+        assert is_transient(exc) is True
+
+    def test_returns_false_for_permanent_error(self):
+        """Should return False for permanent errors."""
+        exc = CircuitOpenError("Circuit open")
+        assert is_transient(exc) is False
+
+
+class TestShouldGiveup:
+    """Tests for should_giveup function."""
+
+    def test_returns_true_for_permanent_error(self):
+        """Should return True for permanent errors."""
+        exc = CircuitOpenError("Circuit open")
+        assert should_giveup(exc) is True
+
+    def test_returns_false_for_transient_error(self):
+        """Should return False for transient errors."""
+        exc = TransientError("Temporary")
+        assert should_giveup(exc) is False
+
+    def test_returns_false_for_rate_limit_error(self):
+        """Should return False for rate limit errors."""
+        exc = RateLimitError("Rate limited")
+        assert should_giveup(exc) is False
+
+
+class TestWaitWithRetryAfter:
+    """Tests for wait_with_retry_after generator."""
+
+    def test_initial_yield_is_zero(self):
+        """Should yield 0.0 initially."""
+        gen = wait_with_retry_after()
+        first_value = next(gen)
+        assert first_value == 0.0
+
+    def test_uses_retry_after_when_available(self):
+        """Should use retry_after from exception when available."""
+        gen = wait_with_retry_after(base=2.0, max_value=60.0)
+        next(gen)  # Initial yield
+
+        exc = RateLimitError("Rate limited", retry_after=10.0)
+        wait_time = gen.send(exc)
+        assert wait_time == 10.0
+
+    def test_caps_retry_after_at_max_value(self):
+        """Should cap retry_after at max_value."""
+        gen = wait_with_retry_after(base=2.0, max_value=5.0)
+        next(gen)
+
+        exc = RateLimitError("Rate limited", retry_after=100.0)
+        wait_time = gen.send(exc)
+        assert wait_time == 5.0
+
+    def test_uses_exponential_backoff_without_retry_after(self):
+        """Should use exponential backoff when no retry_after."""
+        gen = wait_with_retry_after(base=1.0, max_value=60.0)
+        next(gen)
+
+        exc = ConnectionError("No retry after")
+        wait_time = gen.send(exc)
+        # With jitter, wait_time should be between 0 and base * 2^0 = 1.0
+        assert 0 <= wait_time <= 1.0
+
+
+class TestCreateRetryWithClassification:
+    """Tests for create_retry_with_classification function."""
+
+    def test_returns_decorator(self):
+        """Should return a callable decorator."""
+        decorator = create_retry_with_classification()
+        assert callable(decorator)
+
+    def test_decorated_function_works_on_success(self):
+        """Should allow successful function calls."""
+        decorator = create_retry_with_classification(max_retries=2)
+
+        @decorator
+        def successful_func():
+            return "success"
+
+        result = successful_func()
+        assert result == "success"
+
+    def test_retries_on_transient_error(self):
+        """Should retry on transient errors."""
+        call_count = 0
+        decorator = create_retry_with_classification(max_retries=3, base_delay=0.01)
+
+        @decorator
+        def flaky_func():
+            nonlocal call_count
+            call_count += 1
+            if call_count < 2:
+                raise ConnectionError("Temporary failure")
+            return "success"
+
+        result = flaky_func()
+        assert result == "success"
+        assert call_count == 2
+
+    def test_gives_up_on_permanent_error(self):
+        """Should give up immediately on permanent errors."""
+        call_count = 0
+        decorator = create_retry_with_classification(max_retries=3, base_delay=0.01)
+
+        @decorator
+        def raises_permanent():
+            nonlocal call_count
+            call_count += 1
+            raise CircuitOpenError("Circuit is open")
+
+        with pytest.raises(CircuitOpenError):
+            raises_permanent()
+
+        # Should only be called once (no retries for permanent errors)
+        assert call_count == 1
+
+
+class TestClassifyExceptionHTTPStatus:
+    """Tests for classify_exception with HTTP status errors."""
+
+    def test_classifies_httpx_429_as_rate_limited(self):
+        """Should classify httpx 429 as rate_limited."""
+        try:
+            import httpx
+
+            # Create mock response and exception
+            response = httpx.Response(429, headers={"retry-after": "30"})
+            exc = httpx.HTTPStatusError(
+                "Rate limited",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "rate_limited"
+            assert retry_after == 30.0
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+    def test_classifies_httpx_500_as_transient(self):
+        """Should classify httpx 500 as transient."""
+        try:
+            import httpx
+
+            response = httpx.Response(500)
+            exc = httpx.HTTPStatusError(
+                "Server error",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "transient"
+            assert retry_after is None
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+    def test_classifies_httpx_502_as_transient(self):
+        """Should classify httpx 502 as transient."""
+        try:
+            import httpx
+
+            response = httpx.Response(502)
+            exc = httpx.HTTPStatusError(
+                "Bad gateway",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "transient"
+            assert retry_after is None
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+    def test_classifies_httpx_503_as_transient(self):
+        """Should classify httpx 503 as transient."""
+        try:
+            import httpx
+
+            response = httpx.Response(503)
+            exc = httpx.HTTPStatusError(
+                "Service unavailable",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "transient"
+            assert retry_after is None
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+    def test_classifies_httpx_400_as_permanent(self):
+        """Should classify httpx 400 as permanent."""
+        try:
+            import httpx
+
+            response = httpx.Response(400)
+            exc = httpx.HTTPStatusError(
+                "Bad request",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "permanent"
+            assert retry_after is None
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+    def test_classifies_httpx_401_as_permanent(self):
+        """Should classify httpx 401 as permanent."""
+        try:
+            import httpx
+
+            response = httpx.Response(401)
+            exc = httpx.HTTPStatusError(
+                "Unauthorized",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "permanent"
+            assert retry_after is None
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+    def test_classifies_httpx_403_as_permanent(self):
+        """Should classify httpx 403 as permanent."""
+        try:
+            import httpx
+
+            response = httpx.Response(403)
+            exc = httpx.HTTPStatusError(
+                "Forbidden",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "permanent"
+            assert retry_after is None
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+    def test_classifies_httpx_404_as_permanent(self):
+        """Should classify httpx 404 as permanent."""
+        try:
+            import httpx
+
+            response = httpx.Response(404)
+            exc = httpx.HTTPStatusError(
+                "Not found",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "permanent"
+            assert retry_after is None
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+    def test_classifies_httpx_520_as_transient(self):
+        """Should classify httpx 520-524 (Cloudflare) as transient."""
+        try:
+            import httpx
+
+            response = httpx.Response(520)
+            exc = httpx.HTTPStatusError(
+                "Cloudflare error",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "transient"
+            assert retry_after is None
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+    def test_classifies_httpx_unknown_5xx_as_transient(self):
+        """Should classify unknown 5xx codes as transient."""
+        try:
+            import httpx
+
+            response = httpx.Response(599)  # Unknown 5xx
+            exc = httpx.HTTPStatusError(
+                "Unknown server error",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "transient"
+            assert retry_after is None
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+    def test_classifies_httpx_unknown_4xx_as_permanent(self):
+        """Should classify unknown 4xx codes as permanent."""
+        try:
+            import httpx
+
+            response = httpx.Response(450)  # Unknown 4xx
+            exc = httpx.HTTPStatusError(
+                "Unknown client error",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "permanent"
+            assert retry_after is None
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+    def test_httpx_429_with_invalid_retry_after(self):
+        """Should handle invalid retry-after header values."""
+        try:
+            import httpx
+
+            response = httpx.Response(429, headers={"retry-after": "invalid"})
+            exc = httpx.HTTPStatusError(
+                "Rate limited",
+                request=httpx.Request("GET", "https://api.example.com"),
+                response=response,
+            )
+            category, retry_after = classify_exception(exc)
+            assert category == "rate_limited"
+            assert retry_after is None  # Failed to parse
+        except ImportError:
+            pytest.skip("httpx not installed")
+
+
+class TestExtractRetryAfterNested:
+    """Additional tests for _extract_retry_after_from_exception."""
+
+    def test_extracts_from_nested_error_hyphen(self):
+        """Should extract retry-after from nested error with hyphen."""
+        exc = Exception("Has nested body")
+        exc.body = {"error": {"retry-after": 25.0}}  # type: ignore
+        result = _extract_retry_after_from_exception(exc)
+        assert result == 25.0
+
+    def test_extracts_from_nested_error_camelcase(self):
+        """Should extract retryAfter from nested error."""
+        exc = Exception("Has nested body")
+        exc.body = {"error": {"retryAfter": 35.0}}  # type: ignore
+        result = _extract_retry_after_from_exception(exc)
+        assert result == 35.0
+
+    def test_returns_none_for_nested_invalid_value(self):
+        """Should return None for non-numeric nested values."""
+        exc = Exception("Has nested body")
+        exc.body = {"error": {"retry_after": "not-a-number"}}  # type: ignore
+        result = _extract_retry_after_from_exception(exc)
+        assert result is None
+
+    def test_returns_none_for_non_dict_error(self):
+        """Should return None when error is not a dict."""
+        exc = Exception("Has body")
+        exc.body = {"error": "string error"}  # type: ignore
+        result = _extract_retry_after_from_exception(exc)
+        assert result is None
+
+
+class TestWaitWithRetryAfterMultipleAttempts:
+    """Additional tests for wait_with_retry_after generator."""
+
+    def test_exponential_backoff_increases(self):
+        """Should increase delay exponentially."""
+        gen = wait_with_retry_after(base=1.0, max_value=100.0)
+        next(gen)  # Initial yield
+
+        exc = ConnectionError("No retry after")
+
+        # First attempt: delay should be in [0, 1.0]
+        wait1 = gen.send(exc)
+        assert 0 <= wait1 <= 1.0
+
+        # Second attempt: delay should be in [0, 2.0]
+        wait2 = gen.send(exc)
+        assert 0 <= wait2 <= 2.0
+
+        # Third attempt: delay should be in [0, 4.0]
+        wait3 = gen.send(exc)
+        assert 0 <= wait3 <= 4.0
+
+    def test_exponential_backoff_caps_at_max(self):
+        """Should cap delay at max_value."""
+        gen = wait_with_retry_after(base=10.0, max_value=15.0)
+        next(gen)
+
+        exc = ConnectionError("No retry after")
+
+        # First attempt
+        gen.send(exc)
+        # Second attempt: should be capped
+        wait = gen.send(exc)
+        assert wait <= 15.0
+
+    def test_handles_none_exception(self):
+        """Should handle None exception gracefully."""
+        gen = wait_with_retry_after(base=1.0, max_value=10.0)
+        next(gen)  # Initial yield
+
+        # Send None - should use exponential backoff
+        wait = gen.send(None)
+        assert 0 <= wait <= 1.0

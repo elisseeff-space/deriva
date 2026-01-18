@@ -61,6 +61,7 @@ conn.close()
 - `input_sources`: JSON with file types and graph elements
 - `instruction`, `example`: LLM prompt configuration
 - `extraction_method`: 'llm', 'ast', or 'structural'
+- `batch_size`: Number of files to batch per LLM call (default 1)
 - `temperature`, `max_tokens`: LLM parameters
 
 **derivation_config**:

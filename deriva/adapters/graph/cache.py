@@ -135,6 +135,169 @@ class EnrichmentCache(BaseDiskCache):
         )
 
 
+class EnrichmentCacheManager:
+    """
+    Manages enrichment cache with per-run isolation and config-level control.
+
+    Mirrors LLM cache design patterns:
+    - use_cache: Global cache enable/disable
+    - bench_hash: Per-run cache isolation for benchmarks
+    - nocache_configs: List of config step names to skip caching for
+
+    This provides the same cache control interface as LLMManager for consistency.
+
+    Example:
+        manager = EnrichmentCacheManager(
+            use_cache=True,
+            nocache_configs=["ApplicationComponent"],
+            bench_hash="repo:model:run1",
+        )
+
+        # Will skip cache for ApplicationComponent config
+        enrichments = manager.get_enrichments(graph_manager, config_name="ApplicationComponent")
+
+        # Will use cache for other configs
+        enrichments = manager.get_enrichments(graph_manager, config_name="BusinessObject")
+    """
+
+    def __init__(
+        self,
+        cache_dir: str | None = None,
+        use_cache: bool = True,
+        nocache_configs: list[str] | None = None,
+        bench_hash: str | None = None,
+    ):
+        """
+        Initialize enrichment cache manager.
+
+        Args:
+            cache_dir: Directory for cache storage (default: GRAPH_CACHE_DIR/enrichments)
+            use_cache: Global cache enable/disable flag
+            nocache_configs: List of config step names to skip caching for
+            bench_hash: Optional benchmark hash for per-run cache isolation
+        """
+        self._cache = EnrichmentCache(cache_dir)
+        self._use_cache = use_cache
+        self._nocache_configs: set[str] = set(nocache_configs or [])
+        self._bench_hash = bench_hash
+
+    def should_use_cache(self, config_name: str | None = None) -> bool:
+        """
+        Check if caching is enabled for this config.
+
+        Args:
+            config_name: Optional config/step name to check
+
+        Returns:
+            True if caching should be used, False otherwise
+        """
+        if not self._use_cache:
+            return False
+        if config_name and config_name in self._nocache_configs:
+            logger.debug(f"Cache disabled for config: {config_name}")
+            return False
+        return True
+
+    def generate_cache_key(
+        self,
+        graph_hash: str,
+        config_name: str | None = None,
+    ) -> str:
+        """
+        Generate cache key with optional bench_hash for isolation.
+
+        Args:
+            graph_hash: Hash from compute_graph_hash()
+            config_name: Optional config name (not included in key, just for logging)
+
+        Returns:
+            SHA256 hash as cache key
+        """
+        parts = [graph_hash]
+        if self._bench_hash:
+            parts.append(f"bench:{self._bench_hash}")
+        return hash_inputs(*parts)
+
+    def get_enrichments(
+        self,
+        graph_manager: "GraphManager",
+        config_name: str | None = None,
+    ) -> dict[str, dict[str, Any]] | None:
+        """
+        Get cached enrichments if caching is enabled.
+
+        Args:
+            graph_manager: Connected GraphManager instance
+            config_name: Optional config name for per-config cache control
+
+        Returns:
+            Cached enrichments or None if not cached/cache disabled
+        """
+        if not self.should_use_cache(config_name):
+            return None
+
+        try:
+            graph_hash = compute_graph_hash(graph_manager)
+            cache_key = self.generate_cache_key(graph_hash, config_name)
+            return self._cache.get_enrichments(cache_key)
+        except Exception as e:
+            logger.debug(f"Cache lookup failed: {e}")
+            return None
+
+    def set_enrichments(
+        self,
+        graph_manager: "GraphManager",
+        enrichments: dict[str, dict[str, Any]],
+        config_name: str | None = None,
+    ) -> None:
+        """
+        Cache enrichments if caching is enabled.
+
+        Args:
+            graph_manager: Connected GraphManager instance
+            enrichments: Enrichment data to cache
+            config_name: Optional config name for per-config cache control
+        """
+        if not self.should_use_cache(config_name):
+            return
+
+        try:
+            graph_hash = compute_graph_hash(graph_manager)
+            cache_key = self.generate_cache_key(graph_hash, config_name)
+            self._cache.set_enrichments(cache_key, enrichments)
+        except Exception as e:
+            logger.debug(f"Failed to cache enrichments: {e}")
+
+    def clear(self) -> None:
+        """Clear all cache (memory and disk)."""
+        self._cache.clear_all()
+        logger.debug("Cleared enrichment cache (memory and disk)")
+
+    def clear_memory(self) -> None:
+        """Clear only memory cache."""
+        self._cache.clear_memory()
+        logger.debug("Cleared enrichment memory cache")
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get cache statistics."""
+        return self._cache.get_stats()
+
+    @property
+    def use_cache(self) -> bool:
+        """Whether caching is globally enabled."""
+        return self._use_cache
+
+    @property
+    def bench_hash(self) -> str | None:
+        """Current benchmark hash for cache isolation."""
+        return self._bench_hash
+
+    @property
+    def nocache_configs(self) -> set[str]:
+        """Set of config names with caching disabled."""
+        return self._nocache_configs
+
+
 class QueryCache(BaseDiskCache):
     """
     Cache for Cypher query results.
@@ -215,5 +378,6 @@ class QueryCache(BaseDiskCache):
 __all__ = [
     "compute_graph_hash",
     "EnrichmentCache",
+    "EnrichmentCacheManager",
     "QueryCache",
 ]

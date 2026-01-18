@@ -62,6 +62,13 @@ from deriva.common.ocel import create_edge_id
 from deriva.modules import extraction
 from deriva.modules.extraction import classification
 from deriva.modules.extraction.base import deduplicate_nodes
+from deriva.modules.extraction.business_concept import (
+    extract_seed_concepts_from_structure,
+    get_existing_concepts_from_graph,
+)
+from deriva.modules.extraction.directory_classification import (
+    classify_directories,
+)
 from deriva.services import config
 
 
@@ -76,6 +83,7 @@ def run_extraction(
     progress: ProgressReporter | None = None,
     model: str | None = None,
     phases: list[str] | None = None,
+    config_versions: dict[str, dict[str, int]] | None = None,
 ) -> dict[str, Any]:
     """
     Run the extraction pipeline.
@@ -91,6 +99,8 @@ def run_extraction(
         progress: Optional progress reporter for visual feedback
         model: LLM model name for token limit lookup (chunking)
         phases: Phases to run (classify, parse), or None for all
+        config_versions: Optional config version snapshot (for benchmark consistency).
+                        Dict with {"extraction": {node_type: version}}
 
     Returns:
         Dict with success, stats, errors
@@ -122,8 +132,11 @@ def run_extraction(
     if not repos:
         return {"success": False, "stats": stats, "errors": ["No repositories found"]}
 
-    # Get extraction configs
-    configs = config.get_extraction_configs(engine, enabled_only=enabled_only)
+    # Get extraction configs - use snapshot versions if provided (for benchmark consistency)
+    if config_versions and "extraction" in config_versions:
+        configs = config.get_extraction_configs_by_version(engine, config_versions["extraction"], enabled_only=enabled_only)
+    else:
+        configs = config.get_extraction_configs(engine, enabled_only=enabled_only)
 
     if not configs:
         return {"success": False, "stats": stats, "errors": ["No extraction configs enabled"]}
@@ -237,7 +250,10 @@ def run_extraction(
                     if "LLM required" in err or "No input sources" in err:
                         warnings.append(err)
                     else:
-                        errors.append(err)
+                        # Add step context to error messages
+                        error_with_context = f"[Extraction - {node_type}] {err}"
+                        errors.append(error_with_context)
+                        logger.error(error_with_context)
 
             except Exception as e:
                 error_msg = f"Error in {node_type}: {str(e)}"
@@ -289,6 +305,30 @@ def _run_extraction_step(
         result = _extract_directories(repo, repo_path, graph_manager)
     elif node_type == "File":
         result = _extract_files(repo, repo_path, classified_files, undefined_files, graph_manager)
+    elif node_type == "Imports":
+        # Tree-sitter based import edge extraction (deterministic, no LLM)
+        result = _extract_imports(repo, repo_path, classified_files, graph_manager)
+    elif node_type == "Calls":
+        # Tree-sitter based call edge extraction (deterministic, no LLM)
+        result = _extract_calls(repo, repo_path, classified_files, graph_manager)
+    elif node_type == "Decorators":
+        # Tree-sitter based decorator edge extraction (deterministic, no LLM)
+        result = _extract_decorators(repo, repo_path, classified_files, graph_manager)
+    elif node_type == "References":
+        # Tree-sitter based type reference edge extraction (deterministic, no LLM)
+        result = _extract_references(repo, repo_path, classified_files, graph_manager)
+    elif node_type == "Edges":
+        # Unified edge extraction: all edge types in one efficient pass (4x faster)
+        result = _extract_edges(repo, repo_path, classified_files, graph_manager)
+    elif node_type == "DirectoryClassification":
+        if llm_query_fn is None:
+            return {"nodes_created": 0, "edges_created": 0, "errors": [f"LLM required for {node_type}"]}
+        result = _extract_directory_classification(
+            cfg=cfg,
+            repo=repo,
+            graph_manager=graph_manager,
+            llm_query_fn=llm_query_fn,
+        )
     elif node_type in ["BusinessConcept", "TypeDefinition", "Method", "Technology", "ExternalDependency", "Test"]:
         if llm_query_fn is None:
             return {"nodes_created": 0, "edges_created": 0, "errors": [f"LLM required for {node_type}"]}
@@ -450,6 +490,302 @@ def _extract_files(
     }
 
 
+def _extract_edges(
+    repo: Any,
+    repo_path: Path,
+    classified_files: list[dict],
+    graph_manager: GraphManager,
+    edge_types: set | None = None,
+) -> dict[str, Any]:
+    """Extract edges from source files using Tree-sitter (unified extraction).
+
+    This is the efficient unified extraction that parses each file only once
+    and extracts all requested edge types in a single pass.
+
+    Creates edges:
+    - File → File (IMPORTS) for internal imports
+    - File → ExternalDependency (USES) for external package imports
+    - Method → Method (CALLS) for function/method calls
+    - Method → Method (DECORATED_BY) for decorator relationships
+    - Method → TypeDefinition (REFERENCES) for type annotations
+
+    Args:
+        repo: Repository info object
+        repo_path: Path to the repository
+        classified_files: List of classified file dicts with file_type/subtype
+        graph_manager: GraphManager for persistence
+        edge_types: Set of EdgeType values to extract (None = all)
+    """
+    from deriva.modules.extraction.edges import extract_edges_batch
+
+    edge_ids: list[str] = []
+    edges_created = 0
+    nodes_created = 0
+
+    # Get known external packages from the graph (for import resolution)
+    external_packages: set[str] = set()
+    try:
+        extdeps = graph_manager.get_nodes_by_type("ExternalDependency")
+        for dep in extdeps:
+            props = dep.get("properties", {})
+            name = props.get("name") or props.get("dependencyName")
+            if name:
+                # Normalize: flask-sqlalchemy -> flask_sqlalchemy
+                external_packages.add(name.lower().replace("-", "_"))
+    except Exception:
+        pass  # Proceed without external package list
+
+    # Run unified batch extraction (one pass over all files)
+    result = extract_edges_batch(
+        files=classified_files,
+        repo_name=repo.name,
+        repo_path=repo_path,
+        edge_types=edge_types,
+        external_packages=external_packages,
+    )
+
+    # Persist edges to graph
+    for edge_data in result["data"]["edges"]:
+        relationship = edge_data["relationship_type"]
+        dst_id = edge_data["to_node_id"]
+
+        # For USES edges, create stub ExternalDependency node if it doesn't exist
+        # USES edges point to extdep::{repo}::{package_slug} IDs
+        if relationship == "USES" and dst_id.startswith("extdep::"):
+            if not graph_manager.node_exists(dst_id):
+                # Parse package name from ID: extdep::repo::package_slug
+                parts = dst_id.split("::")
+                if len(parts) >= 3:
+                    package_slug = parts[2]
+                    # Create stub ExternalDependency node
+                    stub_node = ExternalDependencyNode(
+                        name=package_slug,
+                        dependency_category="library",
+                        repository_name=repo.name,
+                        description="External package discovered via import",
+                        confidence=0.7,
+                        extraction_method="structural",
+                    )
+                    graph_manager.add_node(stub_node, node_id=dst_id)
+                    nodes_created += 1
+                    logger.debug("Created stub ExternalDependency node: %s", dst_id)
+
+        try:
+            edge_id = graph_manager.add_edge(
+                src_id=edge_data["from_node_id"],
+                dst_id=dst_id,
+                relationship=relationship,
+                properties=edge_data.get("properties"),
+            )
+            edge_ids.append(edge_id)
+            edges_created += 1
+        except Exception as e:
+            # Edge target might not exist (expected for some external references)
+            logger.debug(f"Failed to create {relationship} edge: {e}")
+
+    return {
+        "nodes_created": nodes_created,
+        "edges_created": edges_created,
+        "edge_ids": edge_ids,
+        "errors": result.get("errors", []),
+        "stats": result.get("stats", {}),
+    }
+
+
+def _extract_imports(
+    repo: Any,
+    repo_path: Path,
+    classified_files: list[dict],
+    graph_manager: GraphManager,
+) -> dict[str, Any]:
+    """Extract IMPORTS and USES edges from source files using Tree-sitter."""
+    from deriva.modules.extraction.edges import EdgeType
+
+    return _extract_edges(repo, repo_path, classified_files, graph_manager, {EdgeType.IMPORTS, EdgeType.USES})
+
+
+def _extract_calls(
+    repo: Any,
+    repo_path: Path,
+    classified_files: list[dict],
+    graph_manager: GraphManager,
+) -> dict[str, Any]:
+    """Extract CALLS edges from source files using Tree-sitter."""
+    from deriva.modules.extraction.edges import EdgeType
+
+    return _extract_edges(repo, repo_path, classified_files, graph_manager, {EdgeType.CALLS})
+
+
+def _extract_decorators(
+    repo: Any,
+    repo_path: Path,
+    classified_files: list[dict],
+    graph_manager: GraphManager,
+) -> dict[str, Any]:
+    """Extract DECORATED_BY edges from source files using Tree-sitter."""
+    from deriva.modules.extraction.edges import EdgeType
+
+    return _extract_edges(repo, repo_path, classified_files, graph_manager, {EdgeType.DECORATED_BY})
+
+
+def _extract_references(
+    repo: Any,
+    repo_path: Path,
+    classified_files: list[dict],
+    graph_manager: GraphManager,
+) -> dict[str, Any]:
+    """Extract REFERENCES edges from type annotations using Tree-sitter."""
+    from deriva.modules.extraction.edges import EdgeType
+
+    return _extract_edges(repo, repo_path, classified_files, graph_manager, {EdgeType.REFERENCES})
+
+
+def _extract_directory_classification(
+    cfg: config.ExtractionConfig,
+    repo: Any,
+    graph_manager: GraphManager,
+    llm_query_fn: Callable,
+) -> dict[str, Any]:
+    """Extract BusinessConcept and Technology nodes from Directory classification.
+
+    This queries Directory nodes from the graph and classifies them using LLM
+    into business concepts, technologies, or skips.
+    """
+    nodes_created = 0
+    edges_created = 0
+    errors = []
+    edge_ids: list[str] = []
+
+    # Query Directory nodes from the graph for this repository
+    # Exclude node_modules, vendor, and other dependency directories
+    query = """
+    MATCH (d:Directory)
+    WHERE d.repository_name = $repo_name
+      AND NOT d.path CONTAINS 'node_modules'
+      AND NOT d.path CONTAINS 'vendor/'
+      AND NOT d.path CONTAINS '.git/'
+      AND NOT d.path CONTAINS '__pycache__'
+      AND NOT d.path CONTAINS '.venv'
+      AND NOT d.path CONTAINS 'venv/'
+      AND NOT d.path CONTAINS 'site-packages'
+    RETURN d.name AS name, d.path AS path, d.id AS id
+    """
+    try:
+        directories = graph_manager.query(query, {"repo_name": repo.name})
+    except Exception as e:
+        return {
+            "nodes_created": 0,
+            "edges_created": 0,
+            "errors": [f"Failed to query directories: {e}"],
+        }
+
+    if not directories:
+        return {
+            "nodes_created": 0,
+            "edges_created": 0,
+            "errors": [],
+            "warnings": [f"No directories found for {repo.name}"],
+        }
+
+    # Build config dict from ExtractionConfig
+    extraction_config = {
+        "instruction": cfg.instruction or "",
+        "example": cfg.example or "",
+    }
+
+    # Wrap llm_query_fn with per-step temperature/max_tokens overrides
+    def step_llm_query_fn(prompt: str, schema: dict, system_prompt: str | None = None) -> Any:
+        return llm_query_fn(
+            prompt,
+            schema,
+            temperature=cfg.temperature,
+            max_tokens=cfg.max_tokens,
+            system_prompt=system_prompt,
+        )
+
+    # Process directories in batches (default 50 directories per batch)
+    batch_size = cfg.batch_size if cfg.batch_size and cfg.batch_size > 1 else 50
+    all_nodes = []
+    all_edges = []
+
+    for i in range(0, len(directories), batch_size):
+        batch = directories[i : i + batch_size]
+        logger.debug(f"Processing directory batch {i // batch_size + 1}/{(len(directories) + batch_size - 1) // batch_size}")
+
+        # Classify directories batch
+        result = classify_directories(
+            directories=batch,
+            repo_name=repo.name,
+            llm_query_fn=step_llm_query_fn,
+            config=extraction_config,
+        )
+
+        if not result["success"]:
+            errors.extend(result.get("errors", []))
+            continue
+
+        all_nodes.extend(result["data"]["nodes"])
+        all_edges.extend(result["data"]["edges"])
+
+    # Persist extracted nodes
+    for node_data in all_nodes:
+        props = node_data.get("properties", {})
+        labels = node_data.get("labels", [])
+
+        # Determine node type from labels
+        if "Graph:BusinessConcept" in labels:
+            node = BusinessConceptNode(
+                name=props.get("conceptName", ""),
+                concept_type=props.get("conceptType", "entity"),
+                description=props.get("description", ""),
+                origin_source=props.get("originSource", ""),
+                repository_name=repo.name,
+                confidence=props.get("confidence", 0.8),
+                extraction_method="llm-directory",
+            )
+        elif "Graph:Technology" in labels:
+            node = TechnologyNode(
+                name=props.get("technologyName", ""),
+                tech_category=props.get("technologyType", "infrastructure"),
+                repository_name=repo.name,
+                description=props.get("description", ""),
+                origin_source=props.get("originSource", ""),
+                confidence=props.get("confidence", 0.8),
+                extraction_method="llm-directory",
+            )
+        else:
+            continue
+
+        node_id = node_data.get("id")
+        graph_manager.add_node(node, node_id=node_id)
+        nodes_created += 1
+
+    # Persist extracted edges
+    for edge_data in all_edges:
+        src_id = edge_data.get("source")
+        dst_id = edge_data.get("target")
+        relationship = edge_data.get("relationship_type", "REPRESENTS")
+
+        try:
+            edge_id = create_edge_id(src_id, relationship, dst_id)
+            edge_ids.append(edge_id)
+            graph_manager.add_edge(
+                src_id=src_id,
+                dst_id=dst_id,
+                relationship=relationship,
+            )
+            edges_created += 1
+        except RuntimeError as e:
+            errors.append(f"Error creating edge {relationship}: {e}")
+
+    return {
+        "nodes_created": nodes_created,
+        "edges_created": edges_created,
+        "edge_ids": edge_ids,
+        "errors": errors,
+    }
+
+
 def _extract_llm_based(
     node_type: str,
     cfg: config.ExtractionConfig,
@@ -503,20 +839,127 @@ def _extract_llm_based(
         "input_sources": cfg.input_sources or "",
     }
 
+    # For BusinessConcept: get seed concepts for context-aware extraction (hybrid approach)
+    # This improves consistency by guiding the LLM with existing/structural concepts
+    existing_concepts: list[dict[str, str]] | None = None
+    if node_type == "BusinessConcept":
+        # Layer 1: Get deterministic seed concepts from code structure
+        seed_concepts = extract_seed_concepts_from_structure(repo_path)
+
+        # Layer 2: Get existing concepts from graph (if any were previously extracted)
+        graph_concepts = get_existing_concepts_from_graph(graph_manager, repo.name)
+
+        # Merge seed and graph concepts, preferring seed (deterministic) names
+        seen_names = {c["conceptName"].lower() for c in seed_concepts}
+        for gc in graph_concepts:
+            if gc["conceptName"].lower() not in seen_names:
+                seed_concepts.append(gc)
+                seen_names.add(gc["conceptName"].lower())
+
+        if seed_concepts:
+            existing_concepts = seed_concepts
+            logger.debug(f"Using {len(existing_concepts)} existing concepts for context-aware extraction")
+
     # Wrap llm_query_fn with per-step temperature/max_tokens overrides
-    def step_llm_query_fn(prompt: str, schema: dict) -> Any:
+    def step_llm_query_fn(prompt: str, schema: dict, system_prompt: str | None = None) -> Any:
         return llm_query_fn(
             prompt,
             schema,
             temperature=cfg.temperature,
             max_tokens=cfg.max_tokens,
+            system_prompt=system_prompt,
         )
 
     # Check if we can use tree-sitter extraction for supported languages
     use_treesitter = node_type in ["TypeDefinition", "Method"]
     treesitter_languages = {"python", "javascript", "typescript", "java", "csharp"}
 
-    # Process each matching file
+    # Check for batched extraction (BusinessConcept with batch_size > 1)
+    batch_size = getattr(cfg, "batch_size", 1) or 1
+    use_batching = node_type == "BusinessConcept" and batch_size > 1
+
+    if use_batching:
+        # Batched extraction: read all files first, then process in batches
+        logger.info(f"Using batched extraction for {node_type} with batch_size={batch_size}")
+
+        # Read all file contents
+        files_with_content: list[dict[str, str]] = []
+        for file_info in matching_files:
+            file_path = repo_path / file_info["path"]
+            try:
+                if file_path.suffix.lower() in (".docx", ".pdf"):
+                    content = read_document(file_path)
+                else:
+                    content = read_file_with_encoding(file_path)
+                if content is not None:
+                    files_with_content.append({"path": file_info["path"], "content": content})
+                else:
+                    errors.append(f"Could not read {file_path} | repo={repo.name} | step={node_type}")
+            except Exception as e:
+                errors.append(f"Could not read {file_path} | repo={repo.name} | step={node_type} | exception={type(e).__name__}: {e}")
+
+        # Process in batches
+        for batch_start in range(0, len(files_with_content), batch_size):
+            batch_files = files_with_content[batch_start : batch_start + batch_size]
+
+            if len(batch_files) == 1:
+                # Single file - use regular extraction
+                result = extract_fn(
+                    batch_files[0]["path"],
+                    batch_files[0]["content"],
+                    repo.name,
+                    step_llm_query_fn,
+                    extraction_config,
+                    existing_concepts=existing_concepts,
+                )
+            else:
+                # Multiple files - use multi-file extraction
+                result = extraction.extract_business_concepts_multi(
+                    batch_files,
+                    repo.name,
+                    step_llm_query_fn,
+                    extraction_config,
+                    existing_concepts=existing_concepts,
+                )
+
+            if result.get("errors"):
+                errors.extend(result["errors"])
+
+            batch_nodes = result.get("data", {}).get("nodes", [])
+            batch_edges = result.get("data", {}).get("edges", [])
+
+            # Normalize and persist nodes
+            batch_nodes = extraction.normalize_nodes(batch_nodes, node_type, repo.name)
+            for node_data in batch_nodes:
+                node = _create_node_from_data(node_type, node_data, repo.name, "llm")
+                if node:
+                    node_id = node_data.get("node_id")
+                    graph_manager.add_node(node, node_id=node_id)
+                    nodes_created += 1
+
+            # Persist edges
+            for edge_data in batch_edges:
+                src_id = edge_data.get("from_node_id", edge_data.get("from_id"))
+                dst_id = edge_data.get("to_node_id", edge_data.get("to_id"))
+                relationship = edge_data.get("relationship_type", edge_data.get("relationship"))
+
+                if not graph_manager.node_exists(dst_id):
+                    logger.debug(f"Skipping edge to non-existent node: {dst_id}")
+                    continue
+
+                try:
+                    graph_manager.add_edge(src_id=src_id, dst_id=dst_id, relationship=relationship)
+                    edges_created += 1
+                except RuntimeError as e:
+                    errors.append(f"Error creating edge {relationship}: {e}")
+
+        return {
+            "nodes_created": nodes_created,
+            "edges_created": edges_created,
+            "errors": errors,
+        }
+
+    # Process each matching file (non-batched path)
     for file_info in matching_files:
         file_path = repo_path / file_info["path"]
 
@@ -576,6 +1019,7 @@ def _extract_llm_based(
                 extraction_config=extraction_config,
                 llm_query_fn=step_llm_query_fn,
                 model=model,
+                existing_concepts=existing_concepts,
             )
             extraction_method = "llm"
 
@@ -647,6 +1091,7 @@ def _extract_file_content(
     extraction_config: dict[str, Any],
     llm_query_fn: Callable,
     model: str | None = None,
+    existing_concepts: list[dict[str, str]] | None = None,
 ) -> tuple[list[dict], list[dict], list[str]]:
     """
     Extract from file content, with automatic chunking for large files.
@@ -659,6 +1104,7 @@ def _extract_file_content(
         extraction_config: Config with instruction/example
         llm_query_fn: LLM query function
         model: Model name for token limit lookup (optional)
+        existing_concepts: Optional list of existing concepts for context-aware extraction
 
     Returns:
         Tuple of (nodes, edges, errors)
@@ -666,13 +1112,24 @@ def _extract_file_content(
     # Check if chunking is needed
     if not should_chunk(content, model=model):
         # Extract from entire file
-        result = extract_fn(
-            file_path,
-            content,
-            repo_name,
-            llm_query_fn,
-            extraction_config,
-        )
+        # Pass existing_concepts if the extraction function supports it
+        if existing_concepts is not None:
+            result = extract_fn(
+                file_path,
+                content,
+                repo_name,
+                llm_query_fn,
+                extraction_config,
+                existing_concepts=existing_concepts,
+            )
+        else:
+            result = extract_fn(
+                file_path,
+                content,
+                repo_name,
+                llm_query_fn,
+                extraction_config,
+            )
         if result["success"]:
             return result["data"]["nodes"], result["data"].get("edges", []), []
         return [], [], result.get("errors", [])
@@ -687,13 +1144,24 @@ def _extract_file_content(
         # Add chunk context to file path for LLM
         chunk_path = f"{file_path} (lines {chunk.start_line}-{chunk.end_line})"
 
-        result = extract_fn(
-            chunk_path,
-            chunk.content,
-            repo_name,
-            llm_query_fn,
-            extraction_config,
-        )
+        # Pass existing_concepts if the extraction function supports it
+        if existing_concepts is not None:
+            result = extract_fn(
+                chunk_path,
+                chunk.content,
+                repo_name,
+                llm_query_fn,
+                extraction_config,
+                existing_concepts=existing_concepts,
+            )
+        else:
+            result = extract_fn(
+                chunk_path,
+                chunk.content,
+                repo_name,
+                llm_query_fn,
+                extraction_config,
+            )
 
         if result["success"]:
             all_nodes.extend(result["data"]["nodes"])

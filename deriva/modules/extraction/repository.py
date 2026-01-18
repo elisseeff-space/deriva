@@ -53,9 +53,9 @@ def build_repository_node(repo_metadata: dict[str, Any]) -> dict[str, Any]:
             "stats": {"nodes_created": 0},
         }
 
-    # Build the node structure
+    # Build the node structure using :: separator to avoid repo name conflicts
     node_data = {
-        "node_id": f"repo_{repo_metadata['name']}",
+        "node_id": f"repo::{repo_metadata['name']}",
         "label": "Repository",
         "properties": {
             "name": repo_metadata["name"],

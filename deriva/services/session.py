@@ -176,6 +176,7 @@ class PipelineSession:
             schema: dict,
             temperature: float | None = None,
             max_tokens: int | None = None,
+            system_prompt: str | None = None,
         ) -> Any:
             assert self._llm_manager is not None
             return self._llm_manager.query(
@@ -183,6 +184,7 @@ class PipelineSession:
                 schema=schema,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                system_prompt=system_prompt,
             )
 
         return query_fn
@@ -194,7 +196,7 @@ class PipelineSession:
             self._get_llm_query_fn()
         if self._llm_manager:
             return {
-                "provider": str(self._llm_manager.provider),
+                "provider": str(self._llm_manager.provider_name),
                 "model": str(self._llm_manager.model),
             }
         return None
@@ -999,6 +1001,8 @@ class PipelineSession:
         bench_hash: bool = False,
         defer_relationships: bool = True,
         per_repo: bool = False,
+        use_enrichment_cache: bool = True,
+        nocache_enrichment_configs: list[str] | None = None,
     ) -> benchmarking.BenchmarkResult:
         """
         Run a full benchmark matrix.
@@ -1018,6 +1022,8 @@ class PipelineSession:
             bench_hash: Include repo/model/run in cache key for per-run isolation (default: False)
             defer_relationships: Two-phase derivation: create elements first, then relationships (default: False)
             per_repo: Run each repository as a separate benchmark instead of combined (default: False)
+            use_enrichment_cache: Enable enrichment caching (default: True)
+            nocache_enrichment_configs: List of config names to skip enrichment cache for
 
         Returns:
             BenchmarkResult with session details
@@ -1051,6 +1057,8 @@ class PipelineSession:
             bench_hash=bench_hash,
             defer_relationships=defer_relationships,
             per_repo=per_repo,
+            use_enrichment_cache=use_enrichment_cache,
+            nocache_enrichment_configs=nocache_enrichment_configs or [],
         )
 
         orchestrator = benchmarking.BenchmarkOrchestrator(

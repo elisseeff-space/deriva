@@ -42,22 +42,23 @@ from deriva.modules.derivation.base import (
     Candidate,
     RelationshipRule,
     enrich_candidate,
-    filter_by_pagerank,
 )
-from deriva.modules.derivation.element_base import PatternBasedDerivation
+from deriva.modules.derivation.element_base import HybridDerivation
 
 logger = logging.getLogger(__name__)
 
 
-class ApplicationServiceDerivation(PatternBasedDerivation):
+class ApplicationServiceDerivation(HybridDerivation):
     """
     ApplicationService element derivation.
 
-    Uses pattern-based filtering to identify API endpoints and
-    service methods from Method nodes.
+    Uses hybrid filtering (patterns + graph metrics) to identify API endpoints
+    and service methods from Method nodes.
     """
 
     ELEMENT_TYPE = "ApplicationService"
+    MIN_PAGERANK = 0.001  # Filter very low importance methods
+    USE_COMMUNITY_ROOTS = True  # Prioritize service hubs
 
     OUTBOUND_RULES = [
         RelationshipRule(
@@ -85,39 +86,13 @@ class ApplicationServiceDerivation(PatternBasedDerivation):
         **kwargs: Any,
     ) -> list[Candidate]:
         """Filter candidates for ApplicationService derivation."""
-        include_patterns = include_patterns or set()
-        exclude_patterns = exclude_patterns or set()
-
+        # Pre-filter: exclude dunder methods
         for c in candidates:
             enrich_candidate(c, enrichments)
 
-        # Pre-filter: exclude dunder methods
         filtered = [c for c in candidates if c.name and not c.name.startswith("__")]
 
-        # Separate likely services from others
-        likely_services = [
-            c
-            for c in filtered
-            if self.matches_patterns(c.name, include_patterns, exclude_patterns)
-        ]
-        others = [
-            c
-            for c in filtered
-            if not self.matches_patterns(c.name, include_patterns, exclude_patterns)
-        ]
-
-        # Sort by PageRank
-        likely_services = filter_by_pagerank(likely_services, top_n=max_candidates // 2)
-
-        remaining_slots = max_candidates - len(likely_services)
-        if remaining_slots > 0 and others:
-            others = filter_by_pagerank(others, top_n=remaining_slots)
-            likely_services.extend(others)
-
-        self.logger.debug(
-            "ApplicationService filter: %d total -> %d final",
-            len(candidates),
-            len(likely_services),
+        # Use parent's hybrid filtering
+        return super().filter_candidates(
+            filtered, enrichments, max_candidates, include_patterns, exclude_patterns
         )
-
-        return likely_services[:max_candidates]

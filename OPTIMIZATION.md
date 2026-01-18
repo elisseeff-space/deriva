@@ -14,6 +14,8 @@ This guide documents lessons learned from optimizing Deriva's LLM-based pipeline
 - [Case Study: Initial Optimization](#case-study-initial-optimization)
 - [Graph-Based Optimization](#graph-based-optimization)
 - [Optimization Log](#optimization-log)
+- [Phase 4: Advanced Optimizations](#phase-4-advanced-optimizations)
+- [Token Efficiency Optimizations (v0.6.9)](#token-efficiency-optimizations-v069)
 - [References](#references)
 
 ---
@@ -1021,6 +1023,185 @@ After Phase 4 optimizations (5 runs, mistral-devstral2, flask_invoice_generator)
 | Node variance | 87-89 (stable) |
 | Elements per run | 22-24 |
 | Relationships per run | 20-30 |
+
+---
+
+## Token Efficiency Optimizations (v0.6.9)
+
+Version 0.6.9 introduced several token efficiency improvements that reduce extraction costs by an estimated 40-60%.
+
+### Compact JSON Serialization
+
+**Problem:** Default JSON formatting with `indent=2` adds significant whitespace overhead.
+
+**Solution:** Use compact serialization with no whitespace:
+
+```python
+# Before (wasteful)
+json.dumps(data, indent=2)
+# {"elements": [
+#     {
+#         "id": "bus_concept_1",
+#         "name": "Customer"
+#     }
+# ]}
+
+# After (efficient)
+json.dumps(data, separators=(",", ":"))
+# {"elements":[{"id":"bus_concept_1","name":"Customer"}]}
+```
+
+**Savings:** ~15% token reduction for JSON payloads.
+
+**Where to apply:**
+
+- Existing concepts/elements passed to LLM prompts
+- Any structured data in prompt context
+- NOT for human-readable output or logs
+
+### System/User Prompt Separation
+
+**Problem:** Static instructions repeated in every LLM call waste tokens.
+
+**Solution:** Separate prompts into system (static) and user (dynamic) portions:
+
+| Prompt Type | Content | Sent When |
+|-------------|---------|-----------|
+| **System prompt** | Role definition, naming rules, output format, constraints | Once per session (cached by provider) |
+| **User prompt** | File content, existing concepts, specific context | Every call |
+
+**Implementation pattern:**
+
+```python
+# System prompt - static instructions (sent once per session)
+system_prompt = """
+You are an expert at extracting business concepts from source code.
+
+NAMING RULES:
+1. Use singular form (Invoice not Invoices)
+2. Use Title Case for names
+3. Use lowercase snake_case for identifiers
+
+OUTPUT FORMAT:
+Return valid JSON with "concepts" array.
+"""
+
+# User prompt - dynamic content (per file/batch)
+user_prompt = f"""
+<existing_concepts>
+{json.dumps(existing, separators=(",", ":"))}
+</existing_concepts>
+
+<file path="{file_path}">
+{file_content}
+</file>
+
+Extract business concepts from this file.
+"""
+```
+
+**Benefits:**
+
+- Many providers cache system prompts across calls
+- Reduces redundant instruction tokens
+- Cleaner separation of concerns
+- Easier to maintain and update instructions
+
+### Multi-File Batching
+
+**Problem:** Each small file requires a separate LLM call with full prompt overhead.
+
+**Solution:** Batch multiple small files into single LLM calls using the `batch_size` configuration.
+
+**Configuration:**
+
+```bash
+# CLI usage
+uv run deriva-cli run extraction --repo myrepo --batch-size 5
+
+# Or set in extraction config
+uv run deriva-cli config update extraction BusinessConcept \
+  -p '{"batch_size": 5}'
+```
+
+**How batching works:**
+
+1. Files are sorted by size (smallest first)
+2. Files are grouped until batch token limit is reached
+3. Each batch is sent as a single LLM call
+4. Results are disaggregated back to individual files
+
+**Batching parameters:**
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `batch_size` | 1 | Maximum files per batch |
+| `max_batch_tokens` | 4000 | Token limit per batch |
+| `batch_by_directory` | false | Group files from same directory |
+
+**Example batch prompt:**
+
+```text
+<files>
+<file path="models/customer.py" index="0">
+class Customer:
+    name: str
+    email: str
+</file>
+<file path="models/order.py" index="1">
+class Order:
+    customer_id: int
+    total: float
+</file>
+<file path="models/item.py" index="2">
+class Item:
+    name: str
+    price: float
+</file>
+</files>
+
+Extract business concepts from each file. Return results indexed by file.
+```
+
+**Savings:** 30-50% token reduction depending on file sizes and batch efficiency.
+
+**Best practices for batching:**
+
+1. **Start with batch_size=3-5** for initial testing
+2. **Increase for small files** - config files, models, schemas batch well
+3. **Keep batch_size=1 for large files** - complex modules need individual attention
+4. **Monitor quality** - very high batch sizes may reduce extraction quality
+5. **Use batch_by_directory** when files in same directory share context
+
+### Combined Token Savings
+
+When all three optimizations are applied together:
+
+| Optimization | Individual Savings | Cumulative |
+|--------------|-------------------|------------|
+| Compact JSON | ~15% | 15% |
+| System/User separation | ~10-15% | 25-30% |
+| Multi-file batching | ~30-50% | 40-60% |
+
+**Measuring token usage:**
+
+```bash
+# Run extraction with verbose logging to see token counts
+uv run deriva-cli run extraction --repo myrepo -v
+
+# Check logs for token usage per step
+grep "tokens" workspace/logs/extraction_*.jsonl
+```
+
+### Token Efficiency Checklist
+
+Before optimizing prompts for consistency, ensure token efficiency:
+
+- [ ] JSON payloads use compact serialization (`separators=(",", ":")`)
+- [ ] Static instructions are in system prompt, dynamic content in user prompt
+- [ ] Small files are batched appropriately (`batch_size > 1`)
+- [ ] Large context is filtered (use `limit_existing_elements()` or `stratified_sample_elements()`)
+- [ ] Graph proximity filtering is enabled for relationship derivation
 
 ---
 

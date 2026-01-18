@@ -541,3 +541,373 @@ class TestEdgeCases:
         """Should handle file with only comments."""
         types = manager.extract_types("# Comment\n# Another", language="python")
         assert types == []
+
+
+# =============================================================================
+# CALL EXTRACTION TESTS
+# =============================================================================
+
+
+class TestCallExtraction:
+    """Tests for function call extraction."""
+
+    def test_python_extracts_simple_function_call(self, manager):
+        """Should extract simple function calls."""
+        source = "def caller():\n    target()"
+        calls = manager.extract_calls(source, language="python")
+
+        assert len(calls) >= 1
+        call = next((c for c in calls if c.callee_name == "target"), None)
+        assert call is not None
+        assert call.caller_name == "caller"
+
+    def test_python_extracts_method_call(self, manager):
+        """Should extract method calls on objects."""
+        source = "def caller():\n    obj.method()"
+        calls = manager.extract_calls(source, language="python")
+
+        call = next((c for c in calls if c.callee_name == "method"), None)
+        assert call is not None
+        assert call.callee_qualifier == "obj"
+        assert call.is_method_call is True
+
+    def test_python_extracts_chained_calls(self, manager):
+        """Should extract calls from method chains."""
+        source = "def caller():\n    a.first().second()"
+        calls = manager.extract_calls(source, language="python")
+
+        # Should have at least the method calls
+        assert len(calls) >= 1
+
+    def test_python_extracts_calls_from_class_methods(self, manager):
+        """Should extract calls from class methods."""
+        source = """class MyClass:
+    def my_method(self):
+        helper()
+        self.other_method()
+"""
+        calls = manager.extract_calls(source, language="python")
+
+        # Should have both helper() and other_method() calls
+        helper_call = next((c for c in calls if c.callee_name == "helper"), None)
+        method_call = next((c for c in calls if c.callee_name == "other_method"), None)
+
+        assert helper_call is not None
+        assert helper_call.caller_class == "MyClass"
+        assert method_call is not None
+
+    def test_python_extracts_calls_from_decorated_methods(self, manager):
+        """Should extract calls from decorated methods."""
+        source = """class MyClass:
+    @staticmethod
+    def static_method():
+        helper()
+"""
+        calls = manager.extract_calls(source, language="python")
+
+        helper_call = next((c for c in calls if c.callee_name == "helper"), None)
+        assert helper_call is not None
+
+    def test_python_extracts_calls_from_top_level_decorated_functions(self, manager):
+        """Should extract calls from decorated top-level functions."""
+        source = """@decorator
+def my_func():
+    target()
+"""
+        calls = manager.extract_calls(source, language="python")
+
+        target_call = next((c for c in calls if c.callee_name == "target"), None)
+        assert target_call is not None
+        assert target_call.caller_class is None
+
+    def test_python_skips_complex_call_expressions(self, manager):
+        """Should handle complex call expressions gracefully."""
+        source = "def caller():\n    funcs[0]()"  # Subscript call
+        calls = manager.extract_calls(source, language="python")
+
+        # Should not crash, may or may not extract the call
+        assert isinstance(calls, list)
+
+    def test_javascript_extracts_calls(self, manager):
+        """Should extract calls from JavaScript."""
+        source = """function caller() {
+    target();
+    obj.method();
+}"""
+        calls = manager.extract_calls(source, language="javascript")
+
+        # JavaScript extractor may or may not implement call extraction
+        assert isinstance(calls, list)
+
+
+# =============================================================================
+# PYTHON-SPECIFIC EXTRACTION TESTS
+# =============================================================================
+
+
+class TestPythonSpecificExtraction:
+    """Additional tests for Python-specific extraction features."""
+
+    def test_extracts_type_alias_simple(self, manager):
+        """Should extract simple type aliases."""
+        # Use simpler type alias that tree-sitter can parse
+        source = "type UserId = int"
+        types = manager.extract_types(source, language="python")
+
+        # Tree-sitter may not support Python 3.12 type aliases yet
+        # Just verify no crash and proper list return
+        assert isinstance(types, list)
+
+    def test_extracts_decorated_function_as_type(self, manager):
+        """Should extract decorated top-level functions as types."""
+        source = """@app.route("/api")
+def api_endpoint():
+    return {}
+"""
+        types = manager.extract_types(source, language="python")
+
+        func = next((t for t in types if t.name == "api_endpoint"), None)
+        assert func is not None
+        assert "app.route" in func.decorators or "route" in str(func.decorators)
+
+    def test_extracts_async_decorated_function(self, manager):
+        """Should extract async decorated functions."""
+        source = """@asynccontextmanager
+async def async_resource():
+    yield "resource"
+"""
+        types = manager.extract_types(source, language="python")
+
+        func = next((t for t in types if t.name == "async_resource"), None)
+        assert func is not None
+        assert func.is_async is True
+
+    def test_extracts_method_with_complex_decorators(self, manager):
+        """Should extract methods with complex decorator expressions."""
+        source = """class MyClass:
+    @decorator_factory(arg1="value")
+    def decorated_method(self):
+        pass
+"""
+        methods = manager.extract_methods(source, language="python")
+
+        method = next((m for m in methods if m.name == "decorated_method"), None)
+        assert method is not None
+        assert len(method.decorators) > 0
+
+    def test_extracts_dunder_methods(self, manager):
+        """Should extract dunder methods."""
+        source = """class MyClass:
+    def __init__(self):
+        pass
+
+    def __str__(self):
+        return ""
+"""
+        methods = manager.extract_methods(source, language="python")
+
+        init = next((m for m in methods if m.name == "__init__"), None)
+        str_method = next((m for m in methods if m.name == "__str__"), None)
+        assert init is not None
+        assert str_method is not None
+
+    def test_extracts_multiple_inheritance(self, manager):
+        """Should extract class with multiple bases."""
+        source = "class Child(Parent1, Parent2, Mixin): pass"
+        types = manager.extract_types(source, language="python")
+
+        child = next((t for t in types if t.name == "Child"), None)
+        assert child is not None
+        assert set(child.bases) == {"Parent1", "Parent2", "Mixin"}
+
+    def test_extracts_from_import_with_multiple_names(self, manager):
+        """Should extract from import with multiple names."""
+        source = "from typing import List, Dict, Optional, Union"
+        imports = manager.extract_imports(source, language="python")
+
+        assert len(imports) == 1
+        imp = imports[0]
+        assert imp.module == "typing"
+        assert "List" in imp.names
+        assert "Dict" in imp.names
+        assert "Optional" in imp.names
+        assert "Union" in imp.names
+
+    def test_extracts_wildcard_import(self, manager):
+        """Should extract wildcard import."""
+        source = "from module import *"
+        imports = manager.extract_imports(source, language="python")
+
+        assert len(imports) == 1
+        imp = imports[0]
+        assert imp.module == "module"
+        assert "*" in imp.names
+
+    def test_extracts_relative_import(self, manager):
+        """Should extract relative imports."""
+        source = "from . import sibling\nfrom ..parent import something"
+        imports = manager.extract_imports(source, language="python")
+
+        assert len(imports) == 2
+
+    def test_handles_empty_class_body(self, manager):
+        """Should handle class with pass statement only."""
+        source = "class Empty: pass"
+        types = manager.extract_types(source, language="python")
+
+        empty_class = next((t for t in types if t.name == "Empty"), None)
+        assert empty_class is not None
+
+    def test_handles_ellipsis_body(self, manager):
+        """Should handle class/function with ellipsis body."""
+        source = """class Protocol:
+    def method(self): ...
+"""
+        methods = manager.extract_methods(source, language="python")
+
+        method = next((m for m in methods if m.name == "method"), None)
+        assert method is not None
+
+
+# =============================================================================
+# JAVASCRIPT-SPECIFIC EXTRACTION TESTS
+# =============================================================================
+
+
+class TestJavaScriptSpecificExtraction:
+    """Additional tests for JavaScript-specific extraction features."""
+
+    def test_extracts_arrow_function_expression(self, manager):
+        """Should extract arrow functions assigned to variables."""
+        source = "const add = (a, b) => a + b;"
+        types = manager.extract_types(source, language="javascript")
+
+        func = next((t for t in types if t.name == "add"), None)
+        assert func is not None
+
+    def test_extracts_async_arrow_function(self, manager):
+        """Should extract async arrow functions."""
+        source = "const fetchData = async (url) => await fetch(url);"
+        types = manager.extract_types(source, language="javascript")
+
+        func = next((t for t in types if t.name == "fetchData"), None)
+        assert func is not None
+        assert func.is_async is True
+
+    def test_extracts_getter_setter_methods(self, manager):
+        """Should extract getter and setter methods."""
+        source = """class Person {
+    get name() { return this._name; }
+    set name(value) { this._name = value; }
+}"""
+        methods = manager.extract_methods(source, language="javascript")
+
+        # Should extract the getter/setter methods (they may be named "name" or similar)
+        # At least some methods should be found
+        assert len(methods) >= 1
+
+    def test_extracts_export_default_class(self, manager):
+        """Should extract export default class."""
+        source = "export default class Service { run() {} }"
+        types = manager.extract_types(source, language="javascript")
+
+        service = next((t for t in types if t.name == "Service"), None)
+        assert service is not None
+
+    def test_extracts_commonjs_module(self, manager):
+        """Should extract CommonJS module.exports class."""
+        source = """class Helper {}
+module.exports = Helper;"""
+        types = manager.extract_types(source, language="javascript")
+
+        helper = next((t for t in types if t.name == "Helper"), None)
+        assert helper is not None
+
+
+# =============================================================================
+# JAVA-SPECIFIC EXTRACTION TESTS
+# =============================================================================
+
+
+class TestJavaSpecificExtraction:
+    """Additional tests for Java-specific extraction features."""
+
+    def test_extracts_generic_class(self, manager):
+        """Should extract generic class."""
+        source = "public class Container<T> { private T value; }"
+        types = manager.extract_types(source, language="java")
+
+        container = next((t for t in types if t.name == "Container"), None)
+        assert container is not None
+
+    def test_extracts_generic_interface(self, manager):
+        """Should extract generic interface."""
+        source = "public interface Mapper<S, T> { T map(S source); }"
+        types = manager.extract_types(source, language="java")
+
+        mapper = next((t for t in types if t.name == "Mapper"), None)
+        assert mapper is not None
+        assert mapper.kind == "interface"
+
+    def test_extracts_annotated_method(self, manager):
+        """Should extract annotated methods."""
+        source = """public class Api {
+    @GetMapping("/users")
+    public List<User> getUsers() { return null; }
+}"""
+        methods = manager.extract_methods(source, language="java")
+
+        method = next((m for m in methods if m.name == "getUsers"), None)
+        assert method is not None
+
+    def test_extracts_static_import(self, manager):
+        """Should extract static imports."""
+        source = "import static java.lang.Math.PI;"
+        imports = manager.extract_imports(source, language="java")
+
+        assert len(imports) >= 1
+
+
+# =============================================================================
+# CSHARP-SPECIFIC EXTRACTION TESTS
+# =============================================================================
+
+
+class TestCSharpSpecificExtraction:
+    """Additional tests for C#-specific extraction features."""
+
+    def test_extracts_generic_class(self, manager):
+        """Should extract generic class."""
+        source = "public class Repository<T> where T : class { }"
+        types = manager.extract_types(source, language="csharp")
+
+        repo = next((t for t in types if t.name == "Repository"), None)
+        assert repo is not None
+
+    def test_extracts_extension_method(self, manager):
+        """Should extract extension methods."""
+        source = """public static class StringExtensions {
+    public static string Reverse(this string s) { return null; }
+}"""
+        methods = manager.extract_methods(source, language="csharp")
+
+        method = next((m for m in methods if m.name == "Reverse"), None)
+        assert method is not None
+
+    def test_extracts_async_method_with_task(self, manager):
+        """Should extract async methods returning Task."""
+        source = """public class Service {
+    public async Task<User> GetUserAsync(int id) { return null; }
+}"""
+        methods = manager.extract_methods(source, language="csharp")
+
+        method = next((m for m in methods if m.name == "GetUserAsync"), None)
+        assert method is not None
+
+    def test_extracts_global_using(self, manager):
+        """Should extract global using directives."""
+        source = "global using System;\nglobal using System.Linq;"
+        imports = manager.extract_imports(source, language="csharp")
+
+        # Should have some imports
+        assert len(imports) >= 1

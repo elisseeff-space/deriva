@@ -51,36 +51,96 @@ from __future__ import annotations
 
 # Base utilities (includes input_sources, normalization, and common helpers)
 from .base import (
-    # Node/Edge ID generation
-    generate_node_id,
-    generate_edge_id,
-    strip_chunk_suffix,
+    PACKAGE_CANONICAL_NAMES,
+    create_empty_llm_details,
+    create_extraction_result,
     # JSON parsing
     current_timestamp,
-    parse_json_response,
-    validate_required_fields,
+    deduplicate_by_normalized_name,
     deduplicate_nodes,
-    create_extraction_result,
-    create_empty_llm_details,
     extract_llm_details_from_response,
-    # Input sources
-    parse_input_sources,
-    matches_file_spec,
     filter_files_by_input_sources,
+    generate_edge_id,
+    # Node/Edge ID generation
+    generate_node_id,
     get_node_sources,
     has_file_sources,
     has_node_sources,
-    # Normalization
-    normalize_package_name,
-    normalize_concept_name,
-    normalize_technology_name,
-    normalize_node,
-    normalize_nodes,
-    deduplicate_by_normalized_name,
-    singularize,
-    PACKAGE_CANONICAL_NAMES,
     # File type utilities
     is_python_file,
+    matches_file_spec,
+    normalize_concept_name,
+    normalize_node,
+    normalize_nodes,
+    # Normalization
+    normalize_package_name,
+    normalize_technology_name,
+    # Input sources
+    parse_input_sources,
+    parse_json_response,
+    singularize,
+    strip_chunk_suffix,
+    validate_required_fields,
+)
+
+# LLM/AST-based extractors
+from .business_concept import (
+    BUSINESS_CONCEPT_SCHEMA,
+    build_business_concept_node,
+    extract_business_concepts,
+    extract_business_concepts_batch,
+    extract_business_concepts_multi,
+)
+from .business_concept import (
+    build_extraction_prompt as build_business_concept_prompt,
+)
+from .business_concept import (
+    parse_llm_response as parse_business_concept_response,
+)
+from .directory import (
+    build_directory_node,
+    extract_directories,
+)
+
+# Tree-sitter based edge extraction (unified module)
+from .edges import (
+    ALL_EDGE_TYPES,
+    SUPPORTED_LANGUAGES,
+    EdgeType,
+    extract_edges_batch,
+    extract_edges_from_file,
+)
+from .external_dependency import (
+    EXTERNAL_DEPENDENCY_SCHEMA,
+    build_external_dependency_node,
+    extract_external_dependencies,
+    extract_external_dependencies_batch,
+    get_extraction_method,
+)
+from .external_dependency import (
+    build_extraction_prompt as build_external_dependency_prompt,
+)
+from .external_dependency import (
+    parse_llm_response as parse_external_dependency_response,
+)
+from .file import (
+    build_file_node,
+    extract_files,
+)
+from .method import (
+    METHOD_SCHEMA,
+    build_method_node,
+    extract_methods,
+    extract_methods_batch,
+    # AST extraction (both names for compatibility)
+    extract_methods_from_python,
+    extract_methods_from_source,
+)
+from .method import (
+    build_extraction_prompt as build_method_prompt,
+)
+from .method import (
+    parse_llm_response as parse_method_response,
 )
 
 # Structural extractors
@@ -88,70 +148,44 @@ from .repository import (
     build_repository_node,
     extract_repository,
 )
-from .directory import (
-    build_directory_node,
-    extract_directories,
-)
-from .file import (
-    build_file_node,
-    extract_files,
-)
-
-# LLM/AST-based extractors
-from .business_concept import (
-    BUSINESS_CONCEPT_SCHEMA,
-    build_business_concept_node,
-    build_extraction_prompt as build_business_concept_prompt,
-    extract_business_concepts,
-    extract_business_concepts_batch,
-    parse_llm_response as parse_business_concept_response,
-)
-from .type_definition import (
-    TYPE_DEFINITION_SCHEMA,
-    build_type_definition_node,
-    build_extraction_prompt as build_type_definition_prompt,
-    extract_type_definitions,
-    extract_type_definitions_batch,
-    parse_llm_response as parse_type_definition_response,
-    # AST extraction (both names for compatibility)
-    extract_types_from_python,
-    extract_types_from_source,
-)
-from .method import (
-    METHOD_SCHEMA,
-    build_method_node,
-    build_extraction_prompt as build_method_prompt,
-    extract_methods,
-    extract_methods_batch,
-    parse_llm_response as parse_method_response,
-    # AST extraction (both names for compatibility)
-    extract_methods_from_python,
-    extract_methods_from_source,
-)
 from .technology import (
     TECHNOLOGY_SCHEMA,
     build_technology_node,
-    build_extraction_prompt as build_technology_prompt,
     extract_technologies,
     extract_technologies_batch,
-    parse_llm_response as parse_technology_response,
 )
-from .external_dependency import (
-    EXTERNAL_DEPENDENCY_SCHEMA,
-    build_external_dependency_node,
-    build_extraction_prompt as build_external_dependency_prompt,
-    extract_external_dependencies,
-    extract_external_dependencies_batch,
-    parse_llm_response as parse_external_dependency_response,
-    get_extraction_method,
+from .technology import (
+    build_extraction_prompt as build_technology_prompt,
+)
+from .technology import (
+    parse_llm_response as parse_technology_response,
 )
 from .test import (
     TEST_SCHEMA,
     build_test_node,
-    build_extraction_prompt as build_test_prompt,
     extract_tests,
     extract_tests_batch,
+)
+from .test import (
+    build_extraction_prompt as build_test_prompt,
+)
+from .test import (
     parse_llm_response as parse_test_response,
+)
+from .type_definition import (
+    TYPE_DEFINITION_SCHEMA,
+    build_type_definition_node,
+    extract_type_definitions,
+    extract_type_definitions_batch,
+    # AST extraction (both names for compatibility)
+    extract_types_from_python,
+    extract_types_from_source,
+)
+from .type_definition import (
+    build_extraction_prompt as build_type_definition_prompt,
+)
+from .type_definition import (
+    parse_llm_response as parse_type_definition_response,
 )
 
 __all__ = [
@@ -197,6 +231,7 @@ __all__ = [
     "build_business_concept_node",
     "extract_business_concepts",
     "extract_business_concepts_batch",
+    "extract_business_concepts_multi",
     "build_business_concept_prompt",
     "parse_business_concept_response",
     "BUSINESS_CONCEPT_SCHEMA",
@@ -240,4 +275,10 @@ __all__ = [
     "build_test_prompt",
     "parse_test_response",
     "TEST_SCHEMA",
+    # Unified edge extraction (Tree-sitter based)
+    "EdgeType",
+    "ALL_EDGE_TYPES",
+    "SUPPORTED_LANGUAGES",
+    "extract_edges_from_file",
+    "extract_edges_batch",
 ]

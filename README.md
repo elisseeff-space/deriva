@@ -3,8 +3,8 @@
 [![Build Status](https://github.com/StevenBtw/Deriva/actions/workflows/ci.yml/badge.svg)](https://github.com/StevenBtw/Deriva/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 [![Python 3.14+](https://img.shields.io/badge/python-3.14+-blue.svg)](https://www.python.org/downloads/)
-[![Docker](https://img.shields.io/badge/Docker-required-2496ED.svg?logo=docker)](https://www.docker.com/)
 [![Neo4j](https://img.shields.io/badge/Neo4j-5.x-008CC1.svg?logo=neo4j)](https://neo4j.com/)
+[![Docker](https://img.shields.io/badge/Docker-required-2496ED.svg?logo=docker)](https://www.docker.com/)
 [![Marimo](https://img.shields.io/badge/Marimo-notebook-orange.svg)](https://marimo.io/)
 
 **Automatically generate ArchiMate enterprise architecture models from software repositories.**
@@ -132,6 +132,7 @@ Enable the extraction steps you need:
 | File | Creates file nodes with classification | Always |
 | TypeDefinition | Extracts classes, functions (AST for Python) | Yes |
 | Method | Extracts methods from type definitions | Optional |
+| Edge | Extracts relationships (IMPORTS, USES, CALLS, DECORATED_BY, REFERENCES) | Yes |
 | Technology | Detects frameworks and libraries | Optional |
 | ExternalDependency | Maps external dependencies | Optional |
 | Test | Extracts test definitions | Optional |
@@ -236,6 +237,16 @@ LLM_RATE_LIMIT_DELAY=0.0
 
 # Max retries on rate limit (429) errors
 LLM_RATE_LIMIT_RETRIES=3
+
+# Adaptive throttling (reduces RPM when hitting rate limits)
+LLM_THROTTLE_ENABLED=true
+LLM_THROTTLE_MIN_FACTOR=0.25    # Minimum 25% of configured RPM
+LLM_THROTTLE_RECOVERY_TIME=60   # Seconds before trying to increase RPM
+
+# Circuit breaker (stops requests when provider is failing)
+LLM_CIRCUIT_BREAKER_ENABLED=true
+LLM_CIRCUIT_FAILURE_THRESHOLD=5   # Consecutive failures to open circuit
+LLM_CIRCUIT_RECOVERY_TIME=30      # Seconds before testing recovery
 ```
 
 Default rate limits by provider:
@@ -252,7 +263,9 @@ The rate limiter automatically:
 
 - Throttles requests to stay within limits
 - Applies exponential backoff on rate limit errors (HTTP 429)
-- Handles timeout errors with backoff retries
+- Respects Retry-After headers from providers
+- Adaptively reduces RPM when hitting rate limits (recovers over time)
+- Opens circuit breaker after consecutive failures to prevent cascading errors
 
 ### Managing File Types
 
@@ -297,6 +310,10 @@ Deriva uses a **versioning system** for configurations. When you update a config
 # Update extraction config instruction
 deriva config update extraction BusinessConcept \
   -i "New instruction text..."
+
+# Update extraction config with batch size for multi-file LLM calls
+deriva config update extraction BusinessConcept \
+  --batch-size 5
 
 # Update derivation config from file
 deriva config update derivation ApplicationComponent \
@@ -413,7 +430,7 @@ deriva export -o workspace/output/model.xml
 
 ## Benchmarking
 
-Deriva includes a multi-model benchmarking system for comparing LLM performance across different providers and models. See [BENCHMARKS.md](BENCHMARKS.md) for the full guide and [optimization_guide.md](optimization_guide.md) for detailed case studies.
+Deriva includes a multi-model benchmarking system for comparing LLM performance across different providers and models. See [BENCHMARKS.md](BENCHMARKS.md) for the full guide and [OPTIMIZATION.md](OPTIMIZATION.md) for detailed case studies.
 
 ### Running Benchmarks
 

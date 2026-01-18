@@ -7,9 +7,374 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import tree_sitter
 
-from ..models import ExtractedImport, ExtractedMethod, ExtractedType
-from .base import LanguageExtractor
+from ..models import (
+    ExtractedCall,
+    ExtractedImport,
+    ExtractedMethod,
+    ExtractedType,
+    FilterConstants,
+)
 from . import register_extractor
+from .base import LanguageExtractor
+
+# =============================================================================
+# Python Filter Constants
+# =============================================================================
+
+PYTHON_STDLIB = {
+    "abc",
+    "argparse",
+    "ast",
+    "asyncio",
+    "atexit",
+    "base64",
+    "bisect",
+    "builtins",
+    "calendar",
+    "cgi",
+    "cmd",
+    "codecs",
+    "collections",
+    "concurrent",
+    "configparser",
+    "contextlib",
+    "copy",
+    "csv",
+    "ctypes",
+    "dataclasses",
+    "datetime",
+    "decimal",
+    "difflib",
+    "dis",
+    "email",
+    "encodings",
+    "enum",
+    "errno",
+    "faulthandler",
+    "filecmp",
+    "fileinput",
+    "fnmatch",
+    "fractions",
+    "functools",
+    "gc",
+    "getopt",
+    "getpass",
+    "glob",
+    "graphlib",
+    "gzip",
+    "hashlib",
+    "heapq",
+    "hmac",
+    "html",
+    "http",
+    "imaplib",
+    "importlib",
+    "inspect",
+    "io",
+    "ipaddress",
+    "itertools",
+    "json",
+    "keyword",
+    "linecache",
+    "locale",
+    "logging",
+    "lzma",
+    "mailbox",
+    "marshal",
+    "math",
+    "mimetypes",
+    "mmap",
+    "modulefinder",
+    "multiprocessing",
+    "netrc",
+    "numbers",
+    "operator",
+    "optparse",
+    "os",
+    "pathlib",
+    "pdb",
+    "pickle",
+    "pkgutil",
+    "platform",
+    "plistlib",
+    "poplib",
+    "posixpath",
+    "pprint",
+    "profile",
+    "pstats",
+    "queue",
+    "quopri",
+    "random",
+    "re",
+    "readline",
+    "reprlib",
+    "resource",
+    "rlcompleter",
+    "sched",
+    "secrets",
+    "select",
+    "selectors",
+    "shelve",
+    "shlex",
+    "shutil",
+    "signal",
+    "smtplib",
+    "socket",
+    "socketserver",
+    "sqlite3",
+    "ssl",
+    "stat",
+    "statistics",
+    "string",
+    "struct",
+    "subprocess",
+    "sys",
+    "sysconfig",
+    "syslog",
+    "tarfile",
+    "tempfile",
+    "test",
+    "textwrap",
+    "threading",
+    "time",
+    "timeit",
+    "token",
+    "tokenize",
+    "trace",
+    "traceback",
+    "tracemalloc",
+    "turtle",
+    "types",
+    "typing",
+    "unicodedata",
+    "unittest",
+    "urllib",
+    "uu",
+    "uuid",
+    "venv",
+    "warnings",
+    "wave",
+    "weakref",
+    "webbrowser",
+    "winreg",
+    "wsgiref",
+    "xml",
+    "xmlrpc",
+    "zipfile",
+    "zipimport",
+    "zlib",
+    "typing_extensions",
+    "TYPE_CHECKING",
+}
+
+PYTHON_BUILTINS = {
+    "abs",
+    "all",
+    "any",
+    "ascii",
+    "bin",
+    "bool",
+    "breakpoint",
+    "bytearray",
+    "bytes",
+    "callable",
+    "chr",
+    "classmethod",
+    "compile",
+    "complex",
+    "delattr",
+    "dict",
+    "dir",
+    "divmod",
+    "enumerate",
+    "eval",
+    "exec",
+    "filter",
+    "float",
+    "format",
+    "frozenset",
+    "getattr",
+    "globals",
+    "hasattr",
+    "hash",
+    "help",
+    "hex",
+    "id",
+    "input",
+    "int",
+    "isinstance",
+    "issubclass",
+    "iter",
+    "len",
+    "list",
+    "locals",
+    "map",
+    "max",
+    "memoryview",
+    "min",
+    "next",
+    "object",
+    "oct",
+    "open",
+    "ord",
+    "pow",
+    "print",
+    "property",
+    "range",
+    "repr",
+    "reversed",
+    "round",
+    "set",
+    "setattr",
+    "slice",
+    "sorted",
+    "staticmethod",
+    "str",
+    "sum",
+    "super",
+    "tuple",
+    "type",
+    "vars",
+    "zip",
+    # Common exceptions
+    "Exception",
+    "ValueError",
+    "TypeError",
+    "KeyError",
+    "IndexError",
+    "RuntimeError",
+    "AttributeError",
+    "ImportError",
+    "OSError",
+    "IOError",
+}
+
+PYTHON_DECORATOR_BUILTINS = {
+    # Standard library
+    "staticmethod",
+    "classmethod",
+    "property",
+    "abstractmethod",
+    "abstractproperty",
+    "abstractclassmethod",
+    "abstractstaticmethod",
+    "dataclass",
+    "dataclasses.dataclass",
+    "functools.wraps",
+    "functools.lru_cache",
+    "functools.cache",
+    "functools.cached_property",
+    "functools.total_ordering",
+    "functools.singledispatch",
+    "functools.singledispatchmethod",
+    "contextlib.contextmanager",
+    "contextlib.asynccontextmanager",
+    "typing.overload",
+    "typing.override",
+    "typing.final",
+    "typing.no_type_check",
+    "typing.runtime_checkable",
+    # Common frameworks
+    "app.route",
+    "app.get",
+    "app.post",
+    "app.put",
+    "app.delete",
+    "app.patch",
+    "pytest.fixture",
+    "pytest.mark",
+    "pytest.mark.parametrize",
+    "pytest.mark.skip",
+    "pytest.mark.skipif",
+    "pytest.mark.xfail",
+    "unittest.skip",
+    "unittest.skipIf",
+    "unittest.expectedFailure",
+    "mock.patch",
+    "unittest.mock.patch",
+}
+
+PYTHON_BUILTIN_TYPES = {
+    # Primitives
+    "str",
+    "int",
+    "float",
+    "bool",
+    "bytes",
+    "None",
+    "complex",
+    "object",
+    # Collections (builtin)
+    "list",
+    "dict",
+    "set",
+    "tuple",
+    "frozenset",
+    # Typing module basics
+    "Any",
+    "Union",
+    "Optional",
+    "Callable",
+    "Type",
+    "ClassVar",
+    "Final",
+    "Literal",
+    "TypeVar",
+    "Generic",
+    "Protocol",
+    "Annotated",
+    "Self",
+    "Never",
+    "NoReturn",
+    # Collection types from typing
+    "List",
+    "Dict",
+    "Set",
+    "Tuple",
+    "FrozenSet",
+    "Sequence",
+    "Mapping",
+    "MutableMapping",
+    "MutableSequence",
+    "Iterable",
+    "Iterator",
+    "Generator",
+    "Coroutine",
+    "AsyncGenerator",
+    "AsyncIterator",
+    "AsyncIterable",
+    "Awaitable",
+    "ContextManager",
+    "AsyncContextManager",
+    "Pattern",
+    "Match",
+    # Common ABCs
+    "ABC",
+    "ABCMeta",
+}
+
+PYTHON_GENERIC_CONTAINERS = {
+    "List",
+    "Dict",
+    "Set",
+    "Tuple",
+    "FrozenSet",
+    "Optional",
+    "Union",
+    "Sequence",
+    "Mapping",
+    "Iterable",
+    "Iterator",
+    "Generator",
+    "Callable",
+    "Type",
+    "ClassVar",
+    "Final",
+    "Annotated",
+    "Awaitable",
+    "Coroutine",
+    "AsyncGenerator",
+}
 
 
 class PythonExtractor(LanguageExtractor):
@@ -18,6 +383,16 @@ class PythonExtractor(LanguageExtractor):
     @property
     def language_name(self) -> str:
         return "python"
+
+    def get_filter_constants(self) -> FilterConstants:
+        """Return Python-specific filter constants."""
+        return FilterConstants(
+            stdlib_modules=PYTHON_STDLIB,
+            builtin_functions=PYTHON_BUILTINS,
+            builtin_decorators=PYTHON_DECORATOR_BUILTINS,
+            builtin_types=PYTHON_BUILTIN_TYPES,
+            generic_containers=PYTHON_GENERIC_CONTAINERS,
+        )
 
     def get_language(self) -> Any:
         """Return the tree-sitter Python language."""
@@ -98,6 +473,122 @@ class PythonExtractor(LanguageExtractor):
                 imports.append(self._extract_from_import(node, source))
 
         return imports
+
+    def extract_calls(
+        self, tree: tree_sitter.Tree, source: bytes
+    ) -> list[ExtractedCall]:
+        """Extract function/method calls from functions and methods."""
+        calls: list[ExtractedCall] = []
+        root = tree.root_node
+
+        # Extract calls from class methods
+        for class_node in self.walk_tree(root, {"class_definition"}):
+            class_name = self._get_class_name(class_node, source)
+            body = self.find_child_by_field(class_node, "body")
+            if body:
+                for item in body.children:
+                    func_node = None
+                    if item.type == "function_definition":
+                        func_node = item
+                    elif item.type == "decorated_definition":
+                        func_node = self._get_decorated_inner(item)
+
+                    if func_node and func_node.type == "function_definition":
+                        func_name = self._get_function_name(func_node, source)
+                        calls.extend(
+                            self._extract_calls_from_body(
+                                func_node, source, func_name, class_name
+                            )
+                        )
+
+        # Extract calls from top-level functions
+        for node in root.children:
+            func_node = None
+            if node.type == "function_definition":
+                func_node = node
+            elif node.type == "decorated_definition":
+                func_node = self._get_decorated_inner(node)
+
+            if func_node and func_node.type == "function_definition":
+                func_name = self._get_function_name(func_node, source)
+                calls.extend(
+                    self._extract_calls_from_body(func_node, source, func_name, None)
+                )
+
+        return calls
+
+    def _extract_calls_from_body(
+        self,
+        func_node: tree_sitter.Node,
+        source: bytes,
+        caller_name: str,
+        caller_class: str | None,
+    ) -> list[ExtractedCall]:
+        """Extract all function calls from a function body."""
+        calls: list[ExtractedCall] = []
+        body = self.find_child_by_field(func_node, "body")
+        if not body:
+            return calls
+
+        # Find all call expressions in the body
+        for call_node in self.walk_tree(body, {"call"}):
+            call = self._extract_single_call(
+                call_node, source, caller_name, caller_class
+            )
+            if call:
+                calls.append(call)
+
+        return calls
+
+    def _extract_single_call(
+        self,
+        call_node: tree_sitter.Node,
+        source: bytes,
+        caller_name: str,
+        caller_class: str | None,
+    ) -> ExtractedCall | None:
+        """Extract a single function call."""
+        func = self.find_child_by_field(call_node, "function")
+        if not func:
+            return None
+
+        callee_name = ""
+        callee_qualifier = None
+        is_method_call = False
+
+        if func.type == "identifier":
+            # Simple function call: foo()
+            callee_name = self.get_node_text(func, source)
+        elif func.type == "attribute":
+            # Method/attribute call: obj.method() or module.func()
+            is_method_call = True
+            attr_node = self.find_child_by_field(func, "attribute")
+            obj_node = self.find_child_by_field(func, "object")
+
+            if attr_node:
+                callee_name = self.get_node_text(attr_node, source)
+            if obj_node:
+                callee_qualifier = self.get_node_text(obj_node, source)
+        else:
+            # Complex expression (e.g., func_array[0]())
+            return None
+
+        if not callee_name:
+            return None
+
+        return ExtractedCall(
+            caller_name=caller_name,
+            caller_class=caller_class,
+            callee_name=callee_name,
+            callee_qualifier=callee_qualifier,
+            line=self.get_line_start(call_node),
+            is_method_call=is_method_call,
+        )
+
+    def _get_function_name(self, func_node: tree_sitter.Node, source: bytes) -> str:
+        """Get the name of a function."""
+        name_node = self.find_child_by_field(func_node, "name")
+        return self.get_node_text(name_node, source) if name_node else ""
 
     # =========================================================================
     # Private extraction helpers

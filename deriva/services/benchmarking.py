@@ -259,6 +259,9 @@ class BenchmarkConfig:
     bench_hash: bool = False  # Include repo/model/run in cache key for per-run isolation
     defer_relationships: bool = True  # Two-phase derivation: elements first, then relationships (recommended)
     per_repo: bool = False  # Run each repo as separate benchmark (vs combined)
+    # Enrichment cache settings (mirrors LLM cache patterns)
+    use_enrichment_cache: bool = True  # Global enrichment cache setting
+    nocache_enrichment_configs: list[str] = field(default_factory=list)  # Configs to skip enrichment cache
 
     def total_runs(self) -> int:
         """Calculate total number of runs in the matrix.
@@ -773,6 +776,7 @@ class BenchmarkOrchestrator:
                         run_logger=cast("RunLoggerProtocol", ocel_run_logger),
                         progress=progress,
                         model=model_config.model,
+                        config_versions=getattr(self, "_config_versions_snapshot", None),
                     )
 
                     repo_stats = result.get("stats", {})
@@ -802,6 +806,10 @@ class BenchmarkOrchestrator:
                     progress=progress,
                     defer_relationships=self.config.defer_relationships,
                     phases=["prep", "generate", "refine"],  # Include refine for graph_relationships
+                    config_versions=getattr(self, "_config_versions_snapshot", None),
+                    use_enrichment_cache=self.config.use_enrichment_cache,
+                    nocache_enrichment_configs=self.config.nocache_enrichment_configs or None,
+                    enrichment_bench_hash=bench_hash_str if self.config.bench_hash else None,
                 )
                 stats["derivation"] = result.get("stats", {})
                 self._log_derivation_results(result)
@@ -906,6 +914,7 @@ class BenchmarkOrchestrator:
             schema: dict,
             temperature: float | None = None,
             max_tokens: int | None = None,
+            system_prompt: str | None = None,
         ) -> Any:
             # Check if current config should skip cache
             current_config = run_logger.current_config
@@ -931,6 +940,7 @@ class BenchmarkOrchestrator:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 bench_hash=bench_hash,
+                system_prompt=system_prompt,
             )
 
             # Log the query as an OCEL event (metadata only)
@@ -1066,18 +1076,25 @@ class BenchmarkOrchestrator:
     # =========================================================================
 
     def _create_session(self) -> None:
-        """Create benchmark session in database."""
+        """Create benchmark session in database with config version snapshot."""
+        from deriva.services import config as config_service
+
         assert self.session_start is not None, "session_start must be set"
+
+        # Capture current config versions as snapshot for consistency during benchmark
+        self._config_versions_snapshot = config_service.get_active_config_versions(self.engine)
+
         self.engine.execute(
             """
             INSERT INTO benchmark_sessions
-            (session_id, description, config, started_at, status)
-            VALUES (?, ?, ?, ?, 'running')
+            (session_id, description, config, config_versions_snapshot, started_at, status)
+            VALUES (?, ?, ?, ?, ?, 'running')
             """,
             [
                 self.session_id,
                 self.config.description,
                 json.dumps(self.config.to_dict()),
+                json.dumps(self._config_versions_snapshot),
                 self.session_start.isoformat(),
             ],
         )

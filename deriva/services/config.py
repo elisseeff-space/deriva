@@ -77,6 +77,7 @@ class ExtractionConfig:
         extraction_method: str = "llm",
         temperature: float | None = None,
         max_tokens: int | None = None,
+        batch_size: int = 1,
     ):
         self.node_type = node_type
         self.sequence = sequence
@@ -87,6 +88,7 @@ class ExtractionConfig:
         self.extraction_method = extraction_method  # 'llm', 'ast', or 'structural'
         self.temperature = temperature  # None = use env default (LLM_TEMPERATURE)
         self.max_tokens = max_tokens  # None = use env default (LLM_MAX_TOKENS)
+        self.batch_size = batch_size  # Number of files per LLM call (1 = no batching)
 
 
 class DerivationConfig:
@@ -170,7 +172,7 @@ def get_extraction_configs(engine: Any, enabled_only: bool = False) -> list[Extr
     """
     query = """
         SELECT node_type, sequence, enabled, input_sources, instruction, example,
-               extraction_method, temperature, max_tokens
+               extraction_method, temperature, max_tokens, batch_size
         FROM extraction_config
         WHERE is_active = TRUE
     """
@@ -190,6 +192,7 @@ def get_extraction_configs(engine: Any, enabled_only: bool = False) -> list[Extr
             extraction_method=row[6] or "llm",
             temperature=row[7],
             max_tokens=row[8],
+            batch_size=row[9] or 1,
         )
         for row in rows
     ]
@@ -209,7 +212,7 @@ def get_extraction_config(engine: Any, node_type: str) -> ExtractionConfig | Non
     row = engine.execute(
         """
         SELECT node_type, sequence, enabled, input_sources, instruction, example,
-               extraction_method, temperature, max_tokens
+               extraction_method, temperature, max_tokens, batch_size
         FROM extraction_config
         WHERE node_type = ? AND is_active = TRUE
         """,
@@ -229,6 +232,7 @@ def get_extraction_config(engine: Any, node_type: str) -> ExtractionConfig | Non
         extraction_method=row[6] or "llm",
         temperature=row[7],
         max_tokens=row[8],
+        batch_size=row[9] or 1,
     )
 
 
@@ -243,6 +247,7 @@ def update_extraction_config(
     input_sources: str | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    batch_size: int | None = None,
 ) -> bool:
     """
     Update an extraction configuration.
@@ -257,6 +262,7 @@ def update_extraction_config(
         input_sources: JSON string of input sources
         temperature: LLM temperature override (None = use env default)
         max_tokens: LLM max_tokens override (None = use env default)
+        batch_size: Number of files per LLM call (1 = no batching)
 
     Returns:
         True if updated, False if not found
@@ -285,6 +291,9 @@ def update_extraction_config(
     if max_tokens is not None:
         updates.append("max_tokens = ?")
         params.append(max_tokens)
+    if batch_size is not None:
+        updates.append("batch_size = ?")
+        params.append(batch_size)
 
     if not updates:
         return False
@@ -398,6 +407,70 @@ def get_derivation_config(engine: Any, step_name: str) -> DerivationConfig | Non
         max_candidates=row[12],
         batch_size=row[13],
     )
+
+
+def update_derivation_sequence(
+    engine: Any,
+    step_order: list[str],
+    phase: str | None = None,
+) -> dict[str, Any]:
+    """
+    Update the sequence of derivation configurations in bulk.
+
+    This updates the sequence number for each step based on its position in the list.
+    Useful for reordering elements (e.g., Technology → Application → Business).
+
+    Args:
+        engine: DuckDB connection
+        step_order: List of step names in desired order
+        phase: If provided, only update steps in this phase
+
+    Returns:
+        Dict with success status, updated steps, and any errors
+
+    Example:
+        # Reorder to Technology → Application → Business
+        result = update_derivation_sequence(engine, [
+            "TechnologyService", "SystemSoftware", "Node", "Device",
+            "ApplicationComponent", "ApplicationService", "ApplicationInterface", "DataObject",
+            "BusinessObject", "BusinessProcess", "BusinessFunction", "BusinessActor", "BusinessEvent"
+        ], phase="generate")
+    """
+    updated = []
+    errors = []
+
+    for idx, step_name in enumerate(step_order, start=1):
+        query = """
+            UPDATE derivation_config
+            SET sequence = ?
+            WHERE step_name = ? AND is_active = TRUE
+        """
+        params = [idx, step_name]
+
+        if phase is not None:
+            query = """
+                UPDATE derivation_config
+                SET sequence = ?
+                WHERE step_name = ? AND phase = ? AND is_active = TRUE
+            """
+            params = [idx, step_name, phase]
+
+        try:
+            result = engine.execute(query, params)
+            rowcount = result.rowcount if hasattr(result, "rowcount") else 0
+            if rowcount > 0:
+                updated.append({"step_name": step_name, "sequence": idx})
+            else:
+                errors.append(f"Step '{step_name}' not found or not active")
+        except Exception as e:
+            errors.append(f"Failed to update '{step_name}': {e}")
+
+    return {
+        "success": len(errors) == 0,
+        "updated": updated,
+        "errors": errors,
+        "total_updated": len(updated),
+    }
 
 
 def update_derivation_config(
@@ -778,12 +851,13 @@ def create_extraction_config_version(
     enabled: bool | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    batch_size: int | None = None,
 ) -> dict[str, Any]:
     """Create a new version of an extraction config."""
     current = engine.execute(
         """
         SELECT id, version, sequence, enabled, input_sources, instruction, example,
-               temperature, max_tokens
+               temperature, max_tokens, batch_size
         FROM extraction_config
         WHERE node_type = ? AND is_active = TRUE
         """,
@@ -793,7 +867,7 @@ def create_extraction_config_version(
     if not current:
         return {"success": False, "error": f"Config not found for {node_type}"}
 
-    (old_id, old_version, sequence, cur_enabled, cur_sources, cur_instruction, cur_example, cur_temperature, cur_max_tokens) = current
+    (old_id, old_version, sequence, cur_enabled, cur_sources, cur_instruction, cur_example, cur_temperature, cur_max_tokens, cur_batch_size) = current
     new_version = old_version + 1
 
     new_instruction = instruction if instruction is not None else cur_instruction
@@ -802,6 +876,7 @@ def create_extraction_config_version(
     new_enabled = enabled if enabled is not None else cur_enabled
     new_temperature = temperature if temperature is not None else cur_temperature
     new_max_tokens = max_tokens if max_tokens is not None else cur_max_tokens
+    new_batch_size = batch_size if batch_size is not None else (cur_batch_size or 1)
 
     engine.execute(
         "UPDATE extraction_config SET is_active = FALSE WHERE id = ?",
@@ -816,10 +891,10 @@ def create_extraction_config_version(
         """
         INSERT INTO extraction_config
         (id, node_type, version, sequence, enabled, input_sources, instruction, example,
-         temperature, max_tokens, is_active, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
+         temperature, max_tokens, batch_size, is_active, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE, CURRENT_TIMESTAMP)
         """,
-        [next_id, node_type, new_version, sequence, new_enabled, new_sources, new_instruction, new_example, new_temperature, new_max_tokens],
+        [next_id, node_type, new_version, sequence, new_enabled, new_sources, new_instruction, new_example, new_temperature, new_max_tokens, new_batch_size],
     )
 
     return {
@@ -832,24 +907,159 @@ def create_extraction_config_version(
 
 def get_active_config_versions(engine: Any) -> dict[str, dict[str, int]]:
     """
-    Get current active versions for all configs.
+    Get current active versions for all enabled configs.
+
+    Only includes configs that are both active (current version) AND enabled.
+    This ensures benchmark snapshots don't include disabled configs.
 
     Returns:
         Dict with extraction and derivation (prep/generate/refine) versions
     """
     versions = {"extraction": {}, "derivation": {}}
 
-    # Extraction
-    rows = engine.execute("SELECT node_type, version FROM extraction_config WHERE is_active = TRUE").fetchall()
+    # Extraction - only enabled configs
+    rows = engine.execute("SELECT node_type, version FROM extraction_config WHERE is_active = TRUE AND enabled = TRUE").fetchall()
     for r in rows:
         versions["extraction"][r[0]] = r[1]
 
-    # Derivation (includes all phases: prep, generate, refine)
-    rows = engine.execute("SELECT step_name, version FROM derivation_config WHERE is_active = TRUE").fetchall()
+    # Derivation (includes all phases: prep, generate, refine) - only enabled configs
+    rows = engine.execute("SELECT step_name, version FROM derivation_config WHERE is_active = TRUE AND enabled = TRUE").fetchall()
     for r in rows:
         versions["derivation"][r[0]] = r[1]
 
     return versions
+
+
+# =============================================================================
+# Version-Specific Config Loading (for Benchmark Snapshots)
+# =============================================================================
+
+
+def get_extraction_configs_by_version(
+    engine: Any,
+    version_map: dict[str, int],
+    enabled_only: bool = False,
+) -> list[ExtractionConfig]:
+    """
+    Get extraction configurations at specific versions (for benchmark consistency).
+
+    This allows benchmarks to use the config versions captured at session start,
+    rather than the current active configs. This ensures consistency even if
+    configs are updated during the benchmark run.
+
+    Args:
+        engine: DuckDB connection
+        version_map: Dict mapping node_type to version number
+        enabled_only: If True, only return enabled configs
+
+    Returns:
+        List of ExtractionConfig objects at specified versions, ordered by sequence
+    """
+    if not version_map:
+        return get_extraction_configs(engine, enabled_only)
+
+    configs = []
+    for node_type, version in version_map.items():
+        query = """
+            SELECT node_type, sequence, enabled, input_sources, instruction, example,
+                   extraction_method, temperature, max_tokens, batch_size
+            FROM extraction_config
+            WHERE node_type = ? AND version = ?
+        """
+        if enabled_only:
+            query += " AND enabled = TRUE"
+
+        row = engine.execute(query, [node_type, version]).fetchone()
+        if row:
+            configs.append(
+                ExtractionConfig(
+                    node_type=row[0],
+                    sequence=row[1],
+                    enabled=row[2],
+                    input_sources=row[3],
+                    instruction=row[4],
+                    example=row[5],
+                    extraction_method=row[6] or "llm",
+                    temperature=row[7],
+                    max_tokens=row[8],
+                    batch_size=row[9] or 1,
+                )
+            )
+
+    return sorted(configs, key=lambda c: c.sequence)
+
+
+def get_derivation_configs_by_version(
+    engine: Any,
+    version_map: dict[str, int],
+    enabled_only: bool = False,
+    phase: str | None = None,
+    llm_only: bool | None = None,
+) -> list[DerivationConfig]:
+    """
+    Get derivation configurations at specific versions (for benchmark consistency).
+
+    This allows benchmarks to use the config versions captured at session start,
+    rather than the current active configs. This ensures consistency even if
+    configs are updated during the benchmark run.
+
+    Args:
+        engine: DuckDB connection
+        version_map: Dict mapping step_name to version number
+        enabled_only: If True, only return enabled configs
+        phase: Filter by phase ("prep", "generate", "refine", "relationship")
+        llm_only: If True, only LLM steps; if False, only graph algorithm steps
+
+    Returns:
+        List of DerivationConfig objects at specified versions
+    """
+    if not version_map:
+        return get_derivation_configs(engine, enabled_only=enabled_only, phase=phase, llm_only=llm_only)
+
+    configs = []
+    for step_name, version in version_map.items():
+        query = """
+            SELECT step_name, phase, sequence, enabled, llm, input_graph_query,
+                   input_model_query, instruction, example, params, temperature, max_tokens,
+                   max_candidates, batch_size
+            FROM derivation_config
+            WHERE step_name = ? AND version = ?
+        """
+        params = [step_name, version]
+
+        if enabled_only:
+            query += " AND enabled = TRUE"
+        if phase is not None:
+            query += " AND phase = ?"
+            params.append(phase)
+        if llm_only is not None:
+            query += " AND llm = ?"
+            params.append(llm_only)
+
+        row = engine.execute(query, params).fetchone()
+        if row:
+            configs.append(
+                DerivationConfig(
+                    step_name=row[0],
+                    phase=row[1],
+                    sequence=row[2],
+                    enabled=row[3],
+                    llm=row[4],
+                    input_graph_query=row[5],
+                    input_model_query=row[6],
+                    instruction=row[7],
+                    example=row[8],
+                    params=row[9],
+                    temperature=row[10],
+                    max_tokens=row[11],
+                    max_candidates=row[12],
+                    batch_size=row[13],
+                )
+            )
+
+    # Sort by phase priority then sequence
+    phase_priority = {"prep": 1, "generate": 2, "refine": 3, "relationship": 4}
+    return sorted(configs, key=lambda c: (phase_priority.get(c.phase, 5), c.sequence))
 
 
 # =============================================================================

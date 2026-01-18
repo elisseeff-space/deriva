@@ -99,9 +99,34 @@ def parse_json_array(content: str, array_key: str) -> ParseResult:
         ['Response missing "items" array']
     """
     try:
+        # Handle empty or whitespace-only content
+        if not content or not content.strip():
+            return ParseResult(
+                success=False,
+                data=[],
+                errors=["LLM returned empty content"],
+            )
+
         # Extract JSON from potential markdown wrapping
         extracted = extract_json_from_response(content)
+
+        # Check if extraction yielded empty result
+        if not extracted or not extracted.strip():
+            return ParseResult(
+                success=False,
+                data=[],
+                errors=["No JSON found in LLM response"],
+            )
+
         parsed = json.loads(extracted)
+
+        # Handle raw array response (some LLMs return array directly)
+        if isinstance(parsed, list):
+            return ParseResult(
+                success=True,
+                data=parsed,
+                errors=[],
+            )
 
         # Primary: check for direct array key
         if array_key in parsed:

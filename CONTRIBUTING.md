@@ -1,15 +1,18 @@
 # Contributing to Deriva
 
-[![codecov](https://codecov.io/gh/StevenBtw/Deriva/graph/badge.svg?token=A3H2COO119)](https://codecov.io/gh/StevenBtw/Deriva)
-[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://docs.astral.sh/uv/)
+![uv](https://img.shields.io/badge/uv-%23DE5FE9.svg?style=for-the-badge&logo=uv&logoColor=white)
+![Pydantic](https://img.shields.io/badge/pydantic-%23E92063.svg?style=for-the-badge&logo=pydantic&logoColor=white)
+![Duckdb](https://img.shields.io/badge/duckdb-%23FFF000.svg?style=for-the-badge&logo=duckdb&logoColor=black)
+
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://docs.astral.sh/ruff/)
 [![Typing: ty](https://img.shields.io/badge/typing-ty-EFC621.svg)](https://docs.astral.sh/ty/)
+[![codecov](https://codecov.io/gh/StevenBtw/Deriva/graph/badge.svg?token=A3H2COO119)](https://codecov.io/gh/StevenBtw/Deriva)
 
 Thanks for your interest in contributing to Deriva!
 
 **Python 3.14+** is required. The project uses modern Python features and is developed with 3.14 in mind.
 
-**Tooling:** We use [uv](https://docs.astral.sh/uv/) for package management, [Ruff](https://docs.astral.sh/ruff/) for linting/formatting, and [ty](https://docs.astral.sh/ty/) for type checking.
+**Tooling:** We use [uv](https://docs.astral.sh/uv/) for package management, [Ruff](https://docs.astral.sh/ruff/) for linting/formatting, and [ty](https://docs.astral.sh/ty/) for type checking. [Pydantic AI](https://ai.pydantic.dev/) is used for interacting with LLMs, [DuckDB](https://duckdb.org/) for storing configurations and settings. For testing we use pytest and [codecov](https://about.codecov.io/) for CI test coverage reporting.
 
 ## Development Setup
 
@@ -106,6 +109,7 @@ deriva/
         ├── repository.py     - Repository node extraction
         ├── directory.py      - Directory node extraction
         ├── file.py           - File node extraction (with type/subtype)
+        ├── edges.py          - Unified edge extraction (IMPORTS, CALLS, REFERENCES, etc.)
         ├── type_definition.py - Classes/functions (AST for Python, LLM for others)
         ├── method.py         - Methods within type definitions
         ├── business_concept.py - Domain concepts (LLM)
@@ -116,6 +120,7 @@ deriva/
         └── input_sources.py  - Input source filtering
     └── derivation/
         ├── base.py           - Shared utilities (prompts, parsing, graph filtering)
+        ├── element_base.py   - HybridDerivation base class for all element modules
         ├── application_component.py - ApplicationComponent derivation
         ├── application_interface.py - ApplicationInterface derivation
         ├── application_service.py   - ApplicationService derivation
@@ -558,14 +563,18 @@ class Node:
     parent: Node | None = None  # Works! No quotes needed
 ```
 
-#### Exception Syntax (PEP 758)
+#### Exception Groups (PEP 654)
 
-Cleaner multi-exception handling:
+Handle multiple exceptions with exception groups:
 
 ```python
-# New way (Python 3.14+)
-except TimeoutError, ConnectionRefusedError:
-    handle_network_error()
+# Exception groups (Python 3.11+)
+try:
+    async_operations()
+except* TimeoutError:
+    handle_timeout()
+except* ConnectionRefusedError:
+    handle_connection_error()
 ```
 
 #### New UUID Functions
@@ -581,22 +590,23 @@ id = uuid7()
 
 ```python
 from pathlib import Path
+import shutil
 
 src = Path("source.txt")
 dst = Path("dest.txt")
 
-# New methods
-src.copy(dst)
-src.move(dst)
+# Use shutil for copy/move operations
+shutil.copy2(src, dst)
+shutil.move(src, dst)
 ```
 
-#### New datetime Methods
+#### datetime Parsing
 
 ```python
-from datetime import date, time
+from datetime import datetime
 
-# Parse directly on date/time classes
-d = date.strptime("2024-01-15", "%Y-%m-%d")
+# Parse dates using datetime
+d = datetime.strptime("2024-01-15", "%Y-%m-%d").date()
 ```
 
 </details>
@@ -1122,23 +1132,58 @@ def extract_{node_type}s(...) -> Dict[str, Any]:
 
 ```python
 # Each LLM module exports:
-def build_extraction_prompt(files: List[Dict], config: Dict) -> str
+def build_system_prompt(instruction: str) -> str  # Static role/guidelines (cached)
+def build_user_prompt(file_content: str, file_path: str, example: str, ...) -> str  # Dynamic content
+def build_extraction_prompt(...) -> str  # Legacy combined format for backward compatibility
 def parse_llm_response(response: str) -> List[Dict]
 {NODE_TYPE}_SCHEMA: Dict  # JSON schema for validation
+{NODE_TYPE}_MULTI_SCHEMA: Dict  # Schema for multi-file batch extraction
 
-# Batch extraction for multiple files
-def extract_{type}s_batch(
-    files: List[Dict],
-    config: Dict,
-    llm_response: str  # LLM called by app.py, not module
-) -> Dict[str, Any]
+# Single file extraction
+def extract_{type}s(file_path, content, repo_name, llm_query_fn, config) -> Dict[str, Any]
+
+# Multi-file batch extraction (for token efficiency)
+def extract_{type}s_multi(files: List[Dict], repo_name, llm_query_fn, config) -> Dict[str, Any]
 ```
+
+**Token Efficiency Patterns:**
+
+- **System/User Prompt Separation**: `build_system_prompt()` returns static instructions (role, guidelines), `build_user_prompt()` returns dynamic file-specific content. This allows system prompts to be cached by providers.
+- **Compact JSON**: Use `json.dumps(..., separators=(",", ":"))` for context data to minimize tokens.
+- **Multi-file Batching**: The `batch_size` config column (in `extraction_config` table) controls how many files are processed per LLM call. When `batch_size > 1`, the service uses `extract_{type}s_multi()` for batched extraction.
 
 **Rules for LLM modules:**
 - Module builds prompt, app.py calls LLM, module parses response
 - Never call LLM directly from module (purity)
 - Include JSON schema for response validation
 - Handle malformed LLM responses gracefully (return errors, don't raise)
+
+#### Edge Extraction (`edges.py`)
+
+Unified Tree-sitter based relationship extraction that parses each file once and extracts all edge types:
+
+| Edge Type | Direction | Purpose |
+|-----------|-----------|---------|
+| `IMPORTS` | File → File | Internal module imports |
+| `USES` | File → ExternalDependency | External package imports |
+| `CALLS` | Method → Method | Function/method calls |
+| `DECORATED_BY` | Method → Method | Decorator relationships |
+| `REFERENCES` | Method → TypeDefinition | Type annotation references |
+
+```python
+from deriva.modules.extraction.edges import extract_edges_batch, EdgeType
+
+# Extract all edge types (default)
+result = extract_edges_batch(files, repo_name, repo_path)
+
+# Extract specific edge types only
+result = extract_edges_batch(
+    files, repo_name, repo_path,
+    edge_types={EdgeType.IMPORTS, EdgeType.CALLS}
+)
+```
+
+**Note:** This is 4x more efficient than running separate extraction passes since each file is parsed only once.
 
 #### `input_sources.py`
 **Goal:** Parse and filter input source specifications for extraction steps.
@@ -1166,7 +1211,31 @@ Derivation uses a hybrid approach combining graph algorithms with LLM:
 
 **Goal:** Transform Graph nodes into ArchiMate elements across Business, Application, and Technology layers.
 
-#### Base Module (`base.py`)
+#### Base Classes (`element_base.py`)
+
+All derivation modules inherit from `HybridDerivation`, which combines pattern-based and graph-based filtering:
+
+```python
+from deriva.modules.derivation.element_base import HybridDerivation
+
+class ApplicationComponentDerivation(HybridDerivation):
+    ELEMENT_TYPE = "ApplicationComponent"
+    OUTBOUND_RULES = [...]  # Relationships FROM this element
+    INBOUND_RULES = [...]   # Relationships TO this element
+
+    # Optional: customize filtering behavior via class constants
+    USE_COMMUNITY_ROOTS = True      # Prioritize community root nodes
+    MIN_PAGERANK = 0.001            # Filter low-importance nodes
+    COMMUNITY_ROOT_RATIO = 0.6      # 60% community roots in results
+```
+
+**Class Hierarchy:**
+- `ElementDerivationBase` - Abstract base with common `generate()` flow
+- `PatternBasedDerivation(ElementDerivationBase)` - Adds include/exclude pattern matching
+- `HybridFilteringMixin` - Adds graph-based filtering (PageRank, community roots)
+- `HybridDerivation(PatternBasedDerivation, HybridFilteringMixin)` - Recommended base class
+
+#### Utilities (`base.py`)
 
 Provides shared utilities for all derivation modules:
 
@@ -1316,7 +1385,7 @@ deriva config versions
 
 **Never update configs by editing JSON and importing.** The `db_tool import` command is for **backup restoration only** - it overwrites the database including version history. This defeats the purpose of versioning and makes rollback impossible.
 
-See [BENCHMARKS.md](BENCHMARKS.md) for running benchmarks and [optimization_guide.md](optimization_guide.md) for the recommended config optimization workflow.
+See [BENCHMARKS.md](BENCHMARKS.md) for running benchmarks and [OPTIMIZATION.md](OPTIMIZATION.md) for the recommended config optimization workflow.
 
 </details>
 

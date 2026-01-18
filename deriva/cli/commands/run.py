@@ -121,6 +121,13 @@ def run_stage(
     no_llm: Annotated[
         bool, typer.Option("--no-llm", help="Skip LLM-based steps")
     ] = False,
+    only_step: Annotated[
+        str | None,
+        typer.Option(
+            "--only-step",
+            help="Only run this step (format: 'StepName' - disables all others for the stage)",
+        ),
+    ] = None,
 ) -> None:
     """Run pipeline stages."""
     if stage not in ("extraction", "derivation", "all"):
@@ -158,6 +165,28 @@ def run_stage(
 
     with PipelineSession() as session:
         typer.echo("Connected to Neo4j")
+
+        # Handle --only-step option
+        if only_step:
+            step_type = "extraction" if stage in ("extraction", "all") else "derivation"
+            typer.echo(f"Enabling only {step_type} step: {only_step}")
+
+            if step_type == "extraction":
+                extraction_configs = session.get_extraction_configs()
+                for cfg in extraction_configs:
+                    name = cfg.get("node_type", cfg.get("name", ""))
+                    if name == only_step:
+                        session.enable_step("extraction", name)
+                    else:
+                        session.disable_step("extraction", name)
+            else:
+                derivation_configs = session.get_derivation_configs()
+                for cfg in derivation_configs:
+                    name = cfg.get("step_name", cfg.get("name", ""))
+                    if name == only_step:
+                        session.enable_step("derivation", name)
+                    else:
+                        session.disable_step("derivation", name)
 
         # Show LLM status
         llm_info = session.llm_info

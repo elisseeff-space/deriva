@@ -9,12 +9,14 @@ Graph signals:
 - Nodes with workflow/process naming patterns
 - High betweenness centrality (orchestrates other components)
 - Route handlers in web applications
+- Orchestrator methods (call 3+ other methods)
 
 Filtering strategy:
 1. Query Method nodes from source code
 2. Exclude utility/helper methods
 3. Prioritize methods with business-relevant names
 4. Focus on methods that coordinate activities
+5. Identify orchestrator methods via CALLS edge count
 
 LLM role:
 - Identify which methods represent business processes
@@ -31,6 +33,7 @@ ArchiMate Type: BusinessProcess
 Typical Sources:
     - Method nodes with workflow/orchestration logic
     - Functions with names like process_*, handle_*, execute_*
+    - Orchestrator methods that coordinate multiple sub-operations
 """
 
 from __future__ import annotations
@@ -42,22 +45,28 @@ from deriva.modules.derivation.base import (
     Candidate,
     RelationshipRule,
     enrich_candidate,
-    filter_by_pagerank,
 )
-from deriva.modules.derivation.element_base import PatternBasedDerivation
+from deriva.modules.derivation.element_base import HybridDerivation
 
 logger = logging.getLogger(__name__)
 
 
-class BusinessProcessDerivation(PatternBasedDerivation):
+class BusinessProcessDerivation(HybridDerivation):
     """
     BusinessProcess element derivation.
 
-    Uses pattern-based filtering to identify business processes
-    from Method nodes representing workflow logic.
+    Uses hybrid filtering combining patterns and graph analysis to identify
+    business processes from Method nodes representing workflow logic.
+
+    Orchestrator detection: Methods that call 3+ other methods are likely
+    processes (coordination pattern).
     """
 
     ELEMENT_TYPE = "BusinessProcess"
+
+    # Graph filtering configuration
+    MIN_PAGERANK = 0.0005
+    MIN_ORCHESTRATOR_CALLS = 3  # Methods calling 3+ others are likely processes
 
     OUTBOUND_RULES = [
         RelationshipRule(
@@ -78,7 +87,15 @@ class BusinessProcessDerivation(PatternBasedDerivation):
         exclude_patterns: set[str] | None = None,
         **kwargs: Any,
     ) -> list[Candidate]:
-        """Filter candidates for BusinessProcess derivation."""
+        """Filter candidates for BusinessProcess derivation.
+
+        Strategy:
+        1. Enrich with graph metrics
+        2. Identify orchestrator methods (call 3+ other methods)
+        3. Filter by process patterns
+        4. Apply graph filtering (PageRank threshold)
+        5. Prioritize orchestrators in final selection
+        """
         include_patterns = include_patterns or set()
         exclude_patterns = exclude_patterns or set()
 
@@ -88,30 +105,51 @@ class BusinessProcessDerivation(PatternBasedDerivation):
         # Pre-filter: exclude dunder methods
         filtered = [c for c in candidates if c.name and not c.name.startswith("__")]
 
+        # Identify orchestrators based on out_degree (CALLS edges)
+        orchestrators = []
+        non_orchestrators = []
+        for c in filtered:
+            out_degree = c.properties.get("out_degree", 0)
+            if out_degree >= self.MIN_ORCHESTRATOR_CALLS:
+                c.properties["is_orchestrator"] = True
+                orchestrators.append(c)
+            else:
+                non_orchestrators.append(c)
+
+        # Apply pattern matching
         likely_processes = [
             c
-            for c in filtered
+            for c in non_orchestrators
             if self.matches_patterns(c.name, include_patterns, exclude_patterns)
         ]
         others = [
             c
-            for c in filtered
+            for c in non_orchestrators
             if not self.matches_patterns(c.name, include_patterns, exclude_patterns)
         ]
 
-        likely_processes = filter_by_pagerank(
-            likely_processes, top_n=max_candidates // 2
+        # Apply graph filtering to each group
+        orchestrators = self.apply_graph_filtering(
+            orchestrators, enrichments, max_candidates // 3
+        )
+        likely_processes = self.apply_graph_filtering(
+            likely_processes, enrichments, max_candidates // 3
         )
 
-        remaining_slots = max_candidates - len(likely_processes)
+        # Combine: orchestrators first, then pattern-matched, then others
+        combined = orchestrators + likely_processes
+
+        remaining_slots = max_candidates - len(combined)
         if remaining_slots > 0 and others:
-            others = filter_by_pagerank(others, top_n=remaining_slots)
-            likely_processes.extend(others)
+            others = self.apply_graph_filtering(others, enrichments, remaining_slots)
+            combined.extend(others)
 
         self.logger.debug(
-            "BusinessProcess filter: %d total -> %d final",
+            "BusinessProcess filter: %d total -> %d orchestrators, %d pattern-matched -> %d final",
             len(candidates),
+            len(orchestrators),
             len(likely_processes),
+            len(combined),
         )
 
-        return likely_processes[:max_candidates]
+        return combined[:max_candidates]

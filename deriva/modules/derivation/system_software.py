@@ -33,28 +33,24 @@ Typical Sources:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from deriva.modules.derivation.base import (
-    Candidate,
-    RelationshipRule,
-    enrich_candidate,
-    filter_by_pagerank,
-)
-from deriva.modules.derivation.element_base import PatternBasedDerivation
+from deriva.modules.derivation.base import RelationshipRule
+from deriva.modules.derivation.element_base import HybridDerivation
 
 logger = logging.getLogger(__name__)
 
 
-class SystemSoftwareDerivation(PatternBasedDerivation):
+class SystemSoftwareDerivation(HybridDerivation):
     """
     SystemSoftware element derivation.
 
-    Uses pattern-based filtering to identify system software
-    from ExternalDependency and platform-related nodes.
+    Uses hybrid filtering (patterns + graph metrics) to identify system
+    software from ExternalDependency and platform-related nodes.
     """
 
     ELEMENT_TYPE = "SystemSoftware"
+    MIN_PAGERANK = 0.0005  # Lower threshold for external dependencies
+    USE_COMMUNITY_ROOTS = False  # External deps don't have communities
 
     OUTBOUND_RULES: list[RelationshipRule] = [
         RelationshipRule(
@@ -82,55 +78,6 @@ class SystemSoftwareDerivation(PatternBasedDerivation):
         ),
     ]
 
-    def filter_candidates(
-        self,
-        candidates: list[Candidate],
-        enrichments: dict[str, dict[str, Any]],
-        max_candidates: int,
-        include_patterns: set[str] | None = None,
-        exclude_patterns: set[str] | None = None,
-        **kwargs: Any,
-    ) -> list[Candidate]:
-        """
-        Filter candidates for SystemSoftware derivation.
-
-        Strategy:
-        1. Enrich with graph metrics
-        2. Filter by system/platform patterns
-        3. Exclude application-level libraries
-        4. Use PageRank to find most important system software
-        """
-        include_patterns = include_patterns or set()
-        exclude_patterns = exclude_patterns or set()
-
-        for c in candidates:
-            enrich_candidate(c, enrichments)
-
-        filtered = [c for c in candidates if c.name]
-
-        likely_system = [
-            c
-            for c in filtered
-            if self.matches_patterns(c.name, include_patterns, exclude_patterns)
-        ]
-        others = [
-            c
-            for c in filtered
-            if not self.matches_patterns(c.name, include_patterns, exclude_patterns)
-        ]
-
-        likely_system = filter_by_pagerank(likely_system, top_n=max_candidates // 2)
-
-        remaining_slots = max_candidates - len(likely_system)
-        if remaining_slots > 0 and others:
-            others = filter_by_pagerank(others, top_n=remaining_slots)
-            likely_system.extend(others)
-
-        self.logger.debug(
-            "SystemSoftware filter: %d total -> %d after null -> %d final candidates",
-            len(candidates),
-            len(filtered),
-            len(likely_system),
-        )
-
-        return likely_system[:max_candidates]
+    # Uses HybridDerivation.filter_candidates() which handles:
+    # - Pattern matching (include/exclude from config)
+    # - Graph filtering (PageRank threshold, community roots)

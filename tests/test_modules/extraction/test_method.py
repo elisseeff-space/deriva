@@ -135,7 +135,7 @@ class TestBuildMethodNode:
         )
 
         node_id = result["data"]["node_id"]
-        assert "method_test_repo" in node_id
+        assert "method::test_repo" in node_id
         assert "MyClass" in node_id
         assert "my_method" in node_id
 

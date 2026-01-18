@@ -198,11 +198,13 @@ def build_method_node(
     start_line = method_data.get("startLine", 0)
     end_line = method_data.get("endLine", 0)
 
-    # Generate unique node ID
+    # Generate unique node ID using :: separator to avoid repo name conflicts
     method_name_slug = method_data["methodName"].replace(" ", "_").replace("-", "_")
     type_name_slug = type_name.replace(" ", "_").replace("-", "_")
     file_path_slug = file_path.replace("/", "_").replace("\\", "_")
-    node_id = f"method_{repo_name}_{file_path_slug}_{type_name_slug}_{method_name_slug}"
+    node_id = (
+        f"method::{repo_name}::{file_path_slug}::{type_name_slug}::{method_name_slug}"
+    )
 
     # Build the node structure
     node_data = {
@@ -527,7 +529,7 @@ def extract_methods_from_source(
         # Build file node ID for CONTAINS edges
         original_path = strip_chunk_suffix(file_path)
         safe_path = original_path.replace("/", "_").replace("\\", "_")
-        file_node_id = f"file_{repo_name}_{safe_path}"
+        file_node_id = f"file::{repo_name}::{safe_path}"
 
         for ext_method in extracted_methods:
             node_data = _build_method_node_from_treesitter(
@@ -541,7 +543,7 @@ def extract_methods_from_source(
                 type_name_slug = ext_method.class_name.replace(" ", "_").replace(
                     "-", "_"
                 )
-                type_node_id = f"typedef_{repo_name}_{safe_path}_{type_name_slug}"
+                type_node_id = f"typedef::{repo_name}::{safe_path}::{type_name_slug}"
                 edge = {
                     "edge_id": generate_edge_id(
                         type_node_id, node_data["node_id"], "CONTAINS"
@@ -616,7 +618,7 @@ def extract_methods_from_source(
                 type_slug = (
                     type_name.replace(" ", "_").replace("-", "_").replace(".", "_")
                 )
-                target_type_id = f"typedef_{repo_name}_{safe_path}_{type_slug}"
+                target_type_id = f"typedef::{repo_name}::{safe_path}::{type_slug}"
                 calls_edge = {
                     "edge_id": generate_edge_id(
                         node_data["node_id"], target_type_id, "CALLS"
@@ -693,13 +695,15 @@ def _build_method_node_from_treesitter(
         param_strs.append(p_str)
     parameters = ", ".join(param_strs)
 
-    # Generate node ID
+    # Generate node ID using :: separator to avoid repo name conflicts
     method_name_slug = ext_method.name.replace(" ", "_").replace("-", "_")
     type_name_slug = (
         (ext_method.class_name or "module").replace(" ", "_").replace("-", "_")
     )
     file_path_slug = file_path.replace("/", "_").replace("\\", "_")
-    node_id = f"method_{repo_name}_{file_path_slug}_{type_name_slug}_{method_name_slug}"
+    node_id = (
+        f"method::{repo_name}::{file_path_slug}::{type_name_slug}::{method_name_slug}"
+    )
 
     return {
         "node_id": node_id,

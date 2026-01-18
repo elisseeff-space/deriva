@@ -17,6 +17,9 @@ if TYPE_CHECKING:
 # Populated when extractors are imported
 _LANGUAGE_REGISTRY: dict[str, type[LanguageExtractor]] = {}
 
+# Flag to track if all extractors have been loaded
+_EXTRACTORS_LOADED: bool = False
+
 
 def get_extractor(language: str) -> LanguageExtractor | None:
     """Get an extractor instance for a language.
@@ -54,7 +57,8 @@ def supported_languages() -> list[str]:
 
 def _ensure_extractors_loaded() -> None:
     """Lazy-load all language extractors."""
-    if _LANGUAGE_REGISTRY:
+    global _EXTRACTORS_LOADED
+    if _EXTRACTORS_LOADED:
         return
 
     # Import all extractors - they self-register on import
@@ -77,6 +81,8 @@ def _ensure_extractors_loaded() -> None:
         from . import csharp  # noqa: F401
     except ImportError:
         pass
+
+    _EXTRACTORS_LOADED = True
 
 
 __all__ = [

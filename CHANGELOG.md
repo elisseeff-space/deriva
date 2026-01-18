@@ -1,16 +1,42 @@
 # Deriva Changelog
 
-Deriving ArchiMate models from code using knowledge graphs, heuristics and LLM's, a journey through architectural decisions, strategic purges and lot's (and lot's) of trial and error.
+Deriving ArchiMate models from code using knowledge graphs, heuristics, and LLMs, a journey through architectural decisions, strategic purges, and lots (and lots) of trial and error.
 
 ---
 
 # v0.6.x - Deriva (December 2025 - January 2026)
 
+Version 0.6.x is the first robust, end-to-end implementation of Deriva, but still very unstable. The goal for 0.6.x is to be fully feature complete, and have good performance in quality, efficiency, consistency and generalizability. Versions 0.7.x will be all about stability, portability, user experience, documenation and clean architecture/code standards, making those values low priority for 0.6.x.
 
 ## v0.6.9 - (Unreleased)
 
+I have been running a lot of benchmarks on flask_invoice_generator, full-stack-fastapi-template and taiga-back/taiga-front. Besides a lot of new config versions, I also added a few improvements to further reduce tokens per run and added some things to make my life easier while benchmarking and trying to get the % up without any overly cannonical or repository specific prompts. Currently not breaking the 60% barrier, for relationships (the hardest one).
 
-## v0.6.8 - Library Migration & Overall Cleanup (January 16 2026)
+### Extraction
+
+- **Edge Extraction Module**: New `edges.py` for Tree-sitter based relationship extraction. Extracts IMPORTS, USES, CALLS, DECORATED_BY, and REFERENCES edges with single AST parse per file. Language-specific filter constants added for Python, JavaScript, Java, and C#
+- **Directory Classification Step**: New extraction step after directories to create technology and business concept nodes, guiding subsequent LLM extraction
+- **Token Efficiency**: Compact JSON serialization (~15% savings), system/user prompt separation, and multi-file batching (`--batch-size N`). Estimated 40-60% total reduction
+- **Fixed REFERENCES Edges**: Corrected type node ID format mismatch in `edges.py` that caused edge creation failures
+
+### Derivation
+
+- **HybridDerivation Base**: All 13 modules use hybrid filtering combining pattern-based AND graph-based candidate selection
+- **Edge-Aware Relationships**: New Tier 1.5 derivation using CALLS, IMPORTS, USES edges with high confidence (0.90-0.95)
+- **Pre-Generation Dedup**: Fuzzy matching against existing elements before LLM calls
+- **Business Layer**: BusinessProcess detects orchestrator methods (3+ CALLS), BusinessEvent detects webhooks/signals, BusinessActor detects auth decorators
+- **Relationship Consolidation**: Refine step boosts confidence on multi-signal agreement, prunes low-confidence without corroboration
+- **Self-Loop Prevention**: Fixed self-referential relationships in graph_relationships with query filters and cleanup
+- **Enrichment Cache**: Aligned with LLM cache patterns, CLI control via `--no-enrichment-cache`
+
+### Adapters
+
+- **Pydantic Structured Output**: New `schemas.py` with Pydantic models for all extraction types. LLM manager auto-resolves JSON schemas to models, enforcing structure via PydanticAI
+- **Rate Limiting**: Adaptive throttling (auto-reduces RPM on 429s), circuit breaker pattern, Retry-After header respect, error classification, and model-specific rate limits via env vars
+- **Graph Metadata**: Element properties now include all graph metrics (kcore, articulation points, degree); propagated to relationships
+- **Database Locking**: Non-blocking during benchmarks/pipeline runs, versions used for isolation
+
+## v0.6.8 - Library Migration & Overall Cleanup (January 16, 2026)
 
 Big migration replacing 6 custom implementations with off-the-shelf libraries, reducing the amount of code and improving maintainability.
 
@@ -35,7 +61,8 @@ Big migration replacing 6 custom implementations with off-the-shelf libraries, r
 - **New retry.py**: Centralized retry decorator with exponential backoff and jitter
 - **Simplified Rate Limiter**: Token bucket rate limiting now separate from retry logic
 
-### Small CLI refactor
+### CLI Refactor
+
 - **Typer Framework**: Replaced argparse-based CLI with `typer`
 - **Command Modules**: Split CLI into `deriva/cli/commands/` with separate files for `benchmark.py`, `config.py`, `repo.py`, `run.py`
 - **Modern CLI Features**: Auto-completion, better help generation, type hints via `Annotated`
@@ -54,7 +81,7 @@ Big migration replacing 6 custom implementations with off-the-shelf libraries, r
 
 ---
 
-## v0.6.7 - Gotta save some Tokens (January 15 2026)
+## v0.6.7 - Gotta save some Tokens (January 15, 2026)
 
 ### Caching & Performance
 - **Graph Cache**: New `cache.py` in graph adapter with hash-based cache for expensive graph queries
@@ -88,7 +115,7 @@ Big migration replacing 6 custom implementations with off-the-shelf libraries, r
 
 ---
 
-## v0.6.6 - ElementDerivationBase & Document Parsing (January 13 2026)
+## v0.6.6 - ElementDerivationBase & Document Parsing (January 13, 2026)
 
 ### Derivation Module Refactoring
 
@@ -130,7 +157,7 @@ Deterministic graph techniques for relationship consistency:
 
 ---
 
-## v0.6.4 - Benchmark with Deriva (this repo) runs stable and succesfull! (January 10 2026)
+## v0.6.4 - Benchmark with Deriva (this repo) runs stable and successful! (January 10, 2026)
 
 ### Refine Module (NEW)
 
@@ -211,7 +238,7 @@ Refactor of `modules/extraction/base.py`:
 
 ---
 
-## v0.6.3 - Database aAapter and Benchmark Improvements (January 9, 2026)
+## v0.6.3 - Database Adapter and Benchmark Improvements (January 9, 2026)
 
 ### Database Adapter Refactor
 
@@ -510,14 +537,6 @@ Classification -> Extraction -> Derivation -> Validation -> Export
 
 ---
 
-# v0.3.x - The UV/Extraction Functions Era
-
-**Architectural paradigm:** UV package manager + extraction functions + layered steps
-
-**Process model:** Clone -> Classify -> Extract (layered steps) -> Store in Neo4j
-
----
-
 # v0.4.x - The FastAPI/Jinja2 Era (June-July 2025)
 
 **Architectural paradigm:** FastAPI backend + Jinja2 templates + Run ID traceability
@@ -532,6 +551,13 @@ Web UI prototype with 8-week implementation roadmap. Introduced Run ID traceabil
 
 ---
 
+# v0.3.x - The UV/Extraction Functions Era
+
+**Architectural paradigm:** UV package manager + extraction functions + layered steps
+
+**Process model:** Clone -> Classify -> Extract (layered steps) -> Store in Neo4j
+
+---
 ## v0.3.5 - Pre-V2 Preparation
 
 - Refactored derivation module

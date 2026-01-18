@@ -54,8 +54,46 @@ class ExtractedImport:
     is_from_import: bool = False
 
 
+@dataclass
+class ExtractedCall:
+    """Represents an extracted function/method call."""
+
+    caller_name: str  # Function/method making the call
+    caller_class: str | None  # Class containing the caller (None for top-level)
+    callee_name: str  # Function/method being called
+    callee_qualifier: str | None  # Object/module qualifier (e.g., 'self', 'os.path')
+    line: int
+    is_method_call: bool = False  # True if called on an object (x.method())
+
+
+@dataclass
+class FilterConstants:
+    """Language-specific constants for filtering edges during extraction.
+
+    These constants help filter out language primitives, standard library
+    modules, and builtin functions to focus on user-defined code relationships.
+    """
+
+    stdlib_modules: set[str] = field(default_factory=set)
+    """Standard library modules to treat as external (not internal imports)."""
+
+    builtin_functions: set[str] = field(default_factory=set)
+    """Built-in functions to skip in call resolution."""
+
+    builtin_decorators: set[str] = field(default_factory=set)
+    """Built-in decorators to skip in decorator edge resolution."""
+
+    builtin_types: set[str] = field(default_factory=set)
+    """Built-in types to skip in reference resolution."""
+
+    generic_containers: set[str] = field(default_factory=set)
+    """Generic container types (we want inner types, not the container)."""
+
+
 __all__ = [
     "ExtractedType",
     "ExtractedMethod",
     "ExtractedImport",
+    "ExtractedCall",
+    "FilterConstants",
 ]

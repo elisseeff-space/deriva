@@ -103,6 +103,83 @@ def generate_edge_id(from_node_id: str, to_node_id: str, relationship_type: str)
     return f"{rel_type}_{from_node_id}_to_{to_node_id}"
 
 
+def generate_file_node_id(repo_name: str, file_path: str) -> str:
+    """
+    Generate a file node ID from repo name and file path.
+
+    Uses '::' as separator to avoid collision with underscores in repo names.
+    File path is converted: slashes become underscores.
+
+    Args:
+        repo_name: Repository name (may contain underscores)
+        file_path: File path relative to repo root
+
+    Returns:
+        Formatted file node ID string
+
+    Examples:
+        >>> generate_file_node_id("my_repo", "src/app.py")
+        'file::my_repo::src_app.py'
+        >>> generate_file_node_id("flask_invoice_generator", "templates/base.html")
+        'file::flask_invoice_generator::templates_base.html'
+    """
+    # Strip chunk suffix if present
+    original_path = strip_chunk_suffix(file_path)
+    safe_path = original_path.replace("/", "_").replace("\\", "_")
+    return f"file::{repo_name}::{safe_path}"
+
+
+def generate_dir_node_id(repo_name: str, dir_path: str) -> str:
+    """
+    Generate a directory node ID from repo name and directory path.
+
+    Uses '::' as separator to avoid collision with underscores in repo names.
+    Directory path is converted: slashes become underscores.
+
+    Args:
+        repo_name: Repository name (may contain underscores)
+        dir_path: Directory path relative to repo root
+
+    Returns:
+        Formatted directory node ID string
+
+    Examples:
+        >>> generate_dir_node_id("my_repo", "src/components")
+        'dir::my_repo::src_components'
+    """
+    safe_path = dir_path.replace("/", "_").replace("\\", "_")
+    return f"dir::{repo_name}::{safe_path}"
+
+
+def generate_method_node_id(
+    repo_name: str, file_path: str, method_name: str, class_name: str | None = None
+) -> str:
+    """
+    Generate a method node ID from repo name, file path, and method name.
+
+    Uses '::' as separator to avoid collision with underscores in names.
+
+    Args:
+        repo_name: Repository name (may contain underscores)
+        file_path: File path relative to repo root
+        method_name: Name of the method/function
+        class_name: Optional class name for methods
+
+    Returns:
+        Formatted method node ID string
+
+    Examples:
+        >>> generate_method_node_id("my_repo", "src/app.py", "main")
+        'method::my_repo::src_app.py::main'
+        >>> generate_method_node_id("my_repo", "src/user.py", "__init__", "User")
+        'method::my_repo::src_user.py::User.__init__'
+    """
+    safe_path = file_path.replace("/", "_").replace("\\", "_")
+    if class_name:
+        return f"method::{repo_name}::{safe_path}::{class_name}.{method_name}"
+    return f"method::{repo_name}::{safe_path}::{method_name}"
+
+
 # =============================================================================
 # JSON Response Parsing
 # =============================================================================
@@ -630,7 +707,7 @@ def normalize_node(
             .replace(" ", "_")
             .replace("/", "_")
         )
-        node_copy["node_id"] = f"extdep_{repo_name}_{name_slug}"
+        node_copy["node_id"] = f"extdep::{repo_name}::{name_slug}"
 
     return node_copy
 
@@ -703,6 +780,9 @@ __all__ = [
     # Node/Edge ID generation
     "generate_node_id",
     "generate_edge_id",
+    "generate_file_node_id",
+    "generate_dir_node_id",
+    "generate_method_node_id",
     "strip_chunk_suffix",
     # JSON parsing
     "current_timestamp",

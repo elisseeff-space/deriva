@@ -175,10 +175,10 @@ def build_test_node(
     if test_type not in valid_types:
         test_type = "other"
 
-    # Generate unique node ID
+    # Generate unique node ID using :: separator to avoid repo name conflicts
     test_name_slug = test_data["testName"].replace(" ", "_").replace("-", "_")
     file_path_slug = file_path.replace("/", "_").replace("\\", "_")
-    node_id = f"test_{repo_name}_{file_path_slug}_{test_name_slug}"
+    node_id = f"test::{repo_name}::{file_path_slug}::{test_name_slug}"
 
     # Build the node structure
     node_data = {
@@ -309,7 +309,7 @@ def extract_tests(
         # Strip chunk suffix from file_path to get original file node ID
         original_path = strip_chunk_suffix(file_path)
         safe_path = original_path.replace("/", "_").replace("\\", "_")
-        file_node_id = f"file_{repo_name}_{safe_path}"
+        file_node_id = f"file::{repo_name}::{safe_path}"
 
         for test_data in parse_result["data"]:
             node_result = build_test_node(

@@ -33,28 +33,24 @@ Typical Sources:
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from deriva.modules.derivation.base import (
-    Candidate,
-    RelationshipRule,
-    enrich_candidate,
-    filter_by_pagerank,
-)
-from deriva.modules.derivation.element_base import PatternBasedDerivation
+from deriva.modules.derivation.base import RelationshipRule
+from deriva.modules.derivation.element_base import HybridDerivation
 
 logger = logging.getLogger(__name__)
 
 
-class NodeDerivation(PatternBasedDerivation):
+class NodeDerivation(HybridDerivation):
     """
     Node element derivation.
 
-    Uses pattern-based filtering to identify infrastructure nodes
-    from deployment and infrastructure configuration files.
+    Uses hybrid filtering (patterns + graph metrics) to identify
+    infrastructure nodes from deployment and configuration files.
     """
 
     ELEMENT_TYPE = "Node"
+    MIN_PAGERANK = 0.0005  # Config files often have low pagerank
+    USE_COMMUNITY_ROOTS = False
 
     OUTBOUND_RULES: list[RelationshipRule] = [
         RelationshipRule(
@@ -76,76 +72,6 @@ class NodeDerivation(PatternBasedDerivation):
 
     INBOUND_RULES: list[RelationshipRule] = []
 
-    def filter_candidates(
-        self,
-        candidates: list[Candidate],
-        enrichments: dict[str, dict[str, Any]],
-        max_candidates: int,
-        include_patterns: set[str] | None = None,
-        exclude_patterns: set[str] | None = None,
-        **kwargs: Any,
-    ) -> list[Candidate]:
-        """
-        Filter candidates for Node derivation.
-
-        Strategy:
-        1. Enrich with graph metrics
-        2. Filter by node/infrastructure patterns
-        3. Exclude application-level definitions
-        4. Use PageRank to find most important nodes
-        """
-        include_patterns = include_patterns or set()
-        exclude_patterns = exclude_patterns or set()
-
-        for c in candidates:
-            enrich_candidate(c, enrichments)
-
-        filtered = [c for c in candidates if c.name]
-
-        likely_nodes = [
-            c
-            for c in filtered
-            if self._is_likely_node(c.name, include_patterns, exclude_patterns)
-        ]
-        others = [
-            c
-            for c in filtered
-            if not self._is_likely_node(c.name, include_patterns, exclude_patterns)
-        ]
-
-        likely_nodes = filter_by_pagerank(likely_nodes, top_n=max_candidates // 2)
-
-        remaining_slots = max_candidates - len(likely_nodes)
-        if remaining_slots > 0 and others:
-            others = filter_by_pagerank(others, top_n=remaining_slots)
-            likely_nodes.extend(others)
-
-        self.logger.debug(
-            "Node filter: %d total -> %d after null -> %d final candidates",
-            len(candidates),
-            len(filtered),
-            len(likely_nodes),
-        )
-
-        return likely_nodes[:max_candidates]
-
-    def _is_likely_node(
-        self, name: str, include_patterns: set[str], exclude_patterns: set[str]
-    ) -> bool:
-        """Check if a name suggests an infrastructure node."""
-        if not name:
-            return False
-
-        name_lower = name.lower()
-
-        # Check exclusion patterns first
-        for pattern in exclude_patterns:
-            if pattern in name_lower:
-                return False
-
-        # Check for node patterns
-        for pattern in include_patterns:
-            if pattern in name_lower:
-                return True
-
-        return False
+    # Uses HybridDerivation.filter_candidates() which handles:
+    # - Pattern matching (include/exclude from config)
+    # - Graph filtering (PageRank threshold, community roots)

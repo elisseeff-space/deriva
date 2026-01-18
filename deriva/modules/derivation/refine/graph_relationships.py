@@ -314,6 +314,7 @@ class GraphRelationshipsStep:
 
         source_filter = ""
         target_filter = ""
+        circular_filter = ""
 
         if valid_sources:
             source_types = ", ".join(f"'{model_ns}:{t}'" for t in valid_sources)
@@ -325,6 +326,15 @@ class GraphRelationshipsStep:
             target_types = ", ".join(f"'{model_ns}:{t}'" for t in valid_targets)
             target_filter = f"""
                 AND any(lbl IN labels(model_tgt) WHERE lbl IN [{target_types}])
+            """
+
+        # For Composition relationships, prevent circular containment (A→B AND B→A)
+        if rel_type == "Composition":
+            circular_filter = f"""
+              // Prevent circular Composition: skip if reverse relationship exists
+              AND NOT EXISTS {{
+                  (model_tgt)-[reverse:`{model_ns}:Composition`]->(model_src)
+              }}
             """
 
         # Query: find graph edges → model elements without existing relationships
@@ -342,6 +352,7 @@ class GraphRelationshipsStep:
               AND model_src.enabled = true AND model_tgt.enabled = true
               AND model_src.source_identifier = graph_src.id
               AND model_tgt.source_identifier = graph_tgt.id
+              AND model_src.identifier <> model_tgt.identifier  // Prevent self-loops
               {source_filter}
               {target_filter}
               // Exclude if relationship already exists
@@ -349,6 +360,7 @@ class GraphRelationshipsStep:
                   (model_src)-[existing]->(model_tgt)
                   WHERE type(existing) = '{model_ns}:{rel_type}'
               }}
+              {circular_filter}
 
             RETURN DISTINCT
                 model_src.identifier AS source_id,
@@ -420,6 +432,7 @@ class GraphRelationshipsStep:
               AND model_src.enabled = true AND model_tgt.enabled = true
               AND model_src.properties_json CONTAINS src_id
               AND model_tgt.properties_json CONTAINS tgt_id
+              AND model_src.identifier <> model_tgt.identifier  // Prevent self-loops
               // Exclude if relationship already exists
               AND NOT EXISTS {{
                   (model_src)-[existing]->(model_tgt)
@@ -461,6 +474,13 @@ class GraphRelationshipsStep:
         Returns:
             True if created successfully, False otherwise
         """
+        # Safety check: prevent self-referential relationships
+        if source_id == target_id:
+            logger.warning(
+                f"Skipping self-referential relationship: {source_id} -> {target_id}"
+            )
+            return False
+
         try:
             relationship = Relationship(
                 source=source_id,

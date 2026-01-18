@@ -87,6 +87,30 @@ def benchmark_run(
     per_repo: Annotated[
         bool, typer.Option("--per-repo", help="Run each repo separately")
     ] = False,
+    no_enrichment_cache: Annotated[
+        bool, typer.Option("--no-enrichment-cache", help="Disable enrichment caching")
+    ] = False,
+    nocache_enrichment_configs: Annotated[
+        str | None,
+        typer.Option(
+            "--nocache-enrichment-configs",
+            help="Configs to skip enrichment cache for (comma-separated)",
+        ),
+    ] = None,
+    only_extraction_step: Annotated[
+        str | None,
+        typer.Option(
+            "--only-extraction-step",
+            help="Only run this extraction step (disables all others)",
+        ),
+    ] = None,
+    only_derivation_step: Annotated[
+        str | None,
+        typer.Option(
+            "--only-derivation-step",
+            help="Only run this derivation step (disables all others)",
+        ),
+    ] = None,
 ) -> None:
     """Run benchmark matrix."""
     repos_list = [r.strip() for r in repos.split(",")]
@@ -95,8 +119,14 @@ def benchmark_run(
     nocache_configs_list = (
         [c.strip() for c in nocache_configs.split(",")] if nocache_configs else None
     )
+    nocache_enrichment_configs_list = (
+        [c.strip() for c in nocache_enrichment_configs.split(",")]
+        if nocache_enrichment_configs
+        else None
+    )
 
     use_cache = not no_cache
+    use_enrichment_cache_flag = not no_enrichment_cache
     export_models = not no_export_models
     clear_between_runs = not no_clear
 
@@ -125,10 +155,36 @@ def benchmark_run(
         typer.echo("Defer relationships: enabled (two-phase derivation)")
     if nocache_configs_list:
         typer.echo(f"No-cache configs: {nocache_configs_list}")
+    typer.echo(
+        f"Enrichment cache: {'enabled' if use_enrichment_cache_flag else 'disabled'}"
+    )
+    if nocache_enrichment_configs_list:
+        typer.echo(f"No-cache enrichment configs: {nocache_enrichment_configs_list}")
     typer.echo(f"{'=' * 60}\n")
 
     with PipelineSession() as session:
         typer.echo("Connected to Neo4j")
+
+        # Handle --only-extraction-step and --only-derivation-step
+        if only_extraction_step:
+            typer.echo(f"Enabling only extraction step: {only_extraction_step}")
+            extraction_configs = session.get_extraction_configs()
+            for cfg in extraction_configs:
+                name = cfg.get("node_type", cfg.get("name", ""))
+                if name == only_extraction_step:
+                    session.enable_step("extraction", name)
+                else:
+                    session.disable_step("extraction", name)
+
+        if only_derivation_step:
+            typer.echo(f"Enabling only derivation step: {only_derivation_step}")
+            derivation_configs = session.get_derivation_configs()
+            for cfg in derivation_configs:
+                name = cfg.get("step_name", cfg.get("name", ""))
+                if name == only_derivation_step:
+                    session.enable_step("derivation", name)
+                else:
+                    session.disable_step("derivation", name)
 
         progress_reporter = create_benchmark_progress_reporter(quiet=quiet or verbose)
 
@@ -148,6 +204,8 @@ def benchmark_run(
                 bench_hash=bench_hash,
                 defer_relationships=defer_relationships,
                 per_repo=per_repo,
+                use_enrichment_cache=use_enrichment_cache_flag,
+                nocache_enrichment_configs=nocache_enrichment_configs_list,
             )
 
         typer.echo(f"\n{'=' * 60}")

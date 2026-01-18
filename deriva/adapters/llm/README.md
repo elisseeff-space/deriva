@@ -2,7 +2,7 @@
 
 Multi-provider LLM abstraction using pydantic-ai with caching and structured output support.
 
-**Version:** 2.0.0
+**Version:** 2.1.0
 
 ## Purpose
 
@@ -86,7 +86,9 @@ deriva/adapters/llm/
 ├── manager.py            # LLMManager class
 ├── providers.py          # Provider implementations
 ├── models.py             # Response types and exceptions
-└── cache.py              # CacheManager and caching utilities
+├── cache.py              # CacheManager and caching utilities
+├── rate_limiter.py       # Token bucket rate limiting, adaptive throttling, circuit breaker
+└── retry.py              # Exponential backoff with error classification
 ```
 
 ## Configuration
@@ -136,8 +138,26 @@ All providers are implemented via pydantic-ai's model abstraction:
 
 | Method | Description |
 |--------|-------------|
-| `query(prompt, response_model, temperature, max_tokens)` | Send LLM query |
+| `query(prompt, response_model, temperature, max_tokens, system_prompt)` | Send LLM query |
 | `load_benchmark_models()` | Load multiple model configs from env |
+
+### System Prompt Parameter
+
+The `system_prompt` parameter allows passing instructions separately from the user prompt, which is more token-efficient for repeated queries with the same system context:
+
+```python
+llm = LLMManager()
+
+# Without system_prompt (instruction embedded in prompt)
+result = llm.query("You are a code analyzer. Extract concepts from: ...")
+
+# With system_prompt (more efficient for batched operations)
+result = llm.query(
+    prompt="Extract concepts from this code: ...",
+    system_prompt="You are a code analyzer. Return structured JSON.",
+    response_model=BusinessConcept
+)
+```
 
 ## Caching
 
@@ -145,6 +165,94 @@ All providers are implemented via pydantic-ai's model abstraction:
 - Cache key = SHA256(prompt + model + schema)
 - Disable with `LLM_NOCACHE=true` in `.env`
 - Use `cached_llm_call` decorator for custom caching
+
+## Rate Limiting
+
+The adapter includes sophisticated rate limiting with adaptive throttling and circuit breaker patterns.
+
+### Basic Rate Limiting
+
+```bash
+# Global RPM limit (0 = use provider default)
+LLM_RATE_LIMIT_RPM=60
+
+# Minimum delay between requests (seconds)
+LLM_RATE_LIMIT_DELAY=0.0
+```
+
+### Model-Specific Rate Limits
+
+Override global/provider defaults for specific models:
+
+```bash
+# Format: LLM_{MODEL_NAME}_RPM=requests_per_minute
+LLM_MISTRAL_DEVSTRAL_RPM=24
+LLM_OPENAI_GPT4OMINI_RPM=60
+LLM_ANTHROPIC_HAIKU_RPM=30
+LLM_OLLAMA_DEVSTRAL_RPM=0   # 0 = unlimited for local
+```
+
+### Provider Default Limits
+
+| Provider | Default RPM |
+|----------|-------------|
+| Azure OpenAI | 60 |
+| OpenAI | 60 |
+| Anthropic | 60 |
+| Mistral | 24 |
+| Ollama | 0 (unlimited) |
+| LM Studio | 0 (unlimited) |
+
+### Adaptive Throttling
+
+Automatically reduces request rate when hitting 429 errors:
+
+```bash
+LLM_THROTTLE_ENABLED=true      # Enable adaptive throttling
+LLM_THROTTLE_MIN_FACTOR=0.25   # Minimum 25% of configured RPM
+LLM_THROTTLE_RECOVERY_TIME=60  # Seconds before trying to increase RPM
+```
+
+**Behavior:**
+
+- On rate limit (429): Halves effective RPM (down to min factor)
+- After recovery time with no 429s: Gradually increases RPM by 25%
+- Respects `Retry-After` header when provided by the API
+
+### Circuit Breaker
+
+Stops requests when a provider is experiencing outages:
+
+```bash
+LLM_CIRCUIT_BREAKER_ENABLED=true
+LLM_CIRCUIT_FAILURE_THRESHOLD=5   # Consecutive failures to open circuit
+LLM_CIRCUIT_RECOVERY_TIME=30      # Seconds before testing recovery
+```
+
+**Circuit States:**
+
+| State | Behavior |
+|-------|----------|
+| CLOSED | Normal operation, requests allowed |
+| OPEN | Requests rejected immediately with `CircuitOpenError` |
+| HALF_OPEN | One test request allowed to check if service recovered |
+
+**State Transitions:**
+
+- CLOSED -> OPEN: After N consecutive failures (default: 5)
+- OPEN -> HALF_OPEN: After recovery time elapses (default: 30s)
+- HALF_OPEN -> CLOSED: On successful request
+- HALF_OPEN -> OPEN: On failed request
+
+### Retry Configuration
+
+```bash
+LLM_MAX_RETRIES=3            # Maximum retry attempts
+LLM_RETRY_BASE_DELAY=2.0     # Base delay for exponential backoff (seconds)
+LLM_RETRY_MAX_DELAY=60.0     # Maximum delay between retries (seconds)
+```
+
+Retries use exponential backoff with jitter and respect `Retry-After` headers.
 
 ## Structured Output (JSON Schema Enforcement)
 

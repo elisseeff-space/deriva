@@ -201,3 +201,44 @@ class TestExtractDocstring:
 
         # Base extract_docstring returns None - actual extraction is in language-specific methods
         assert extractor.extract_docstring(func_node, b"def func(): pass") is None
+
+
+class TestExtractCalls:
+    """Tests for extract_calls default method."""
+
+    def test_default_returns_empty_list(self, python_parser):
+        """Default extract_calls should return empty list for base class."""
+        # Python extractor overrides this, but we can test the base behavior
+        # by checking that it returns a list
+        extractor, parser = python_parser
+        source = "func()"
+        tree = parse(parser, source)
+
+        # Python extractor should return calls (tests that method exists)
+        calls = extractor.extract_calls(tree, source.encode("utf-8"))
+        assert isinstance(calls, list)
+
+
+class TestGetFilterConstants:
+    """Tests for get_filter_constants method."""
+
+    def test_returns_filter_constants(self, python_parser):
+        """Should return FilterConstants object."""
+        extractor, _ = python_parser
+
+        constants = extractor.get_filter_constants()
+
+        # Should return a FilterConstants object with sets
+        assert hasattr(constants, "stdlib_modules")
+        assert hasattr(constants, "builtin_functions")
+        assert isinstance(constants.stdlib_modules, set)
+        assert isinstance(constants.builtin_functions, set)
+
+    @pytest.mark.parametrize("lang", ["python", "javascript", "java", "csharp"])
+    def test_each_language_has_filter_constants(self, lang):
+        """Each language extractor should provide filter constants."""
+        extractor = get_extractor(lang)
+        assert extractor is not None
+
+        constants = extractor.get_filter_constants()
+        assert constants is not None

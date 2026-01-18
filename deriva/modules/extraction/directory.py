@@ -54,9 +54,10 @@ def build_directory_node(
         }
 
     # Build the node structure
+    # Use :: separator to avoid conflicts with repo names containing underscores
     path_value = str(dir_metadata["path"])
     safe_path = path_value.replace("/", "_").replace("\\", "_")
-    node_id = f"dir_{repo_name}_{safe_path}"
+    node_id = f"dir::{repo_name}::{safe_path}"
 
     node_data = {
         "node_id": node_id,
@@ -112,7 +113,7 @@ def extract_directories(repo_path: str, repo_name: str) -> dict[str, Any]:
                 "stats": {"total_nodes": 0, "total_edges": 0},
             }
 
-        repo_id = f"repo_{repo_name}"
+        repo_id = f"repo::{repo_name}"
 
         # Walk through all directories
         for dir_path in repo_path_obj.rglob("*"):
@@ -159,7 +160,7 @@ def extract_directories(repo_path: str, repo_name: str) -> dict[str, Any]:
                     else:
                         parent_path = str(rel_path.parent).replace("\\", "/")
                         from_node_id = (
-                            f"dir_{repo_name}_{parent_path.replace('/', '_')}"
+                            f"dir::{repo_name}::{parent_path.replace('/', '_')}"
                         )
 
                     edge = {

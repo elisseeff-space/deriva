@@ -432,7 +432,8 @@ class TestRunDerivationWithConfigs:
 
         assert result["success"] is False
         assert result["stats"]["steps_skipped"] == 1
-        assert "Error in gen_failing" in result["errors"][0]
+        assert "gen_failing" in result["errors"][0]
+        assert "LLM error" in result["errors"][0]
 
     def test_with_progress_reporter(self):
         """Should call progress reporter methods during execution."""
@@ -1020,3 +1021,727 @@ class TestRunDerivationIter:
         # First call gets empty list, second call gets elements from first
         assert existing_elements_calls[0] == []
         assert len(existing_elements_calls[1]) == 1
+
+
+class TestCollectRelationshipRules:
+    """Tests for _collect_relationship_rules function."""
+
+    def test_returns_dict_of_rules(self):
+        """Should return dict mapping element types to their rules."""
+        rules = derivation._collect_relationship_rules()
+
+        assert isinstance(rules, dict)
+
+    def test_contains_rules_for_registered_types(self):
+        """Should contain rules for element types with defined rules."""
+        rules = derivation._collect_relationship_rules()
+
+        # At least some types should have rules defined
+        assert len(rules) > 0
+
+    def test_rule_format_is_tuple_of_lists(self):
+        """Each rule entry should be a tuple of (outbound, inbound) lists."""
+        rules = derivation._collect_relationship_rules()
+
+        for element_type, (outbound, inbound) in rules.items():
+            assert isinstance(outbound, list), f"{element_type} outbound should be list"
+            assert isinstance(inbound, list), f"{element_type} inbound should be list"
+
+
+class TestGetElementProps:
+    """Tests for _get_element_props function."""
+
+    def test_returns_properties_for_matching_identifier(self):
+        """Should return properties when identifier matches."""
+        elements = [
+            {"identifier": "elem1", "properties": {"pagerank": 0.5, "kcore": 3}},
+            {"identifier": "elem2", "properties": {"pagerank": 0.3}},
+        ]
+
+        props = derivation._get_element_props(elements, "elem1")
+
+        assert props == {"pagerank": 0.5, "kcore": 3}
+
+    def test_returns_empty_dict_for_no_match(self):
+        """Should return empty dict when identifier not found."""
+        elements = [
+            {"identifier": "elem1", "properties": {"pagerank": 0.5}},
+        ]
+
+        props = derivation._get_element_props(elements, "unknown")
+
+        assert props == {}
+
+    def test_returns_empty_dict_when_no_properties(self):
+        """Should return empty dict when element has no properties field."""
+        elements = [
+            {"identifier": "elem1"},  # No properties field
+        ]
+
+        props = derivation._get_element_props(elements, "elem1")
+
+        assert props == {}
+
+    def test_returns_empty_dict_for_empty_list(self):
+        """Should return empty dict for empty element list."""
+        props = derivation._get_element_props([], "elem1")
+
+        assert props == {}
+
+
+class TestGetGraphEdgesWithRepoFilter:
+    """Tests for _get_graph_edges with repository_name filter."""
+
+    def test_filters_edges_by_repository(self):
+        """Should filter edges by repository name when provided."""
+        graph_manager = MagicMock()
+        graph_manager.query.return_value = [
+            {"source": "n1", "target": "n2"},
+        ]
+
+        edges = derivation._get_graph_edges(graph_manager, repository_name="my-repo")
+
+        # Verify query was called with repo_name parameter
+        call_args = graph_manager.query.call_args
+        assert "repo_name" in call_args[1] or (len(call_args[0]) > 1 and "my-repo" in str(call_args[0][1]))
+        assert len(edges) == 1
+
+    def test_uses_different_query_for_repo_filter(self):
+        """Should use different query when repository_name is provided."""
+        graph_manager = MagicMock()
+        graph_manager.query.return_value = []
+
+        # Call without repo filter
+        derivation._get_graph_edges(graph_manager)
+        query_without_filter = graph_manager.query.call_args[0][0]
+
+        # Call with repo filter
+        derivation._get_graph_edges(graph_manager, repository_name="test-repo")
+        query_with_filter = graph_manager.query.call_args[0][0]
+
+        # Queries should be different
+        assert "repository_name" in query_with_filter
+        assert "repository_name" not in query_without_filter
+
+
+class TestRunDerivationRefinePhase:
+    """Tests for run_derivation refine phase."""
+
+    def test_runs_refine_phase_when_specified(self):
+        """Should run refine phase when included in phases list."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        refine_cfg = MagicMock()
+        refine_cfg.step_name = "deduplicate"
+        refine_cfg.params = None
+        refine_cfg.llm = False
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([refine_cfg] if phase == "refine" else [])
+            with patch.object(derivation, "run_refine_step") as mock_refine:
+                mock_result = MagicMock()
+                mock_result.elements_disabled = 2
+                mock_result.relationships_deleted = 1
+                mock_result.issues_found = 3
+                mock_result.errors = []
+                mock_refine.return_value = mock_result
+
+                result = derivation.run_derivation(
+                    engine=engine,
+                    graph_manager=graph_manager,
+                    archimate_manager=archimate_manager,
+                    phases=["refine"],
+                )
+
+        assert result["success"] is True
+        assert result["stats"]["elements_disabled"] == 2
+        assert result["stats"]["relationships_deleted"] == 1
+        assert result["stats"]["refine_issues_found"] == 3
+
+    def test_refine_phase_parses_json_params(self):
+        """Should parse JSON params for refine step."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        refine_cfg = MagicMock()
+        refine_cfg.step_name = "threshold_filter"
+        refine_cfg.params = '{"min_pagerank": 0.1}'
+        refine_cfg.llm = False
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([refine_cfg] if phase == "refine" else [])
+            with patch.object(derivation, "run_refine_step") as mock_refine:
+                mock_result = MagicMock()
+                mock_result.elements_disabled = 0
+                mock_result.relationships_deleted = 0
+                mock_result.issues_found = 0
+                mock_result.errors = []
+                mock_refine.return_value = mock_result
+
+                derivation.run_derivation(
+                    engine=engine,
+                    graph_manager=graph_manager,
+                    archimate_manager=archimate_manager,
+                    phases=["refine"],
+                )
+
+        # Verify params were passed
+        call_kwargs = mock_refine.call_args.kwargs
+        assert "params" in call_kwargs
+        assert call_kwargs["params"]["min_pagerank"] == 0.1
+
+    def test_refine_phase_handles_exception(self):
+        """Should handle exception in refine step."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        refine_cfg = MagicMock()
+        refine_cfg.step_name = "failing_refine"
+        refine_cfg.params = None
+        refine_cfg.llm = False
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([refine_cfg] if phase == "refine" else [])
+            with patch.object(derivation, "run_refine_step", side_effect=Exception("Refine failed")):
+                result = derivation.run_derivation(
+                    engine=engine,
+                    graph_manager=graph_manager,
+                    archimate_manager=archimate_manager,
+                    phases=["refine"],
+                )
+
+        assert result["success"] is False
+        assert "failing_refine" in result["errors"][0]
+
+    def test_verbose_output_for_refine_phase(self, capsys):
+        """Should print verbose output during refine phase."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        refine_cfg = MagicMock()
+        refine_cfg.step_name = "deduplicate"
+        refine_cfg.params = None
+        refine_cfg.llm = False
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([refine_cfg] if phase == "refine" else [])
+            with patch.object(derivation, "run_refine_step") as mock_refine:
+                mock_result = MagicMock()
+                mock_result.elements_disabled = 0
+                mock_result.relationships_deleted = 0
+                mock_result.issues_found = 0
+                mock_result.errors = []
+                mock_refine.return_value = mock_result
+
+                derivation.run_derivation(
+                    engine=engine,
+                    graph_manager=graph_manager,
+                    archimate_manager=archimate_manager,
+                    verbose=True,
+                    phases=["refine"],
+                )
+
+        captured = capsys.readouterr()
+        assert "Running 1 refine steps" in captured.out
+        assert "Refine: deduplicate" in captured.out
+
+
+class TestRunDerivationDeferRelationships:
+    """Tests for run_derivation with defer_relationships option."""
+
+    def test_deferred_relationships_calls_consolidated_derivation(self):
+        """Should call derive_consolidated_relationships when deferred."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        gen_cfg = MagicMock()
+        gen_cfg.step_name = "gen_app"
+        gen_cfg.element_type = "ApplicationComponent"
+        gen_cfg.input_graph_query = "MATCH (n) RETURN n"
+        gen_cfg.instruction = "Gen"
+        gen_cfg.example = "{}"
+        gen_cfg.max_candidates = 10
+        gen_cfg.batch_size = 5
+        gen_cfg.temperature = None
+        gen_cfg.max_tokens = None
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([gen_cfg] if phase == "generate" else [])
+            with patch.object(derivation, "generate_element") as mock_gen:
+                mock_gen.return_value = {
+                    "success": True,
+                    "elements_created": 2,
+                    "relationships_created": 0,
+                    "created_elements": [{"identifier": "e1"}, {"identifier": "e2"}],
+                    "errors": [],
+                }
+                with patch.object(derivation, "derive_consolidated_relationships") as mock_rel:
+                    mock_rel.return_value = []
+
+                    derivation.run_derivation(
+                        engine=engine,
+                        graph_manager=graph_manager,
+                        archimate_manager=archimate_manager,
+                        llm_query_fn=MagicMock(),
+                        defer_relationships=True,
+                        phases=["generate"],
+                    )
+
+        # Should call consolidated relationship derivation
+        mock_rel.assert_called_once()
+
+    def test_deferred_relationships_creates_relationships(self):
+        """Should create relationships from consolidated derivation."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        gen_cfg = MagicMock()
+        gen_cfg.step_name = "gen_app"
+        gen_cfg.element_type = "ApplicationComponent"
+        gen_cfg.input_graph_query = "MATCH (n) RETURN n"
+        gen_cfg.instruction = "Gen"
+        gen_cfg.example = "{}"
+        gen_cfg.max_candidates = 10
+        gen_cfg.batch_size = 5
+        gen_cfg.temperature = None
+        gen_cfg.max_tokens = None
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([gen_cfg] if phase == "generate" else [])
+            with patch.object(derivation, "generate_element") as mock_gen:
+                mock_gen.return_value = {
+                    "success": True,
+                    "elements_created": 2,
+                    "relationships_created": 0,
+                    "created_elements": [
+                        {"identifier": "e1", "properties": {"source_pagerank": 0.5}},
+                        {"identifier": "e2", "properties": {"source_pagerank": 0.3}},
+                    ],
+                    "errors": [],
+                }
+                with patch.object(derivation, "derive_consolidated_relationships") as mock_rel:
+                    mock_rel.return_value = [{"source": "e1", "target": "e2", "relationship_type": "AccessRelationship", "confidence": 0.8}]
+
+                    result = derivation.run_derivation(
+                        engine=engine,
+                        graph_manager=graph_manager,
+                        archimate_manager=archimate_manager,
+                        llm_query_fn=MagicMock(),
+                        defer_relationships=True,
+                        phases=["generate"],
+                    )
+
+        # Should have created relationship
+        assert result["stats"]["relationships_created"] == 1
+        archimate_manager.add_relationship.assert_called_once()
+
+    def test_deferred_relationships_verbose_output(self, capsys):
+        """Should print verbose output for consolidated relationships."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        gen_cfg = MagicMock()
+        gen_cfg.step_name = "gen_app"
+        gen_cfg.element_type = "ApplicationComponent"
+        gen_cfg.input_graph_query = "MATCH (n) RETURN n"
+        gen_cfg.instruction = "Gen"
+        gen_cfg.example = "{}"
+        gen_cfg.max_candidates = 10
+        gen_cfg.batch_size = 5
+        gen_cfg.temperature = None
+        gen_cfg.max_tokens = None
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([gen_cfg] if phase == "generate" else [])
+            with patch.object(derivation, "generate_element") as mock_gen:
+                mock_gen.return_value = {
+                    "success": True,
+                    "elements_created": 2,
+                    "relationships_created": 0,
+                    "created_elements": [{"identifier": "e1"}, {"identifier": "e2"}],
+                    "errors": [],
+                }
+                with patch.object(derivation, "derive_consolidated_relationships") as mock_rel:
+                    mock_rel.return_value = [{"source": "e1", "target": "e2", "relationship_type": "AccessRelationship"}]
+
+                    derivation.run_derivation(
+                        engine=engine,
+                        graph_manager=graph_manager,
+                        archimate_manager=archimate_manager,
+                        llm_query_fn=MagicMock(),
+                        defer_relationships=True,
+                        verbose=True,
+                        phases=["generate"],
+                    )
+
+        captured = capsys.readouterr()
+        assert "Deriving relationships for 2 elements" in captured.out
+        assert "1 consolidated relationships" in captured.out
+
+
+class TestRunDerivationConfigVersions:
+    """Tests for run_derivation with config_versions parameter."""
+
+    def test_uses_versioned_configs_when_provided(self):
+        """Should use versioned config lookup when config_versions provided."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        config_versions = {
+            "derivation": {
+                "pagerank": 2,
+                "ApplicationComponent": 3,
+            }
+        }
+
+        with patch.object(derivation.config, "get_derivation_configs_by_version") as mock_get_version:
+            mock_get_version.return_value = []
+            with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+                mock_get.return_value = []
+
+                derivation.run_derivation(
+                    engine=engine,
+                    graph_manager=graph_manager,
+                    archimate_manager=archimate_manager,
+                    config_versions=config_versions,
+                )
+
+        # Should use versioned lookup
+        mock_get_version.assert_called()
+        # Should NOT use regular lookup for config retrieval (only for calculation)
+        # Actually, it uses versioned for both prep, gen, and refine when config_versions is provided
+
+
+class TestRunDerivationIterRefinePhase:
+    """Tests for run_derivation_iter with refine phase."""
+
+    def test_yields_refine_step_updates(self):
+        """Should yield progress updates for refine steps."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        refine_cfg = MagicMock()
+        refine_cfg.step_name = "deduplicate"
+        refine_cfg.params = None
+        refine_cfg.llm = False
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([refine_cfg] if phase == "refine" else [])
+            with patch.object(derivation, "run_refine_step") as mock_refine:
+                mock_result = MagicMock()
+                mock_result.elements_disabled = 1
+                mock_result.relationships_deleted = 0
+                mock_result.issues_found = 2
+                mock_result.errors = []
+                mock_refine.return_value = mock_result
+
+                updates = list(
+                    derivation.run_derivation_iter(
+                        engine=engine,
+                        graph_manager=graph_manager,
+                        archimate_manager=archimate_manager,
+                        phases=["refine"],
+                    )
+                )
+
+        step_updates = [u for u in updates if u.step == "deduplicate"]
+        assert len(step_updates) == 1
+        assert "2 issues" in step_updates[0].message
+        assert "1 disabled" in step_updates[0].message
+
+    def test_yields_error_for_refine_exception(self):
+        """Should yield error update when refine step fails."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        refine_cfg = MagicMock()
+        refine_cfg.step_name = "failing_refine"
+        refine_cfg.params = None
+        refine_cfg.llm = False
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([refine_cfg] if phase == "refine" else [])
+            with patch.object(derivation, "run_refine_step", side_effect=Exception("Refine error")):
+                updates = list(
+                    derivation.run_derivation_iter(
+                        engine=engine,
+                        graph_manager=graph_manager,
+                        archimate_manager=archimate_manager,
+                        phases=["refine"],
+                    )
+                )
+
+        error_updates = [u for u in updates if u.status == "error"]
+        assert len(error_updates) >= 1
+        assert "failing_refine" in error_updates[0].message
+
+
+class TestRunDerivationIterVerbose:
+    """Tests for run_derivation_iter with verbose output."""
+
+    def test_prints_verbose_for_prep_steps(self, capsys):
+        """Should print verbose output for prep steps."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        graph_manager.batch_update_properties.return_value = 0
+        archimate_manager = MagicMock()
+
+        enrich_cfg = MagicMock()
+        enrich_cfg.step_name = "pagerank"
+        enrich_cfg.params = None
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "prep" else [])
+            with patch.object(derivation, "_get_graph_edges", return_value=[]):
+                list(
+                    derivation.run_derivation_iter(
+                        engine=engine,
+                        graph_manager=graph_manager,
+                        archimate_manager=archimate_manager,
+                        verbose=True,
+                        phases=["prep"],
+                    )
+                )
+
+        captured = capsys.readouterr()
+        assert "Prep: pagerank" in captured.out
+
+    def test_prints_verbose_for_generate_steps(self, capsys):
+        """Should print verbose output for generate steps."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        gen_cfg = MagicMock()
+        gen_cfg.step_name = "gen_app"
+        gen_cfg.element_type = "ApplicationComponent"
+        gen_cfg.input_graph_query = "MATCH (n) RETURN n"
+        gen_cfg.instruction = "Gen"
+        gen_cfg.example = "{}"
+        gen_cfg.max_candidates = 10
+        gen_cfg.batch_size = 5
+        gen_cfg.temperature = None
+        gen_cfg.max_tokens = None
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([gen_cfg] if phase == "generate" else [])
+            with patch.object(derivation, "generate_element") as mock_gen:
+                mock_gen.return_value = {
+                    "success": True,
+                    "elements_created": 0,
+                    "relationships_created": 0,
+                    "created_elements": [],
+                    "errors": [],
+                }
+                list(
+                    derivation.run_derivation_iter(
+                        engine=engine,
+                        graph_manager=graph_manager,
+                        archimate_manager=archimate_manager,
+                        llm_query_fn=MagicMock(),
+                        verbose=True,
+                        phases=["generate"],
+                    )
+                )
+
+        captured = capsys.readouterr()
+        assert "Generate: gen_app" in captured.out
+
+    def test_prints_verbose_for_refine_steps(self, capsys):
+        """Should print verbose output for refine steps."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+
+        refine_cfg = MagicMock()
+        refine_cfg.step_name = "deduplicate"
+        refine_cfg.params = None
+        refine_cfg.llm = False
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([refine_cfg] if phase == "refine" else [])
+            with patch.object(derivation, "run_refine_step") as mock_refine:
+                mock_result = MagicMock()
+                mock_result.elements_disabled = 0
+                mock_result.relationships_deleted = 0
+                mock_result.issues_found = 0
+                mock_result.errors = []
+                mock_refine.return_value = mock_result
+
+                list(
+                    derivation.run_derivation_iter(
+                        engine=engine,
+                        graph_manager=graph_manager,
+                        archimate_manager=archimate_manager,
+                        verbose=True,
+                        phases=["refine"],
+                    )
+                )
+
+        captured = capsys.readouterr()
+        assert "Refine: deduplicate" in captured.out
+
+
+class TestRunDerivationWithRunLoggerErrors:
+    """Tests for run_derivation run_logger error handling."""
+
+    def test_logs_step_error_for_prep_failures(self):
+        """Should log step error when prep step fails."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+        run_logger = MagicMock()
+        step_ctx = MagicMock()
+        run_logger.step_start.return_value = step_ctx
+
+        enrich_cfg = MagicMock()
+        enrich_cfg.step_name = "pagerank"
+        enrich_cfg.params = None
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([enrich_cfg] if phase == "prep" else [])
+            with patch.object(derivation, "_run_prep_step", return_value={"success": False, "errors": ["Test prep error"]}):
+                derivation.run_derivation(
+                    engine=engine,
+                    graph_manager=graph_manager,
+                    archimate_manager=archimate_manager,
+                    run_logger=run_logger,
+                    phases=["prep"],
+                )
+
+        # Should call step_ctx.error
+        step_ctx.error.assert_called()
+
+    def test_logs_step_complete_for_generate_success(self):
+        """Should log step complete when generate succeeds."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+        run_logger = MagicMock()
+        step_ctx = MagicMock()
+        run_logger.step_start.return_value = step_ctx
+
+        gen_cfg = MagicMock()
+        gen_cfg.step_name = "gen_app"
+        gen_cfg.element_type = "ApplicationComponent"
+        gen_cfg.input_graph_query = "MATCH (n) RETURN n"
+        gen_cfg.instruction = "Gen"
+        gen_cfg.example = "{}"
+        gen_cfg.max_candidates = 10
+        gen_cfg.batch_size = 5
+        gen_cfg.temperature = None
+        gen_cfg.max_tokens = None
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([gen_cfg] if phase == "generate" else [])
+            with patch.object(derivation, "generate_element") as mock_gen:
+                mock_gen.return_value = {
+                    "success": True,
+                    "elements_created": 2,
+                    "relationships_created": 0,
+                    "created_elements": [],
+                    "created_relationships": [],
+                    "errors": [],
+                }
+                derivation.run_derivation(
+                    engine=engine,
+                    graph_manager=graph_manager,
+                    archimate_manager=archimate_manager,
+                    llm_query_fn=MagicMock(),
+                    run_logger=run_logger,
+                    phases=["generate"],
+                )
+
+        step_ctx.complete.assert_called()
+        assert step_ctx.items_created == 2
+
+
+class TestRunDerivationProgressReporter:
+    """Additional tests for progress reporter integration."""
+
+    def test_progress_start_step_for_generate(self):
+        """Should call start_step for each generate step."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+        progress = MagicMock()
+
+        gen_cfg = MagicMock()
+        gen_cfg.step_name = "gen_app"
+        gen_cfg.element_type = "ApplicationComponent"
+        gen_cfg.input_graph_query = "MATCH (n) RETURN n"
+        gen_cfg.instruction = "Gen"
+        gen_cfg.example = "{}"
+        gen_cfg.max_candidates = 10
+        gen_cfg.batch_size = 5
+        gen_cfg.temperature = None
+        gen_cfg.max_tokens = None
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([gen_cfg] if phase == "generate" else [])
+            with patch.object(derivation, "generate_element") as mock_gen:
+                mock_gen.return_value = {
+                    "success": True,
+                    "elements_created": 2,
+                    "relationships_created": 1,
+                    "created_elements": [],
+                    "errors": [],
+                }
+                derivation.run_derivation(
+                    engine=engine,
+                    graph_manager=graph_manager,
+                    archimate_manager=archimate_manager,
+                    llm_query_fn=MagicMock(),
+                    progress=progress,
+                    phases=["generate"],
+                )
+
+        progress.start_step.assert_called_with("gen_app")
+        # complete_step should include element and relationship counts
+        complete_call = progress.complete_step.call_args
+        assert "2 elements" in complete_call[0][0]
+        assert "1 relationships" in complete_call[0][0]
+
+    def test_progress_complete_phase_with_disabled_elements(self):
+        """Should include disabled count in phase completion message."""
+        engine = MagicMock()
+        graph_manager = MagicMock()
+        archimate_manager = MagicMock()
+        progress = MagicMock()
+
+        refine_cfg = MagicMock()
+        refine_cfg.step_name = "deduplicate"
+        refine_cfg.params = None
+        refine_cfg.llm = False
+
+        with patch.object(derivation.config, "get_derivation_configs") as mock_get:
+            mock_get.side_effect = lambda engine, enabled_only, phase: ([refine_cfg] if phase == "refine" else [])
+            with patch.object(derivation, "run_refine_step") as mock_refine:
+                mock_result = MagicMock()
+                mock_result.elements_disabled = 5
+                mock_result.relationships_deleted = 0
+                mock_result.issues_found = 5
+                mock_result.errors = []
+                mock_refine.return_value = mock_result
+
+                derivation.run_derivation(
+                    engine=engine,
+                    graph_manager=graph_manager,
+                    archimate_manager=archimate_manager,
+                    progress=progress,
+                    phases=["refine"],
+                )
+
+        complete_phase_call = progress.complete_phase.call_args
+        assert "5 disabled" in complete_phase_call[0][0]

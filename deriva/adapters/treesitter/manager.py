@@ -51,7 +51,13 @@ from typing import Any
 
 import tree_sitter
 
-from .models import ExtractedImport, ExtractedMethod, ExtractedType
+from .models import (
+    ExtractedCall,
+    ExtractedImport,
+    ExtractedMethod,
+    ExtractedType,
+    FilterConstants,
+)
 from .languages import get_extractor, supported_languages
 
 
@@ -172,6 +178,33 @@ class TreeSitterManager:
 
         return extractor.extract_imports(tree, source.encode("utf-8"))
 
+    def extract_calls(
+        self, source: str, file_path: str | None = None, language: str | None = None
+    ) -> list[ExtractedCall]:
+        """Extract function/method calls from source code.
+
+        Args:
+            source: Source code as string
+            file_path: Optional file path (used for language detection)
+            language: Optional language override
+
+        Returns:
+            List of ExtractedCall objects
+        """
+        lang = self._resolve_language(file_path, language)
+        if not lang:
+            return []
+
+        extractor = get_extractor(lang)
+        if not extractor:
+            return []
+
+        tree = self._parse(source, lang, extractor)
+        if not tree:
+            return []
+
+        return extractor.extract_calls(tree, source.encode("utf-8"))
+
     def extract_all(
         self, source: str, file_path: str | None = None, language: str | None = None
     ) -> dict[str, Any]:
@@ -183,25 +216,26 @@ class TreeSitterManager:
             language: Optional language override
 
         Returns:
-            Dictionary with 'types', 'methods', 'imports' keys
+            Dictionary with 'types', 'methods', 'imports', 'calls' keys
         """
         lang = self._resolve_language(file_path, language)
         if not lang:
-            return {"types": [], "methods": [], "imports": []}
+            return {"types": [], "methods": [], "imports": [], "calls": []}
 
         extractor = get_extractor(lang)
         if not extractor:
-            return {"types": [], "methods": [], "imports": []}
+            return {"types": [], "methods": [], "imports": [], "calls": []}
 
         tree = self._parse(source, lang, extractor)
         if not tree:
-            return {"types": [], "methods": [], "imports": []}
+            return {"types": [], "methods": [], "imports": [], "calls": []}
 
         source_bytes = source.encode("utf-8")
         return {
             "types": extractor.extract_types(tree, source_bytes),
             "methods": extractor.extract_methods(tree, source_bytes),
             "imports": extractor.extract_imports(tree, source_bytes),
+            "calls": extractor.extract_calls(tree, source_bytes),
         }
 
     @classmethod
@@ -237,6 +271,29 @@ class TreeSitterManager:
             List of supported language names
         """
         return supported_languages()
+
+    def get_filter_constants(
+        self, file_path: str | None = None, language: str | None = None
+    ) -> FilterConstants:
+        """Get language-specific filter constants for edge extraction.
+
+        Args:
+            file_path: Optional file path (used for language detection)
+            language: Optional language override
+
+        Returns:
+            FilterConstants for the detected/specified language,
+            or empty FilterConstants if language not supported
+        """
+        lang = self._resolve_language(file_path, language)
+        if not lang:
+            return FilterConstants()
+
+        extractor = get_extractor(lang)
+        if not extractor:
+            return FilterConstants()
+
+        return extractor.get_filter_constants()
 
     # =========================================================================
     # Private helper methods
