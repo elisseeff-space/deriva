@@ -582,12 +582,10 @@ class TestExtractImportEdges:
 
     def test_creates_imports_edge_for_internal_import(self):
         """Should create IMPORTS edge for internal imports."""
-        from deriva.modules.extraction.edges import _extract_import_edges
         from deriva.adapters.treesitter.models import ExtractedImport
+        from deriva.modules.extraction.edges import _extract_import_edges
 
-        imports = [
-            ExtractedImport(module="models", names=["User"], line=1, is_from_import=True)
-        ]
+        imports = [ExtractedImport(module="models", names=["User"], line=1, is_from_import=True)]
         all_files = {"main.py", "models.py"}
 
         edges, stats = _extract_import_edges(
@@ -605,12 +603,10 @@ class TestExtractImportEdges:
 
     def test_creates_uses_edge_for_external_import(self):
         """Should create USES edge for external imports."""
-        from deriva.modules.extraction.edges import _extract_import_edges
         from deriva.adapters.treesitter.models import ExtractedImport
+        from deriva.modules.extraction.edges import _extract_import_edges
 
-        imports = [
-            ExtractedImport(module="flask", names=["Flask"], line=1, is_from_import=True)
-        ]
+        imports = [ExtractedImport(module="flask", names=["Flask"], line=1, is_from_import=True)]
 
         edges, stats = _extract_import_edges(
             imports=imports,
@@ -627,12 +623,10 @@ class TestExtractImportEdges:
 
     def test_skips_stdlib_imports(self):
         """Should skip stdlib imports."""
-        from deriva.modules.extraction.edges import _extract_import_edges
         from deriva.adapters.treesitter.models import ExtractedImport
+        from deriva.modules.extraction.edges import _extract_import_edges
 
-        imports = [
-            ExtractedImport(module="os", names=["path"], line=1, is_from_import=True)
-        ]
+        imports = [ExtractedImport(module="os", names=["path"], line=1, is_from_import=True)]
 
         edges, stats = _extract_import_edges(
             imports=imports,
@@ -649,8 +643,8 @@ class TestExtractImportEdges:
 
     def test_respects_edge_type_filter(self):
         """Should respect edge type filter."""
-        from deriva.modules.extraction.edges import _extract_import_edges
         from deriva.adapters.treesitter.models import ExtractedImport
+        from deriva.modules.extraction.edges import _extract_import_edges
 
         imports = [
             ExtractedImport(module="models", names=["User"], line=1, is_from_import=True),
@@ -734,8 +728,8 @@ class TestExtractCallEdges:
 
     def test_creates_call_edge_for_resolved_call(self):
         """Should create CALLS edge for resolved function calls."""
-        from deriva.modules.extraction.edges import _extract_call_edges
         from deriva.adapters.treesitter.models import ExtractedCall
+        from deriva.modules.extraction.edges import _extract_call_edges
 
         calls = [
             ExtractedCall(
@@ -766,8 +760,8 @@ class TestExtractCallEdges:
 
     def test_skips_builtin_calls(self):
         """Should skip builtin function calls."""
-        from deriva.modules.extraction.edges import _extract_call_edges
         from deriva.adapters.treesitter.models import ExtractedCall
+        from deriva.modules.extraction.edges import _extract_call_edges
 
         calls = [
             ExtractedCall(
@@ -796,8 +790,8 @@ class TestExtractCallEdges:
 
     def test_resolves_self_method_call(self):
         """Should resolve self.method() calls within same class."""
-        from deriva.modules.extraction.edges import _extract_call_edges
         from deriva.adapters.treesitter.models import ExtractedCall
+        from deriva.modules.extraction.edges import _extract_call_edges
 
         calls = [
             ExtractedCall(
@@ -826,8 +820,8 @@ class TestExtractCallEdges:
 
     def test_skips_external_qualifier_calls(self):
         """Should skip calls with external qualifiers."""
-        from deriva.modules.extraction.edges import _extract_call_edges
         from deriva.adapters.treesitter.models import ExtractedCall
+        from deriva.modules.extraction.edges import _extract_call_edges
 
         calls = [
             ExtractedCall(
@@ -856,8 +850,8 @@ class TestExtractCallEdges:
 
     def test_skips_self_loops(self):
         """Should not create self-loop edges."""
-        from deriva.modules.extraction.edges import _extract_call_edges
         from deriva.adapters.treesitter.models import ExtractedCall
+        from deriva.modules.extraction.edges import _extract_call_edges
 
         calls = [
             ExtractedCall(
@@ -885,8 +879,8 @@ class TestExtractCallEdges:
 
     def test_handles_unresolved_caller(self):
         """Should handle case when caller cannot be resolved."""
-        from deriva.modules.extraction.edges import _extract_call_edges
         from deriva.adapters.treesitter.models import ExtractedCall
+        from deriva.modules.extraction.edges import _extract_call_edges
 
         calls = [
             ExtractedCall(
@@ -1144,8 +1138,8 @@ class TestExtractDecoratorEdges:
 
     def test_creates_decorator_edge(self):
         """Should create DECORATED_BY edge for resolved decorator."""
-        from deriva.modules.extraction.edges import _extract_decorator_edges
         from deriva.adapters.treesitter.models import ExtractedMethod
+        from deriva.modules.extraction.edges import _extract_decorator_edges
 
         methods = [
             ExtractedMethod(
@@ -1190,8 +1184,8 @@ class TestExtractDecoratorEdges:
 
     def test_skips_builtin_decorators(self):
         """Should skip builtin decorators."""
-        from deriva.modules.extraction.edges import _extract_decorator_edges
         from deriva.adapters.treesitter.models import ExtractedMethod
+        from deriva.modules.extraction.edges import _extract_decorator_edges
 
         methods = [
             ExtractedMethod(
@@ -1223,8 +1217,8 @@ class TestExtractDecoratorEdges:
 
     def test_handles_decorator_with_arguments(self):
         """Should handle decorators with arguments."""
-        from deriva.modules.extraction.edges import _extract_decorator_edges
         from deriva.adapters.treesitter.models import ExtractedMethod
+        from deriva.modules.extraction.edges import _extract_decorator_edges
 
         methods = [
             ExtractedMethod(
@@ -1267,8 +1261,8 @@ class TestExtractDecoratorEdges:
 
     def test_handles_class_method_decorator(self):
         """Should handle decorators defined as class methods."""
-        from deriva.modules.extraction.edges import _extract_decorator_edges
         from deriva.adapters.treesitter.models import ExtractedMethod
+        from deriva.modules.extraction.edges import _extract_decorator_edges
 
         methods = [
             ExtractedMethod(
@@ -1310,8 +1304,8 @@ class TestExtractDecoratorEdges:
 
     def test_counts_unresolved_decorators(self):
         """Should count unresolved decorators."""
-        from deriva.modules.extraction.edges import _extract_decorator_edges
         from deriva.adapters.treesitter.models import ExtractedMethod
+        from deriva.modules.extraction.edges import _extract_decorator_edges
 
         methods = [
             ExtractedMethod(
@@ -1351,8 +1345,8 @@ class TestExtractReferenceEdges:
 
     def test_creates_reference_edge_for_type_annotation(self):
         """Should create REFERENCES edge for type annotations."""
-        from deriva.modules.extraction.edges import _extract_reference_edges
         from deriva.adapters.treesitter.models import ExtractedMethod, ExtractedType
+        from deriva.modules.extraction.edges import _extract_reference_edges
 
         methods = [
             ExtractedMethod(
@@ -1392,8 +1386,8 @@ class TestExtractReferenceEdges:
 
     def test_creates_reference_for_return_annotation(self):
         """Should create REFERENCES edge for return type annotation."""
-        from deriva.modules.extraction.edges import _extract_reference_edges
         from deriva.adapters.treesitter.models import ExtractedMethod, ExtractedType
+        from deriva.modules.extraction.edges import _extract_reference_edges
 
         methods = [
             ExtractedMethod(
@@ -1431,8 +1425,8 @@ class TestExtractReferenceEdges:
 
     def test_skips_builtin_types(self):
         """Should skip builtin types."""
-        from deriva.modules.extraction.edges import _extract_reference_edges
         from deriva.adapters.treesitter.models import ExtractedMethod
+        from deriva.modules.extraction.edges import _extract_reference_edges
 
         methods = [
             ExtractedMethod(
@@ -1461,8 +1455,8 @@ class TestExtractReferenceEdges:
 
     def test_handles_generic_types(self):
         """Should extract inner types from generics."""
-        from deriva.modules.extraction.edges import _extract_reference_edges
         from deriva.adapters.treesitter.models import ExtractedMethod, ExtractedType
+        from deriva.modules.extraction.edges import _extract_reference_edges
 
         methods = [
             ExtractedMethod(
@@ -1499,8 +1493,8 @@ class TestExtractReferenceEdges:
 
     def test_skips_self_reference(self):
         """Should not create self-reference edges."""
-        from deriva.modules.extraction.edges import _extract_reference_edges
         from deriva.adapters.treesitter.models import ExtractedMethod, ExtractedType
+        from deriva.modules.extraction.edges import _extract_reference_edges
 
         methods = [
             ExtractedMethod(
@@ -1538,8 +1532,8 @@ class TestExtractReferenceEdges:
 
     def test_counts_unresolved_types(self):
         """Should count unresolved type references."""
-        from deriva.modules.extraction.edges import _extract_reference_edges
         from deriva.adapters.treesitter.models import ExtractedMethod
+        from deriva.modules.extraction.edges import _extract_reference_edges
 
         methods = [
             ExtractedMethod(

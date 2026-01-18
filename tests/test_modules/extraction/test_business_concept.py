@@ -339,3 +339,622 @@ class TestBuildExtractionPrompt:
         )
 
         assert "Previously Identified Concepts" not in prompt
+
+
+# =============================================================================
+# build_multi_file_user_prompt Tests
+# =============================================================================
+
+
+class TestBuildMultiFileUserPrompt:
+    """Tests for build_multi_file_user_prompt function."""
+
+    def test_includes_all_file_paths(self):
+        """Should include all file paths in prompt."""
+        from deriva.modules.extraction.business_concept import build_multi_file_user_prompt
+
+        files = [
+            {"path": "src/orders/service.py", "content": "class OrderService: pass"},
+            {"path": "src/customers/model.py", "content": "class Customer: pass"},
+        ]
+
+        prompt = build_multi_file_user_prompt(files, '{"concepts": []}')
+
+        assert "src/orders/service.py" in prompt
+        assert "src/customers/model.py" in prompt
+
+    def test_includes_file_content(self):
+        """Should include file content for each file."""
+        from deriva.modules.extraction.business_concept import build_multi_file_user_prompt
+
+        files = [
+            {"path": "test.py", "content": "class UniqueClassName: pass"},
+        ]
+
+        prompt = build_multi_file_user_prompt(files, "{}")
+
+        assert "UniqueClassName" in prompt
+
+    def test_includes_example(self):
+        """Should include example in prompt."""
+        from deriva.modules.extraction.business_concept import build_multi_file_user_prompt
+
+        files = [{"path": "test.py", "content": "x = 1"}]
+
+        prompt = build_multi_file_user_prompt(files, '{"concepts": [{"name": "Test"}]}')
+
+        assert "concepts" in prompt
+
+    def test_includes_existing_concepts_when_provided(self):
+        """Should include existing concepts context."""
+        from deriva.modules.extraction.business_concept import build_multi_file_user_prompt
+
+        files = [{"path": "test.py", "content": "x = 1"}]
+        existing: list[dict[str, str]] = [
+            {"conceptName": "OrderManagement", "conceptType": "entity", "confidence": "0.9"},
+        ]
+
+        prompt = build_multi_file_user_prompt(files, "{}", existing)
+
+        assert "OrderManagement" in prompt
+        assert "Previously Identified Concepts" in prompt
+
+    def test_filters_low_confidence_existing_concepts(self):
+        """Should filter out low confidence existing concepts."""
+        from deriva.modules.extraction.business_concept import build_multi_file_user_prompt
+
+        files = [{"path": "test.py", "content": "x = 1"}]
+        existing: list[dict[str, str]] = [
+            {"conceptName": "HighConf", "conceptType": "entity", "confidence": "0.9"},
+            {"conceptName": "LowConf", "conceptType": "entity", "confidence": "0.5"},
+        ]
+
+        prompt = build_multi_file_user_prompt(files, "{}", existing)
+
+        assert "HighConf" in prompt
+        assert "LowConf" not in prompt
+
+
+# =============================================================================
+# build_business_concept_node Tests
+# =============================================================================
+
+
+class TestBuildBusinessConceptNode:
+    """Tests for build_business_concept_node function."""
+
+    def test_builds_valid_node(self):
+        """Should build valid node from concept data."""
+        from deriva.modules.extraction.business_concept import build_business_concept_node
+
+        concept_data = {
+            "conceptName": "OrderManagement",
+            "conceptType": "entity",
+            "description": "Handles order processing",
+            "confidence": 0.9,
+        }
+
+        result = build_business_concept_node(
+            concept_data=concept_data,
+            origin_source="src/orders/service.py",
+            repo_name="test-repo",
+        )
+
+        assert result["success"] is True
+        assert result["data"]["label"] == "BusinessConcept"
+        assert result["data"]["properties"]["conceptName"] == "OrderManagement"
+        assert result["data"]["properties"]["conceptType"] == "entity"
+        assert "node_id" in result["data"]
+        assert result["stats"]["nodes_created"] == 1
+
+    def test_validates_required_fields(self):
+        """Should fail when required fields are missing."""
+        from deriva.modules.extraction.business_concept import build_business_concept_node
+
+        concept_data = {
+            "conceptName": "Test",
+            # Missing conceptType and description
+        }
+
+        result = build_business_concept_node(
+            concept_data=concept_data,
+            origin_source="test.py",
+            repo_name="test-repo",
+        )
+
+        assert result["success"] is False
+        assert len(result["errors"]) > 0
+        assert result["stats"]["nodes_created"] == 0
+
+    def test_validates_empty_fields(self):
+        """Should fail when required fields are empty."""
+        from deriva.modules.extraction.business_concept import build_business_concept_node
+
+        concept_data = {
+            "conceptName": "",
+            "conceptType": "entity",
+            "description": "Test",
+        }
+
+        result = build_business_concept_node(
+            concept_data=concept_data,
+            origin_source="test.py",
+            repo_name="test-repo",
+        )
+
+        assert result["success"] is False
+
+    def test_normalizes_invalid_concept_type(self):
+        """Should normalize invalid concept type to 'other'."""
+        from deriva.modules.extraction.business_concept import build_business_concept_node
+
+        concept_data = {
+            "conceptName": "Test",
+            "conceptType": "INVALID_TYPE",
+            "description": "Test desc",
+        }
+
+        result = build_business_concept_node(
+            concept_data=concept_data,
+            origin_source="test.py",
+            repo_name="test-repo",
+        )
+
+        assert result["success"] is True
+        assert result["data"]["properties"]["conceptType"] == "other"
+
+    def test_generates_proper_node_id(self):
+        """Should generate proper node ID format."""
+        from deriva.modules.extraction.business_concept import build_business_concept_node
+
+        concept_data = {
+            "conceptName": "Order Processing",
+            "conceptType": "process",
+            "description": "Process orders",
+        }
+
+        result = build_business_concept_node(
+            concept_data=concept_data,
+            origin_source="test.py",
+            repo_name="my-repo",
+        )
+
+        assert result["success"] is True
+        assert result["data"]["node_id"] == "concept::my-repo::order_processing"
+
+    def test_uses_default_confidence(self):
+        """Should use default confidence when not provided."""
+        from deriva.modules.extraction.business_concept import build_business_concept_node
+
+        concept_data = {
+            "conceptName": "Test",
+            "conceptType": "entity",
+            "description": "Test desc",
+            # No confidence provided
+        }
+
+        result = build_business_concept_node(
+            concept_data=concept_data,
+            origin_source="test.py",
+            repo_name="test-repo",
+        )
+
+        assert result["success"] is True
+        assert result["data"]["properties"]["confidence"] == 0.8
+
+
+# =============================================================================
+# parse_llm_response Tests
+# =============================================================================
+
+
+class TestParseLlmResponse:
+    """Tests for parse_llm_response function."""
+
+    def test_parses_valid_json(self):
+        """Should parse valid JSON response."""
+        from deriva.modules.extraction.business_concept import parse_llm_response
+
+        response = '{"concepts": [{"conceptName": "Order", "conceptType": "entity", "description": "An order", "confidence": 0.9}]}'
+
+        result = parse_llm_response(response)
+
+        assert result["success"] is True
+        assert len(result["data"]) == 1
+        assert result["data"][0]["conceptName"] == "Order"
+
+    def test_handles_empty_concepts(self):
+        """Should handle empty concepts array."""
+        from deriva.modules.extraction.business_concept import parse_llm_response
+
+        response = '{"concepts": []}'
+
+        result = parse_llm_response(response)
+
+        assert result["success"] is True
+        assert len(result["data"]) == 0
+
+    def test_handles_invalid_json(self):
+        """Should handle invalid JSON gracefully."""
+        from deriva.modules.extraction.business_concept import parse_llm_response
+
+        response = "not valid json"
+
+        result = parse_llm_response(response)
+
+        assert result["success"] is False
+        assert len(result["errors"]) > 0
+
+
+# =============================================================================
+# extract_business_concepts Tests
+# =============================================================================
+
+
+class TestExtractBusinessConcepts:
+    """Tests for extract_business_concepts function."""
+
+    def test_extracts_concepts_from_file(self):
+        """Should extract concepts from a file."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts
+
+        # Create a simple response class to avoid MagicMock attribute issues
+        class MockResponse:
+            content = '{"concepts": [{"conceptName": "Order", "conceptType": "entity", "description": "An order", "confidence": 0.9}]}'
+            usage = {"prompt_tokens": 100, "completion_tokens": 50}
+
+        mock_llm_fn = MagicMock(return_value=MockResponse())
+
+        result = extract_business_concepts(
+            file_path="src/orders/service.py",
+            file_content="class OrderService: pass",
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract concepts", "example": "{}"},
+        )
+
+        assert result["success"] is True
+        assert len(result["data"]["nodes"]) == 1
+        assert len(result["data"]["edges"]) == 1
+        assert result["stats"]["concepts_found"] == 1
+
+    def test_handles_llm_error(self):
+        """Should handle LLM errors gracefully."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts
+
+        mock_response = MagicMock()
+        mock_response.error = "API rate limit exceeded"
+        mock_response.content = None
+
+        mock_llm_fn = MagicMock(return_value=mock_response)
+
+        result = extract_business_concepts(
+            file_path="test.py",
+            file_content="x = 1",
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        assert result["success"] is False
+        assert "LLM error" in result["errors"][0]
+        assert result["stats"]["llm_error"] is True
+
+    def test_handles_parse_error(self):
+        """Should handle parse errors gracefully."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts
+
+        mock_response = MagicMock()
+        mock_response.content = "not valid json"
+        delattr(mock_response, "error")
+
+        mock_llm_fn = MagicMock(return_value=mock_response)
+
+        result = extract_business_concepts(
+            file_path="test.py",
+            file_content="x = 1",
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        assert result["success"] is False
+        assert result["stats"]["parse_error"] is True
+
+    def test_handles_exception(self):
+        """Should handle exceptions gracefully."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts
+
+        mock_llm_fn = MagicMock(side_effect=Exception("Connection error"))
+
+        result = extract_business_concepts(
+            file_path="test.py",
+            file_content="x = 1",
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        assert result["success"] is False
+        assert "Fatal error" in result["errors"][0]
+
+    def test_creates_references_edge(self):
+        """Should create REFERENCES edge from file to concept."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts
+
+        class MockResponse:
+            content = '{"concepts": [{"conceptName": "Order", "conceptType": "entity", "description": "An order", "confidence": 0.9}]}'
+            usage = {"prompt_tokens": 100, "completion_tokens": 50}
+
+        mock_llm_fn = MagicMock(return_value=MockResponse())
+
+        result = extract_business_concepts(
+            file_path="src/orders.py",
+            file_content="class Order: pass",
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        assert len(result["data"]["edges"]) == 1
+        edge = result["data"]["edges"][0]
+        assert edge["relationship_type"] == "REFERENCES"
+        assert "file::test-repo" in edge["from_node_id"]
+        assert "concept::test-repo" in edge["to_node_id"]
+
+    def test_includes_llm_details(self):
+        """Should include LLM details for logging."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts
+
+        mock_response = MagicMock()
+        mock_response.content = '{"concepts": []}'
+        mock_response.usage = {"prompt_tokens": 100, "completion_tokens": 50}
+
+        mock_llm_fn = MagicMock(return_value=mock_response)
+
+        result = extract_business_concepts(
+            file_path="test.py",
+            file_content="x = 1",
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        assert "llm_details" in result
+        assert result["llm_details"]["tokens_in"] == 100
+        assert result["llm_details"]["tokens_out"] == 50
+
+
+# =============================================================================
+# extract_business_concepts_multi Tests
+# =============================================================================
+
+
+class TestExtractBusinessConceptsMulti:
+    """Tests for extract_business_concepts_multi function."""
+
+    def test_extracts_from_multiple_files(self):
+        """Should extract concepts from multiple files in one call."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts_multi
+
+        class MockResponse:
+            content = """{"results": [
+                {"file_path": "a.py", "concepts": [{"conceptName": "OrderA", "conceptType": "entity", "description": "Order A", "confidence": 0.9}]},
+                {"file_path": "b.py", "concepts": [{"conceptName": "OrderB", "conceptType": "entity", "description": "Order B", "confidence": 0.9}]}
+            ]}"""
+            usage = {"prompt_tokens": 200, "completion_tokens": 100}
+
+        mock_llm_fn = MagicMock(return_value=MockResponse())
+
+        files = [
+            {"path": "a.py", "content": "class A: pass"},
+            {"path": "b.py", "content": "class B: pass"},
+        ]
+
+        result = extract_business_concepts_multi(
+            files=files,
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        assert result["success"] is True
+        assert len(result["data"]["nodes"]) == 2
+        assert result["stats"]["files_in_batch"] == 2
+
+    def test_handles_llm_error(self):
+        """Should handle LLM errors in multi-file extraction."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts_multi
+
+        mock_response = MagicMock()
+        mock_response.error = "Rate limited"
+        mock_response.content = None
+
+        mock_llm_fn = MagicMock(return_value=mock_response)
+
+        result = extract_business_concepts_multi(
+            files=[{"path": "test.py", "content": "x = 1"}],
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        assert result["success"] is False
+        assert "LLM error" in result["errors"][0]
+
+    def test_handles_json_decode_error(self):
+        """Should handle JSON decode errors."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts_multi
+
+        mock_response = MagicMock()
+        mock_response.content = "not valid json"
+        delattr(mock_response, "error")
+
+        mock_llm_fn = MagicMock(return_value=mock_response)
+
+        result = extract_business_concepts_multi(
+            files=[{"path": "test.py", "content": "x = 1"}],
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        assert result["success"] is False
+        assert "parse" in result["errors"][0].lower()
+
+    def test_handles_exception(self):
+        """Should handle exceptions gracefully."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts_multi
+
+        mock_llm_fn = MagicMock(side_effect=Exception("Connection failed"))
+
+        result = extract_business_concepts_multi(
+            files=[{"path": "test.py", "content": "x = 1"}],
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        assert result["success"] is False
+        assert "Fatal error" in result["errors"][0]
+
+
+# =============================================================================
+# extract_business_concepts_batch Tests
+# =============================================================================
+
+
+class TestExtractBusinessConceptsBatch:
+    """Tests for extract_business_concepts_batch function."""
+
+    def test_processes_all_files(self):
+        """Should process all files in batch."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts_batch
+
+        mock_response = MagicMock()
+        mock_response.content = '{"concepts": [{"conceptName": "Test", "conceptType": "entity", "description": "Test", "confidence": 0.9}]}'
+        mock_response.usage = {"prompt_tokens": 100, "completion_tokens": 50}
+
+        mock_llm_fn = MagicMock(return_value=mock_response)
+
+        files = [
+            {"path": "a.py", "content": "class A: pass"},
+            {"path": "b.py", "content": "class B: pass"},
+        ]
+
+        result = extract_business_concepts_batch(
+            files=files,
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        assert result["stats"]["files_processed"] == 2
+        assert mock_llm_fn.call_count == 2
+
+    def test_calls_progress_callback(self):
+        """Should call progress callback for each file."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts_batch
+
+        mock_response = MagicMock()
+        mock_response.content = '{"concepts": []}'
+
+        mock_llm_fn = MagicMock(return_value=mock_response)
+
+        progress_calls = []
+
+        def callback(current, total, path):
+            progress_calls.append((current, total, path))
+
+        files = [
+            {"path": "a.py", "content": "x = 1"},
+            {"path": "b.py", "content": "y = 2"},
+        ]
+
+        extract_business_concepts_batch(
+            files=files,
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+            progress_callback=callback,
+        )
+
+        assert len(progress_calls) == 2
+        assert progress_calls[0] == (1, 2, "a.py")
+        assert progress_calls[1] == (2, 2, "b.py")
+
+    def test_aggregates_results(self):
+        """Should aggregate nodes and edges from all files."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts_batch
+
+        class MockResponse:
+            content = '{"concepts": [{"conceptName": "Test", "conceptType": "entity", "description": "Test", "confidence": 0.9}]}'
+            usage = {"prompt_tokens": 100, "completion_tokens": 50}
+
+        mock_llm_fn = MagicMock(return_value=MockResponse())
+
+        files = [
+            {"path": "a.py", "content": "class A: pass"},
+            {"path": "b.py", "content": "class B: pass"},
+        ]
+
+        result = extract_business_concepts_batch(
+            files=files,
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        # Should have 2 nodes (one per file) but they have same conceptName
+        # so might be deduplicated depending on implementation
+        assert result["stats"]["total_nodes"] == 2
+        assert result["stats"]["files_with_concepts"] == 2
+
+    def test_includes_file_results(self):
+        """Should include per-file results with llm_details."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts_batch
+
+        mock_response = MagicMock()
+        mock_response.content = '{"concepts": []}'
+        mock_response.usage = {"prompt_tokens": 100, "completion_tokens": 50}
+
+        mock_llm_fn = MagicMock(return_value=mock_response)
+
+        files = [{"path": "test.py", "content": "x = 1"}]
+
+        result = extract_business_concepts_batch(
+            files=files,
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        assert "file_results" in result
+        assert len(result["file_results"]) == 1
+        assert result["file_results"][0]["file_path"] == "test.py"
+        assert "llm_details" in result["file_results"][0]
+
+    def test_collects_errors_from_all_files(self):
+        """Should collect errors from all files."""
+        from deriva.modules.extraction.business_concept import extract_business_concepts_batch
+
+        mock_response = MagicMock()
+        mock_response.content = "invalid json"
+        delattr(mock_response, "error")
+
+        mock_llm_fn = MagicMock(return_value=mock_response)
+
+        files = [
+            {"path": "a.py", "content": "x = 1"},
+            {"path": "b.py", "content": "y = 2"},
+        ]
+
+        result = extract_business_concepts_batch(
+            files=files,
+            repo_name="test-repo",
+            llm_query_fn=mock_llm_fn,
+            config={"instruction": "Extract", "example": "{}"},
+        )
+
+        # Should have errors from both files
+        assert len(result["errors"]) >= 2

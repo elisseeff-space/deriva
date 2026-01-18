@@ -176,6 +176,7 @@ class PipelineSession:
             schema: dict,
             temperature: float | None = None,
             max_tokens: int | None = None,
+            system_prompt: str | None = None,
         ) -> Any:
             assert self._llm_manager is not None
             return self._llm_manager.query(
@@ -183,6 +184,7 @@ class PipelineSession:
                 schema=schema,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                system_prompt=system_prompt,
             )
 
         return query_fn
