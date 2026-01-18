@@ -338,8 +338,8 @@ def clear_enrichment_cache() -> None:
     Call this when starting a new derivation run or when the graph
     has been modified.
     """
-    _enrichment_cache.clear_memory()
-    logger.debug("Cleared enrichment memory cache")
+    _enrichment_cache.clear_all()
+    logger.debug("Cleared enrichment cache")
 
 
 # Backward compatibility alias (deprecated)
