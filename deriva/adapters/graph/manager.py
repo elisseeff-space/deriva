@@ -245,9 +245,6 @@ class GraphManager:
                 flat_props["repository_name"] = repo_name
 
         try:
-            # Use namespace-aware label
-            label = self.neo4j.get_label(node_label)
-
             # Build SET clause for flat properties
             set_clauses = ["n.label = $label", "n.properties_json = $properties_json"]
             params = {
