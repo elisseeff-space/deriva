@@ -660,7 +660,7 @@ def _extract_directory_classification(
     query = """
     MATCH (d:Directory)
     WHERE d.repository_name = $repo_name
-    RETURN d.name AS name, d.path AS path, elementId(d) AS id
+    RETURN d.name AS name, d.path AS path, d.id AS id
     """
     try:
         directories = graph_manager.query(query, {"repo_name": repo.name})
@@ -695,23 +695,34 @@ def _extract_directory_classification(
             system_prompt=system_prompt,
         )
 
-    # Classify directories
-    result = classify_directories(
-        directories=directories,
-        repo_name=repo.name,
-        llm_query_fn=step_llm_query_fn,
-        config=extraction_config,
-    )
+    # Process directories in batches (default 50 directories per batch)
+    batch_size = cfg.batch_size if cfg.batch_size and cfg.batch_size > 1 else 50
+    all_nodes = []
+    all_edges = []
 
-    if not result["success"]:
-        return {
-            "nodes_created": 0,
-            "edges_created": 0,
-            "errors": result.get("errors", []),
-        }
+    for i in range(0, len(directories), batch_size):
+        batch = directories[i : i + batch_size]
+        logger.debug(
+            f"Processing directory batch {i // batch_size + 1}/{(len(directories) + batch_size - 1) // batch_size}"
+        )
+
+        # Classify directories batch
+        result = classify_directories(
+            directories=batch,
+            repo_name=repo.name,
+            llm_query_fn=step_llm_query_fn,
+            config=extraction_config,
+        )
+
+        if not result["success"]:
+            errors.extend(result.get("errors", []))
+            continue
+
+        all_nodes.extend(result["data"]["nodes"])
+        all_edges.extend(result["data"]["edges"])
 
     # Persist extracted nodes
-    for node_data in result["data"]["nodes"]:
+    for node_data in all_nodes:
         props = node_data.get("properties", {})
         labels = node_data.get("labels", [])
 
@@ -744,7 +755,7 @@ def _extract_directory_classification(
         nodes_created += 1
 
     # Persist extracted edges
-    for edge_data in result["data"]["edges"]:
+    for edge_data in all_edges:
         src_id = edge_data.get("source")
         dst_id = edge_data.get("target")
         relationship = edge_data.get("relationship_type", "REPRESENTS")
@@ -766,7 +777,6 @@ def _extract_directory_classification(
         "edges_created": edges_created,
         "edge_ids": edge_ids,
         "errors": errors,
-        "stats": result.get("stats", {}),
     }
 
 
