@@ -811,6 +811,49 @@ def _extract_llm_based(
     # Get files matching the input sources
     matching_files = extraction.filter_files_by_input_sources(classified_files, input_sources)
 
+    # Filter out files from dependency directories (node_modules, vendor, etc.)
+    dependency_patterns = ["node_modules", "vendor/", ".git/", "__pycache__", ".venv", "venv/", "site-packages"]
+    matching_files = [f for f in matching_files if not any(pattern in f.get("path", "") for pattern in dependency_patterns)]
+
+    # Filter out binary/image files that can't be meaningfully analyzed as text
+    binary_extensions = {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".ico",
+        ".bmp",
+        ".svg",
+        ".webp",
+        ".xcf",
+        ".psd",
+        ".ai",
+        ".eps",  # Image editing formats
+        ".zip",
+        ".tar",
+        ".gz",
+        ".rar",
+        ".7z",  # Archives
+        ".exe",
+        ".dll",
+        ".so",
+        ".dylib",  # Binaries
+        ".woff",
+        ".woff2",
+        ".ttf",
+        ".otf",
+        ".eot",  # Fonts
+        ".mp3",
+        ".mp4",
+        ".wav",
+        ".avi",
+        ".mov",  # Media
+        ".class",
+        ".pyc",
+        ".pyo",
+    }  # Compiled code
+    matching_files = [f for f in matching_files if not any(f.get("path", "").lower().endswith(ext) for ext in binary_extensions)]
+
     # Special case: Method extraction with node-based sources (TypeDefinition.codeSnippet)
     # For Python files, we can use AST to extract methods directly from source files
     if not matching_files and node_type == "Method" and extraction.has_node_sources(input_sources):

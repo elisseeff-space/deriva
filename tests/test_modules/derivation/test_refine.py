@@ -583,6 +583,44 @@ class TestDuplicateRelationshipsStep:
         # Should query twice: self_loops + exact duplicates (skips redundant check)
         assert mock_manager.query.call_count == 2
 
+    def test_finds_and_removes_self_loops(self):
+        """Should find and remove self-referential relationships."""
+        from deriva.modules.derivation.refine.duplicate_relationships import DuplicateRelationshipsStep
+
+        mock_manager = MagicMock()
+        mock_manager.namespace = "Model"
+        mock_manager.query.side_effect = [
+            # Self-loops query returns results
+            [
+                {
+                    "rel_id": "rel_self1",
+                    "element_id": "elem1",
+                    "element_name": "Component A",
+                    "rel_type": "Model:Composition",
+                },
+                {
+                    "rel_id": "rel_self2",
+                    "element_id": "elem2",
+                    "element_name": "Service B",
+                    "rel_type": "Model:Serving",
+                },
+            ],
+            [],  # No exact duplicates
+            [],  # No redundant relationships
+        ]
+        mock_manager.delete_relationships.return_value = 2
+
+        step = DuplicateRelationshipsStep()
+        result = step.run(archimate_manager=mock_manager)
+
+        assert result.success is True
+        assert result.relationships_deleted == 2
+        assert result.issues_fixed == 2
+        mock_manager.delete_relationships.assert_called_once_with(["rel_self1", "rel_self2"])
+        # Check details include self-referential reason
+        assert any(d.get("reason") == "self_referential" for d in result.details)
+        assert len([d for d in result.details if d.get("reason") == "self_referential"]) == 2
+
 
 # =============================================================================
 # Tests for refine/circular_relationships.py
