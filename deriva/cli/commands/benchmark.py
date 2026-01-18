@@ -97,6 +97,20 @@ def benchmark_run(
             help="Configs to skip enrichment cache for (comma-separated)",
         ),
     ] = None,
+    only_extraction_step: Annotated[
+        str | None,
+        typer.Option(
+            "--only-extraction-step",
+            help="Only run this extraction step (disables all others)",
+        ),
+    ] = None,
+    only_derivation_step: Annotated[
+        str | None,
+        typer.Option(
+            "--only-derivation-step",
+            help="Only run this derivation step (disables all others)",
+        ),
+    ] = None,
 ) -> None:
     """Run benchmark matrix."""
     repos_list = [r.strip() for r in repos.split(",")]
@@ -150,6 +164,27 @@ def benchmark_run(
 
     with PipelineSession() as session:
         typer.echo("Connected to Neo4j")
+
+        # Handle --only-extraction-step and --only-derivation-step
+        if only_extraction_step:
+            typer.echo(f"Enabling only extraction step: {only_extraction_step}")
+            extraction_configs = session.get_extraction_configs()
+            for cfg in extraction_configs:
+                name = cfg.get("node_type", cfg.get("name", ""))
+                if name == only_extraction_step:
+                    session.enable_step("extraction", name)
+                else:
+                    session.disable_step("extraction", name)
+
+        if only_derivation_step:
+            typer.echo(f"Enabling only derivation step: {only_derivation_step}")
+            derivation_configs = session.get_derivation_configs()
+            for cfg in derivation_configs:
+                name = cfg.get("step_name", cfg.get("name", ""))
+                if name == only_derivation_step:
+                    session.enable_step("derivation", name)
+                else:
+                    session.disable_step("derivation", name)
 
         progress_reporter = create_benchmark_progress_reporter(quiet=quiet or verbose)
 

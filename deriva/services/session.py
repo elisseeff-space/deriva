@@ -194,7 +194,7 @@ class PipelineSession:
             self._get_llm_query_fn()
         if self._llm_manager:
             return {
-                "provider": str(self._llm_manager.provider),
+                "provider": str(self._llm_manager.provider_name),
                 "model": str(self._llm_manager.model),
             }
         return None
