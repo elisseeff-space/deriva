@@ -432,7 +432,8 @@ class TestRunDerivationWithConfigs:
 
         assert result["success"] is False
         assert result["stats"]["steps_skipped"] == 1
-        assert "Error in gen_failing" in result["errors"][0]
+        assert "gen_failing" in result["errors"][0]
+        assert "LLM error" in result["errors"][0]
 
     def test_with_progress_reporter(self):
         """Should call progress reporter methods during execution."""
