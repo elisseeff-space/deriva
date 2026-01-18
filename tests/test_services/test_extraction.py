@@ -1057,9 +1057,7 @@ class TestRunExtractionClassifyOnlyPhase:
                     mock_cfg.return_value = [mock_config]
 
                     with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
-                        mock_ft.return_value = [
-                            MagicMock(extension=".py", file_type="source", subtype="python")
-                        ]
+                        mock_ft.return_value = [MagicMock(extension=".py", file_type="source", subtype="python")]
 
                         result = run_extraction(engine, graph_manager, phases=["classify"], verbose=True)
 
@@ -1089,9 +1087,7 @@ class TestRunExtractionClassifyOnlyPhase:
                     mock_cfg.return_value = [MagicMock(node_type="Repository")]
 
                     with patch("deriva.services.extraction.config.get_file_types") as mock_ft:
-                        mock_ft.return_value = [
-                            MagicMock(extension=".py", file_type="source", subtype="python")
-                        ]
+                        mock_ft.return_value = [MagicMock(extension=".py", file_type="source", subtype="python")]
 
                         result = run_extraction(engine, graph_manager, phases=["classify"])
 
@@ -1251,9 +1247,7 @@ class TestExtractEdges:
             mock_repo = MagicMock()
             mock_repo.name = "test_repo"
 
-            classified_files = [
-                {"path": "main.py", "file_type": "source", "subtype": "python"}
-            ]
+            classified_files = [{"path": "main.py", "file_type": "source", "subtype": "python"}]
 
             graph_manager = MagicMock()
             graph_manager.get_nodes_by_type.return_value = []

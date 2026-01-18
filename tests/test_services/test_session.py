@@ -1115,29 +1115,21 @@ class TestPipelineSessionCypherQueries:
 
     def test_query_graph_executes_cypher(self, connected_session):
         """Should execute Cypher query on Graph namespace."""
-        connected_session._mock_graph.query.return_value = [
-            {"n.name": "TestNode", "n.type": "File"}
-        ]
+        connected_session._mock_graph.query.return_value = [{"n.name": "TestNode", "n.type": "File"}]
 
         result = connected_session.query_graph("MATCH (n:File) RETURN n.name, n.type")
 
-        connected_session._mock_graph.query.assert_called_once_with(
-            "MATCH (n:File) RETURN n.name, n.type"
-        )
+        connected_session._mock_graph.query.assert_called_once_with("MATCH (n:File) RETURN n.name, n.type")
         assert len(result) == 1
         assert result[0]["n.name"] == "TestNode"
 
     def test_query_model_executes_cypher(self, connected_session):
         """Should execute Cypher query on Model namespace."""
-        connected_session._mock_archimate.query.return_value = [
-            {"e.name": "MyComponent", "e.type": "ApplicationComponent"}
-        ]
+        connected_session._mock_archimate.query.return_value = [{"e.name": "MyComponent", "e.type": "ApplicationComponent"}]
 
         result = connected_session.query_model("MATCH (e:Element) RETURN e.name, e.type")
 
-        connected_session._mock_archimate.query.assert_called_once_with(
-            "MATCH (e:Element) RETURN e.name, e.type"
-        )
+        connected_session._mock_archimate.query.assert_called_once_with("MATCH (e:Element) RETURN e.name, e.type")
         assert len(result) == 1
         assert result[0]["e.name"] == "MyComponent"
 
@@ -1264,9 +1256,7 @@ class TestPipelineSessionBenchmarking:
     def test_run_benchmark(self, connected_session):
         """Should run benchmark with given config."""
         # Patch the internal import inside run_benchmark method
-        with patch("deriva.services.benchmarking.BenchmarkConfig") as mock_config, patch(
-            "deriva.services.benchmarking.BenchmarkOrchestrator"
-        ) as mock_orch:
+        with patch("deriva.services.benchmarking.BenchmarkConfig") as mock_config, patch("deriva.services.benchmarking.BenchmarkOrchestrator") as mock_orch:
             mock_result = MagicMock()
             mock_result.session_id = "bench_123"
             mock_orch.return_value.run.return_value = mock_result
@@ -1283,9 +1273,7 @@ class TestPipelineSessionBenchmarking:
 
     def test_run_benchmark_with_all_options(self, connected_session):
         """Should pass all options to benchmark config."""
-        with patch("deriva.services.benchmarking.BenchmarkConfig") as mock_config, patch(
-            "deriva.services.benchmarking.BenchmarkOrchestrator"
-        ) as mock_orch:
+        with patch("deriva.services.benchmarking.BenchmarkConfig") as mock_config, patch("deriva.services.benchmarking.BenchmarkOrchestrator") as mock_orch:
             mock_result = MagicMock()
             mock_orch.return_value.run.return_value = mock_result
 
@@ -1320,9 +1308,7 @@ class TestPipelineSessionBenchmarking:
 
             result = connected_session.analyze_benchmark("bench_123")
 
-            mock_bench.BenchmarkAnalyzer.assert_called_once_with(
-                "bench_123", connected_session._engine
-            )
+            mock_bench.BenchmarkAnalyzer.assert_called_once_with("bench_123", connected_session._engine)
             assert result is mock_analyzer
 
     def test_analyze_config_deviations(self, connected_session):
@@ -1333,9 +1319,7 @@ class TestPipelineSessionBenchmarking:
 
             result = connected_session.analyze_config_deviations("bench_123")
 
-            mock_analyzer_cls.assert_called_once_with(
-                "bench_123", connected_session._engine
-            )
+            mock_analyzer_cls.assert_called_once_with("bench_123", connected_session._engine)
             assert result is mock_analyzer
 
     def test_list_benchmarks(self, connected_session):

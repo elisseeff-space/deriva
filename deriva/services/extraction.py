@@ -710,9 +710,7 @@ def _extract_directory_classification(
 
     for i in range(0, len(directories), batch_size):
         batch = directories[i : i + batch_size]
-        logger.debug(
-            f"Processing directory batch {i // batch_size + 1}/{(len(directories) + batch_size - 1) // batch_size}"
-        )
+        logger.debug(f"Processing directory batch {i // batch_size + 1}/{(len(directories) + batch_size - 1) // batch_size}")
 
         # Classify directories batch
         result = classify_directories(
