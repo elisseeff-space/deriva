@@ -779,7 +779,7 @@ class TestCircularRelationshipsStep:
         mock_manager.delete_relationships.return_value = 1
 
         step = CircularRelationshipsStep()
-        result = step.run(archimate_manager=mock_manager)
+        step.run(archimate_manager=mock_manager)
 
         # Should delete rel1 (lower confidence) and keep rel2
         mock_manager.delete_relationships.assert_called_with(["rel1"])

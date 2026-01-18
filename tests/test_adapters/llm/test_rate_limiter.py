@@ -6,12 +6,16 @@ import threading
 import time
 from collections import deque
 
+import pytest
+
 from deriva.adapters.llm.rate_limiter import (
     DEFAULT_RATE_LIMITS,
+    CircuitState,
     RateLimitConfig,
     RateLimiter,
     get_default_rate_limit,
 )
+from deriva.common.exceptions import CircuitOpenError
 
 
 class TestRateLimitConfig:
@@ -261,3 +265,232 @@ class TestRateLimiterThreadSafety:
 
         # Should have incremented 5 times
         assert limiter._successful_requests == 5
+
+
+class TestRateLimiterRecordFailure:
+    """Tests for RateLimiter.record_failure method."""
+
+    def test_does_nothing_when_circuit_breaker_disabled(self):
+        """Should do nothing when circuit breaker is disabled."""
+        config = RateLimitConfig(circuit_breaker_enabled=False)
+        limiter = RateLimiter(config=config)
+
+        limiter.record_failure()
+
+        assert limiter._consecutive_failures == 0
+
+    def test_increments_consecutive_failures(self):
+        """Should increment consecutive failures counter."""
+        config = RateLimitConfig(circuit_breaker_enabled=True)
+        limiter = RateLimiter(config=config)
+
+        limiter.record_failure()
+        assert limiter._consecutive_failures == 1
+
+        limiter.record_failure()
+        assert limiter._consecutive_failures == 2
+
+    def test_opens_circuit_after_threshold(self):
+        """Should open circuit after failure threshold reached."""
+        config = RateLimitConfig(
+            circuit_breaker_enabled=True,
+            circuit_failure_threshold=3,
+        )
+        limiter = RateLimiter(config=config)
+
+        limiter.record_failure()
+        limiter.record_failure()
+        assert limiter._circuit_state == CircuitState.CLOSED
+
+        limiter.record_failure()  # Third failure hits threshold
+        assert limiter._circuit_state == CircuitState.OPEN
+
+    def test_reopens_circuit_from_half_open(self):
+        """Should reopen circuit if failure occurs in half-open state."""
+        config = RateLimitConfig(circuit_breaker_enabled=True)
+        limiter = RateLimiter(config=config)
+        limiter._circuit_state = CircuitState.HALF_OPEN
+
+        limiter.record_failure()
+
+        assert limiter._circuit_state == CircuitState.OPEN
+
+
+class TestRateLimiterRecordRateLimit:
+    """Tests for RateLimiter.record_rate_limit method."""
+
+    def test_does_nothing_when_throttle_disabled(self):
+        """Should do nothing when throttling is disabled."""
+        config = RateLimitConfig(throttle_enabled=False)
+        limiter = RateLimiter(config=config)
+
+        limiter.record_rate_limit()
+
+        assert limiter._consecutive_rate_limits == 0
+        assert limiter._throttle_factor == 1.0
+
+    def test_increments_rate_limit_counter(self):
+        """Should increment consecutive rate limits counter."""
+        config = RateLimitConfig(throttle_enabled=True)
+        limiter = RateLimiter(config=config)
+
+        limiter.record_rate_limit()
+
+        assert limiter._consecutive_rate_limits == 1
+
+    def test_reduces_throttle_factor(self):
+        """Should reduce throttle factor by half on rate limit."""
+        config = RateLimitConfig(throttle_enabled=True, throttle_min_factor=0.1)
+        limiter = RateLimiter(config=config)
+        assert limiter._throttle_factor == 1.0
+
+        limiter.record_rate_limit()
+        assert limiter._throttle_factor == 0.5
+
+        limiter.record_rate_limit()
+        assert limiter._throttle_factor == 0.25
+
+    def test_throttle_respects_minimum_factor(self):
+        """Should not reduce throttle factor below minimum."""
+        config = RateLimitConfig(throttle_enabled=True, throttle_min_factor=0.3)
+        limiter = RateLimiter(config=config)
+
+        # Keep reducing until we hit the floor
+        for _ in range(10):
+            limiter.record_rate_limit()
+
+        assert limiter._throttle_factor >= 0.3
+
+    def test_records_retry_after(self):
+        """Should record rate limit with retry_after value."""
+        config = RateLimitConfig(throttle_enabled=True)
+        limiter = RateLimiter(config=config)
+
+        limiter.record_rate_limit(retry_after=30.0)
+
+        assert limiter._consecutive_rate_limits == 1
+
+
+class TestRateLimiterCircuitBreaker:
+    """Tests for circuit breaker functionality."""
+
+    def test_circuit_closed_by_default(self):
+        """Should start with closed circuit."""
+        config = RateLimitConfig(circuit_breaker_enabled=True)
+        limiter = RateLimiter(config=config)
+
+        assert limiter._circuit_state == CircuitState.CLOSED
+
+    def test_check_circuit_does_nothing_when_disabled(self):
+        """Should do nothing when circuit breaker is disabled."""
+        config = RateLimitConfig(circuit_breaker_enabled=False)
+        limiter = RateLimiter(config=config)
+        limiter._circuit_state = CircuitState.OPEN
+
+        # Should not raise even when open
+        limiter._check_circuit()
+
+    def test_check_circuit_raises_when_open(self):
+        """Should raise CircuitOpenError when circuit is open."""
+        config = RateLimitConfig(
+            circuit_breaker_enabled=True,
+            circuit_recovery_time=60.0,
+        )
+        limiter = RateLimiter(config=config)
+        limiter._circuit_state = CircuitState.OPEN
+        limiter._circuit_opened_at = time.time()
+
+        with pytest.raises(CircuitOpenError):
+            limiter._check_circuit()
+
+    def test_circuit_transitions_to_half_open(self):
+        """Should transition to half-open after recovery time."""
+        config = RateLimitConfig(
+            circuit_breaker_enabled=True,
+            circuit_recovery_time=0.01,  # Very short for testing
+        )
+        limiter = RateLimiter(config=config)
+        limiter._circuit_state = CircuitState.OPEN
+        limiter._circuit_opened_at = time.time() - 1.0  # 1 second ago
+
+        # Should transition to half-open instead of raising
+        limiter._check_circuit()
+
+        assert limiter._circuit_state == CircuitState.HALF_OPEN
+
+    def test_success_closes_circuit_from_half_open(self):
+        """Should close circuit on success from half-open state."""
+        config = RateLimitConfig(circuit_breaker_enabled=True)
+        limiter = RateLimiter(config=config)
+        limiter._circuit_state = CircuitState.HALF_OPEN
+
+        limiter.record_success()
+
+        assert limiter._circuit_state == CircuitState.CLOSED
+
+    def test_success_resets_consecutive_failures(self):
+        """Should reset consecutive failures on success."""
+        config = RateLimitConfig(circuit_breaker_enabled=True)
+        limiter = RateLimiter(config=config)
+        limiter._consecutive_failures = 5
+
+        limiter.record_success()
+
+        assert limiter._consecutive_failures == 0
+
+
+class TestRateLimiterThrottling:
+    """Tests for throttling functionality."""
+
+    def test_throttle_affects_effective_rpm(self):
+        """Should reduce effective RPM when throttled."""
+        config = RateLimitConfig(
+            requests_per_minute=100,
+            throttle_enabled=True,
+        )
+        limiter = RateLimiter(config=config)
+
+        # No throttling initially
+        limiter.wait_if_needed()
+
+        # Apply throttling
+        limiter.record_rate_limit()  # 50%
+
+        # The effective RPM should now be 50
+        assert limiter._throttle_factor == 0.5
+
+    def test_throttle_factor_applied_to_rpm(self):
+        """Should apply throttle factor to effective RPM."""
+        config = RateLimitConfig(
+            requests_per_minute=100,
+            throttle_enabled=True,
+        )
+        limiter = RateLimiter(config=config)
+
+        # Initial throttle is 1.0
+        assert limiter._throttle_factor == 1.0
+
+        # After rate limit, throttle is reduced
+        limiter.record_rate_limit()
+        assert limiter._throttle_factor == 0.5
+
+        # Effective RPM should be 50 (100 * 0.5)
+        effective_rpm = int(config.requests_per_minute * limiter._throttle_factor)
+        assert effective_rpm == 50
+
+
+class TestRateLimiterWaitWithCircuit:
+    """Tests for wait_if_needed with circuit breaker."""
+
+    def test_raises_when_circuit_open(self):
+        """Should raise CircuitOpenError when circuit is open."""
+        config = RateLimitConfig(
+            circuit_breaker_enabled=True,
+            circuit_recovery_time=60.0,
+        )
+        limiter = RateLimiter(config=config)
+        limiter._circuit_state = CircuitState.OPEN
+        limiter._circuit_opened_at = time.time()
+
+        with pytest.raises(CircuitOpenError):
+            limiter.wait_if_needed()
