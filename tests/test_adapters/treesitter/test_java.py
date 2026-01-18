@@ -7,8 +7,8 @@ import tree_sitter
 
 from deriva.adapters.treesitter.languages import get_extractor
 from deriva.adapters.treesitter.languages.java import (
-    JAVA_BUILTINS,
     JAVA_BUILTIN_TYPES,
+    JAVA_BUILTINS,
     JAVA_DECORATOR_BUILTINS,
     JAVA_GENERIC_CONTAINERS,
     JAVA_STDLIB,
@@ -731,7 +731,7 @@ public interface MyInterface {
         tree = parse(parser, source)
 
         types = extractor.extract_types(tree, source.encode("utf-8"))
-        methods = extractor.extract_methods(tree, source.encode("utf-8"))
+        extractor.extract_methods(tree, source.encode("utf-8"))
 
         assert len(types) == 1
         assert types[0].kind == "interface"
@@ -750,7 +750,7 @@ public enum Status {
         tree = parse(parser, source)
 
         types = extractor.extract_types(tree, source.encode("utf-8"))
-        methods = extractor.extract_methods(tree, source.encode("utf-8"))
+        extractor.extract_methods(tree, source.encode("utf-8"))
 
         assert len(types) == 1
         assert types[0].kind == "enum"

@@ -7,8 +7,8 @@ import tree_sitter
 
 from deriva.adapters.treesitter.languages import get_extractor
 from deriva.adapters.treesitter.languages.javascript import (
-    JS_BUILTINS,
     JS_BUILTIN_TYPES,
+    JS_BUILTINS,
     JS_DECORATOR_BUILTINS,
     JS_GENERIC_CONTAINERS,
     JS_STDLIB,

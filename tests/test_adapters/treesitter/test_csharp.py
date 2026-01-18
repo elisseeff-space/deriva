@@ -7,8 +7,8 @@ import tree_sitter
 
 from deriva.adapters.treesitter.languages import get_extractor
 from deriva.adapters.treesitter.languages.csharp import (
-    CSHARP_BUILTINS,
     CSHARP_BUILTIN_TYPES,
+    CSHARP_BUILTINS,
     CSHARP_DECORATOR_BUILTINS,
     CSHARP_GENERIC_CONTAINERS,
     CSHARP_STDLIB,
