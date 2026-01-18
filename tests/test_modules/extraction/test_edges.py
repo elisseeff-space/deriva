@@ -675,10 +675,29 @@ class TestResolveRelativeImportAdvanced:
     """Advanced tests for _resolve_relative_import function."""
 
     def test_resolves_double_dot_import(self):
-        """Should resolve double-dot relative import."""
-        all_files = {"utils.py", "pkg/subpkg/module.py"}
+        """Should resolve double-dot relative import.
+
+        In Python import semantics:
+        - . = current package
+        - .. = parent package (1 level up)
+        - ... = grandparent package (2 levels up)
+
+        From pkg/subpkg/module.py, ..utils looks in pkg/utils.py
+        """
+        all_files = {"pkg/utils.py", "pkg/subpkg/module.py"}
         result = _resolve_relative_import(
             module="..utils",
+            current_file="pkg/subpkg/module.py",
+            all_file_paths=all_files,
+        )
+        # Should go up one level from pkg/subpkg to pkg
+        assert result == "pkg/utils.py"
+
+    def test_resolves_triple_dot_import(self):
+        """Should resolve triple-dot relative import to root level."""
+        all_files = {"utils.py", "pkg/subpkg/module.py"}
+        result = _resolve_relative_import(
+            module="...utils",
             current_file="pkg/subpkg/module.py",
             all_file_paths=all_files,
         )
@@ -687,14 +706,14 @@ class TestResolveRelativeImportAdvanced:
 
     def test_handles_deep_relative_import(self):
         """Should handle deeply nested relative imports."""
-        all_files = {"base.py", "a/b/c/d.py"}
+        all_files = {"a/base.py", "a/b/c/d.py"}
         result = _resolve_relative_import(
             module="...base",
             current_file="a/b/c/d.py",
             all_file_paths=all_files,
         )
-        # Should go up three levels from a/b/c to a, then look for base
-        assert result == "base.py" or result is None
+        # Should go up two levels from a/b/c to a, then look for base
+        assert result == "a/base.py"
 
     def test_returns_none_for_too_many_dots(self):
         """Should return None if module not found after going up directories."""

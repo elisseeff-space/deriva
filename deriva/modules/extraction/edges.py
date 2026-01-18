@@ -806,7 +806,10 @@ def _resolve_relative_import(
     all_file_paths: set[str],
 ) -> str | None:
     """Resolve a relative import (e.g., '.models', '..utils') to a file path."""
-    current_dir = str(Path(current_file).parent)
+    # Use PurePosixPath to ensure consistent forward-slash handling across platforms
+    from pathlib import PurePosixPath
+
+    current_dir = str(PurePosixPath(current_file).parent)
     if current_dir == ".":
         current_dir = ""
 
