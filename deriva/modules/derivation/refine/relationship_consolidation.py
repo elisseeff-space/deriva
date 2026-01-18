@@ -117,7 +117,9 @@ class RelationshipConsolidationStep:
                 logger.info("No relationships found to consolidate")
                 return result
 
-            logger.info(f"Analyzing {len(relationships)} relationships for consolidation")
+            logger.info(
+                f"Analyzing {len(relationships)} relationships for consolidation"
+            )
 
             # Step 2: Group relationships by source-target pair
             rel_groups: dict[tuple[str, str], list[dict]] = {}
@@ -128,7 +130,9 @@ class RelationshipConsolidationStep:
                 rel_groups[key].append(rel)
 
             # Step 3: Process each group
-            relationships_to_boost: list[tuple[str, float, str]] = []  # (id, new_confidence, reason)
+            relationships_to_boost: list[
+                tuple[str, float, str]
+            ] = []  # (id, new_confidence, reason)
             relationships_to_prune: list[tuple[str, str]] = []  # (id, reason)
 
             for (source_id, target_id), rels in rel_groups.items():
@@ -147,16 +151,18 @@ class RelationshipConsolidationStep:
                         relationships_to_boost.append(
                             (rel["identifier"], new_conf, boost_reason)
                         )
-                        result.details.append({
-                            "action": "boosted",
-                            "relationship_id": rel["identifier"],
-                            "source": rel["source_name"],
-                            "target": rel["target_name"],
-                            "rel_type": rel["rel_type"].split(":")[-1],
-                            "old_confidence": current_conf,
-                            "new_confidence": new_conf,
-                            "reason": boost_reason,
-                        })
+                        result.details.append(
+                            {
+                                "action": "boosted",
+                                "relationship_id": rel["identifier"],
+                                "source": rel["source_name"],
+                                "target": rel["target_name"],
+                                "rel_type": rel["rel_type"].split(":")[-1],
+                                "old_confidence": current_conf,
+                                "new_confidence": new_conf,
+                                "reason": boost_reason,
+                            }
+                        )
 
                     # Check for pruning
                     should_prune, prune_reason = self._should_prune(
@@ -170,15 +176,19 @@ class RelationshipConsolidationStep:
                     if should_prune:
                         relationships_to_prune.append((rel["identifier"], prune_reason))
                         result.issues_found += 1
-                        result.details.append({
-                            "action": "flagged_for_prune" if not auto_prune else "pruned",
-                            "relationship_id": rel["identifier"],
-                            "source": rel["source_name"],
-                            "target": rel["target_name"],
-                            "rel_type": rel["rel_type"].split(":")[-1],
-                            "confidence": rel.get("confidence"),
-                            "reason": prune_reason,
-                        })
+                        result.details.append(
+                            {
+                                "action": "flagged_for_prune"
+                                if not auto_prune
+                                else "pruned",
+                                "relationship_id": rel["identifier"],
+                                "source": rel["source_name"],
+                                "target": rel["target_name"],
+                                "rel_type": rel["rel_type"].split(":")[-1],
+                                "confidence": rel.get("confidence"),
+                                "reason": prune_reason,
+                            }
+                        )
 
             # Step 4: Apply confidence boosts
             for rel_id, new_conf, _ in relationships_to_boost:
@@ -188,8 +198,7 @@ class RelationshipConsolidationStep:
                     SET r.confidence = $confidence, r.consolidated = true
                 """
                 archimate_manager.query(
-                    update_query,
-                    {"identifier": rel_id, "confidence": new_conf}
+                    update_query, {"identifier": rel_id, "confidence": new_conf}
                 )
 
             # Step 5: Prune low-confidence relationships (if auto_prune enabled)

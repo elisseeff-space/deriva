@@ -600,6 +600,7 @@ def _extract_imports(
 ) -> dict[str, Any]:
     """Extract IMPORTS and USES edges from source files using Tree-sitter."""
     from deriva.modules.extraction.edges import EdgeType
+
     return _extract_edges(repo, repo_path, classified_files, graph_manager, {EdgeType.IMPORTS, EdgeType.USES})
 
 
@@ -611,6 +612,7 @@ def _extract_calls(
 ) -> dict[str, Any]:
     """Extract CALLS edges from source files using Tree-sitter."""
     from deriva.modules.extraction.edges import EdgeType
+
     return _extract_edges(repo, repo_path, classified_files, graph_manager, {EdgeType.CALLS})
 
 
@@ -622,6 +624,7 @@ def _extract_decorators(
 ) -> dict[str, Any]:
     """Extract DECORATED_BY edges from source files using Tree-sitter."""
     from deriva.modules.extraction.edges import EdgeType
+
     return _extract_edges(repo, repo_path, classified_files, graph_manager, {EdgeType.DECORATED_BY})
 
 
@@ -633,6 +636,7 @@ def _extract_references(
 ) -> dict[str, Any]:
     """Extract REFERENCES edges from type annotations using Tree-sitter."""
     from deriva.modules.extraction.edges import EdgeType
+
     return _extract_edges(repo, repo_path, classified_files, graph_manager, {EdgeType.REFERENCES})
 
 
@@ -682,9 +686,7 @@ def _extract_directory_classification(
     }
 
     # Wrap llm_query_fn with per-step temperature/max_tokens overrides
-    def step_llm_query_fn(
-        prompt: str, schema: dict, system_prompt: str | None = None
-    ) -> Any:
+    def step_llm_query_fn(prompt: str, schema: dict, system_prompt: str | None = None) -> Any:
         return llm_query_fn(
             prompt,
             schema,
@@ -843,9 +845,7 @@ def _extract_llm_based(
             logger.debug(f"Using {len(existing_concepts)} existing concepts for context-aware extraction")
 
     # Wrap llm_query_fn with per-step temperature/max_tokens overrides
-    def step_llm_query_fn(
-        prompt: str, schema: dict, system_prompt: str | None = None
-    ) -> Any:
+    def step_llm_query_fn(prompt: str, schema: dict, system_prompt: str | None = None) -> Any:
         return llm_query_fn(
             prompt,
             schema,

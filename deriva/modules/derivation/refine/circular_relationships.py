@@ -169,7 +169,9 @@ class CircularRelationshipsStep:
             deleted_count = archimate_manager.delete_relationships(to_delete)
             result.relationships_deleted += deleted_count
             result.issues_fixed += deleted_count
-            logger.info(f"Deleted {deleted_count} bidirectional Composition relationships")
+            logger.info(
+                f"Deleted {deleted_count} bidirectional Composition relationships"
+            )
 
     def _handle_longer_cycles(
         self,

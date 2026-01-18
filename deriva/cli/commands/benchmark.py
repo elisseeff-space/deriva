@@ -141,7 +141,9 @@ def benchmark_run(
         typer.echo("Defer relationships: enabled (two-phase derivation)")
     if nocache_configs_list:
         typer.echo(f"No-cache configs: {nocache_configs_list}")
-    typer.echo(f"Enrichment cache: {'enabled' if use_enrichment_cache_flag else 'disabled'}")
+    typer.echo(
+        f"Enrichment cache: {'enabled' if use_enrichment_cache_flag else 'disabled'}"
+    )
     if nocache_enrichment_configs_list:
         typer.echo(f"No-cache enrichment configs: {nocache_enrichment_configs_list}")
     typer.echo(f"{'=' * 60}\n")

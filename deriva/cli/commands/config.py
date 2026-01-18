@@ -176,7 +176,9 @@ def config_update(
     ] = None,
     batch_size: Annotated[
         int | None,
-        typer.Option("--batch-size", help="Files per LLM call for extraction (1=no batching)"),
+        typer.Option(
+            "--batch-size", help="Files per LLM call for extraction (1=no batching)"
+        ),
     ] = None,
 ) -> None:
     """Update a configuration with versioning."""
@@ -254,7 +256,9 @@ def config_update(
 
 @app.command("sequence")
 def config_sequence(
-    step_type: Annotated[str, typer.Argument(help="Type: 'derivation' (extraction not supported)")],
+    step_type: Annotated[
+        str, typer.Argument(help="Type: 'derivation' (extraction not supported)")
+    ],
     order: Annotated[
         str,
         typer.Option(
@@ -264,7 +268,9 @@ def config_sequence(
     ],
     phase: Annotated[
         str | None,
-        typer.Option("--phase", help="Only update steps in this phase (e.g., 'generate')"),
+        typer.Option(
+            "--phase", help="Only update steps in this phase (e.g., 'generate')"
+        ),
     ] = None,
 ) -> None:
     """Update the execution sequence of derivation steps.
@@ -277,7 +283,9 @@ def config_sequence(
         deriva config sequence derivation --phase generate --order "TechnologyService,SystemSoftware,Node,Device,ApplicationComponent,ApplicationService,ApplicationInterface,DataObject,BusinessObject,BusinessProcess,BusinessFunction,BusinessActor,BusinessEvent"
     """
     if step_type != "derivation":
-        typer.echo("Error: Only 'derivation' step type supports sequence updates", err=True)
+        typer.echo(
+            "Error: Only 'derivation' step type supports sequence updates", err=True
+        )
         raise typer.Exit(1)
 
     # Parse the order list

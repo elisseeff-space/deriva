@@ -59,7 +59,9 @@ class BusinessConceptResponse(BaseModel):
 class BusinessConceptMultiFileResult(BaseModel):
     """Result for a single file in multi-file extraction."""
 
-    file_path: str = Field(description="Path of the file these concepts were extracted from")
+    file_path: str = Field(
+        description="Path of the file these concepts were extracted from"
+    )
     concepts: list[BusinessConceptItem] = Field(
         default_factory=list, description="Concepts extracted from this file"
     )
@@ -76,7 +78,9 @@ class BusinessConceptMultiResponse(BaseModel):
 class TypeDefinitionItem(BaseModel):
     """A single type definition extracted from source code."""
 
-    typeName: str = Field(description="Name of the type (class, interface, function, etc.)")
+    typeName: str = Field(
+        description="Name of the type (class, interface, function, etc.)"
+    )
     category: Literal[
         "class",
         "interface",
@@ -100,8 +104,12 @@ class TypeDefinitionItem(BaseModel):
         default="none",
         description="Type of interface this definition exposes, or 'none' if not an interface",
     )
-    startLine: int = Field(ge=1, description="Line number where the type definition starts (1-indexed)")
-    endLine: int = Field(ge=1, description="Line number where the type definition ends (1-indexed)")
+    startLine: int = Field(
+        ge=1, description="Line number where the type definition starts (1-indexed)"
+    )
+    endLine: int = Field(
+        ge=1, description="Line number where the type definition ends (1-indexed)"
+    )
     confidence: float = Field(
         ge=0.0, le=1.0, description="Confidence score between 0.0 and 1.0"
     )
@@ -128,8 +136,12 @@ class TechnologyItem(BaseModel):
         "security",
         "other",
     ] = Field(description="Category of technology")
-    description: str = Field(description="Brief description of how the technology is used")
-    version: str | None = Field(default=None, description="Version of the technology if known")
+    description: str = Field(
+        description="Brief description of how the technology is used"
+    )
+    version: str | None = Field(
+        default=None, description="Version of the technology if known"
+    )
     confidence: float = Field(
         ge=0.0, le=1.0, description="Confidence score between 0.0 and 1.0"
     )
@@ -192,8 +204,12 @@ class TestItem(BaseModel):
     framework: str | None = Field(
         default=None, description="Test framework (pytest, jest, unittest)"
     )
-    startLine: int = Field(ge=1, description="Line number where the test starts (1-indexed)")
-    endLine: int = Field(ge=1, description="Line number where the test ends (1-indexed)")
+    startLine: int = Field(
+        ge=1, description="Line number where the test starts (1-indexed)"
+    )
+    endLine: int = Field(
+        ge=1, description="Line number where the test ends (1-indexed)"
+    )
     confidence: float = Field(
         ge=0.0, le=1.0, description="Confidence score between 0.0 and 1.0"
     )
@@ -216,13 +232,15 @@ class MethodItem(BaseModel):
         default="public", description="Visibility modifier"
     )
     description: str = Field(description="Brief description of what the method does")
-    parameters: str | None = Field(
-        default=None, description="Parameter signature"
-    )
+    parameters: str | None = Field(default=None, description="Parameter signature")
     isStatic: bool = Field(default=False, description="Whether it's a static method")
     isAsync: bool = Field(default=False, description="Whether it's an async method")
-    startLine: int = Field(ge=1, description="Line number where the method starts (1-indexed)")
-    endLine: int = Field(ge=1, description="Line number where the method ends (1-indexed)")
+    startLine: int = Field(
+        ge=1, description="Line number where the method starts (1-indexed)"
+    )
+    endLine: int = Field(
+        ge=1, description="Line number where the method ends (1-indexed)"
+    )
     confidence: float = Field(
         ge=0.0, le=1.0, description="Confidence score between 0.0 and 1.0"
     )
@@ -240,7 +258,9 @@ class DirectoryClassificationItem(BaseModel):
     """Classification for a single directory."""
 
     directoryName: str = Field(description="Original directory name")
-    conceptName: str = Field(description="PascalCase concept name (e.g., CustomerManagement)")
+    conceptName: str = Field(
+        description="PascalCase concept name (e.g., CustomerManagement)"
+    )
     classification: Literal["business", "technology", "skip"] = Field(
         description="Classification type"
     )
@@ -271,7 +291,9 @@ class DerivedElementItem(BaseModel):
 
     name: str = Field(description="Name of the element")
     description: str = Field(description="Description of the element")
-    documentation: str | None = Field(default=None, description="Additional documentation")
+    documentation: str | None = Field(
+        default=None, description="Additional documentation"
+    )
     sourceNodes: list[str] = Field(
         default_factory=list,
         description="IDs of source nodes this element was derived from",
@@ -304,7 +326,9 @@ class DerivedRelationshipItem(BaseModel):
         "Flow",
         "Triggering",
     ] = Field(description="Type of ArchiMate relationship")
-    description: str | None = Field(default=None, description="Description of the relationship")
+    description: str | None = Field(
+        default=None, description="Description of the relationship"
+    )
 
 
 class DerivedRelationshipResponse(BaseModel):

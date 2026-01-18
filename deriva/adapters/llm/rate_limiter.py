@@ -195,7 +195,9 @@ class RateLimiter:
                 # Failure in half-open means we need to reopen
                 self._circuit_state = CircuitState.OPEN
                 self._circuit_opened_at = time.time()
-                logger.warning("Circuit breaker reopened after failure in half-open state")
+                logger.warning(
+                    "Circuit breaker reopened after failure in half-open state"
+                )
 
             elif self._circuit_state == CircuitState.CLOSED:
                 if self._consecutive_failures >= self.config.circuit_failure_threshold:
@@ -230,7 +232,9 @@ class RateLimiter:
                 "Rate limit hit (%d consecutive). Throttle reduced to %.0f%% of RPM.%s",
                 self._consecutive_rate_limits,
                 self._throttle_factor * 100,
-                f" Server suggests retry after {retry_after:.1f}s" if retry_after else "",
+                f" Server suggests retry after {retry_after:.1f}s"
+                if retry_after
+                else "",
             )
 
     def _check_circuit(self) -> None:

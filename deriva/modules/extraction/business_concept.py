@@ -265,7 +265,9 @@ BUSINESS_CONCEPT_MULTI_SCHEMA = {
                             "type": "string",
                             "description": "Path of the file these concepts were extracted from",
                         },
-                        "concepts": BUSINESS_CONCEPT_SCHEMA["schema"]["properties"]["concepts"],  # type: ignore[index]
+                        "concepts": BUSINESS_CONCEPT_SCHEMA["schema"]["properties"][
+                            "concepts"
+                        ],  # type: ignore[index]
                     },
                     "required": ["file_path", "concepts"],
                     "additionalProperties": False,
@@ -761,7 +763,9 @@ def extract_business_concepts_multi(
         llm_details["prompt"] = f"{system_prompt}\n\n{user_prompt}"
 
         # Call LLM with multi-file schema
-        response = llm_query_fn(user_prompt, BUSINESS_CONCEPT_MULTI_SCHEMA, system_prompt)
+        response = llm_query_fn(
+            user_prompt, BUSINESS_CONCEPT_MULTI_SCHEMA, system_prompt
+        )
 
         # Extract LLM details from response
         if hasattr(response, "content"):
@@ -811,7 +815,9 @@ def extract_business_concepts_multi(
 
             for concept_data in concepts:
                 node_result = build_business_concept_node(
-                    concept_data=concept_data, origin_source=file_path, repo_name=repo_name
+                    concept_data=concept_data,
+                    origin_source=file_path,
+                    repo_name=repo_name,
                 )
 
                 if node_result["success"]:

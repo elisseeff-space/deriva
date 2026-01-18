@@ -75,105 +75,362 @@ SUPPORTED_LANGUAGES = ("python", "javascript", "typescript", "java", "csharp")
 
 # Python stdlib modules (from imports.py)
 PYTHON_STDLIB = {
-    "abc", "argparse", "ast", "asyncio", "atexit",
-    "base64", "bisect", "builtins",
-    "calendar", "cgi", "cmd", "codecs", "collections", "concurrent",
-    "configparser", "contextlib", "copy", "csv", "ctypes",
-    "dataclasses", "datetime", "decimal", "difflib", "dis",
-    "email", "encodings", "enum", "errno",
-    "faulthandler", "filecmp", "fileinput", "fnmatch", "fractions",
-    "functools", "gc", "getopt", "getpass", "glob", "graphlib", "gzip",
-    "hashlib", "heapq", "hmac", "html", "http",
-    "imaplib", "importlib", "inspect", "io", "ipaddress", "itertools",
-    "json", "keyword",
-    "linecache", "locale", "logging", "lzma",
-    "mailbox", "marshal", "math", "mimetypes", "mmap", "modulefinder",
-    "multiprocessing", "netrc", "numbers",
-    "operator", "optparse", "os",
-    "pathlib", "pdb", "pickle", "pkgutil", "platform", "plistlib",
-    "poplib", "posixpath", "pprint", "profile", "pstats",
-    "queue", "quopri",
-    "random", "re", "readline", "reprlib", "resource", "rlcompleter",
-    "sched", "secrets", "select", "selectors", "shelve", "shlex",
-    "shutil", "signal", "smtplib", "socket", "socketserver", "sqlite3",
-    "ssl", "stat", "statistics", "string", "struct", "subprocess",
-    "sys", "sysconfig", "syslog",
-    "tarfile", "tempfile", "test", "textwrap", "threading", "time",
-    "timeit", "token", "tokenize", "trace", "traceback", "tracemalloc",
-    "turtle", "types", "typing",
-    "unicodedata", "unittest", "urllib", "uu", "uuid",
+    "abc",
+    "argparse",
+    "ast",
+    "asyncio",
+    "atexit",
+    "base64",
+    "bisect",
+    "builtins",
+    "calendar",
+    "cgi",
+    "cmd",
+    "codecs",
+    "collections",
+    "concurrent",
+    "configparser",
+    "contextlib",
+    "copy",
+    "csv",
+    "ctypes",
+    "dataclasses",
+    "datetime",
+    "decimal",
+    "difflib",
+    "dis",
+    "email",
+    "encodings",
+    "enum",
+    "errno",
+    "faulthandler",
+    "filecmp",
+    "fileinput",
+    "fnmatch",
+    "fractions",
+    "functools",
+    "gc",
+    "getopt",
+    "getpass",
+    "glob",
+    "graphlib",
+    "gzip",
+    "hashlib",
+    "heapq",
+    "hmac",
+    "html",
+    "http",
+    "imaplib",
+    "importlib",
+    "inspect",
+    "io",
+    "ipaddress",
+    "itertools",
+    "json",
+    "keyword",
+    "linecache",
+    "locale",
+    "logging",
+    "lzma",
+    "mailbox",
+    "marshal",
+    "math",
+    "mimetypes",
+    "mmap",
+    "modulefinder",
+    "multiprocessing",
+    "netrc",
+    "numbers",
+    "operator",
+    "optparse",
+    "os",
+    "pathlib",
+    "pdb",
+    "pickle",
+    "pkgutil",
+    "platform",
+    "plistlib",
+    "poplib",
+    "posixpath",
+    "pprint",
+    "profile",
+    "pstats",
+    "queue",
+    "quopri",
+    "random",
+    "re",
+    "readline",
+    "reprlib",
+    "resource",
+    "rlcompleter",
+    "sched",
+    "secrets",
+    "select",
+    "selectors",
+    "shelve",
+    "shlex",
+    "shutil",
+    "signal",
+    "smtplib",
+    "socket",
+    "socketserver",
+    "sqlite3",
+    "ssl",
+    "stat",
+    "statistics",
+    "string",
+    "struct",
+    "subprocess",
+    "sys",
+    "sysconfig",
+    "syslog",
+    "tarfile",
+    "tempfile",
+    "test",
+    "textwrap",
+    "threading",
+    "time",
+    "timeit",
+    "token",
+    "tokenize",
+    "trace",
+    "traceback",
+    "tracemalloc",
+    "turtle",
+    "types",
+    "typing",
+    "unicodedata",
+    "unittest",
+    "urllib",
+    "uu",
+    "uuid",
     "venv",
-    "warnings", "wave", "weakref", "webbrowser", "winreg", "wsgiref",
-    "xml", "xmlrpc",
-    "zipfile", "zipimport", "zlib",
-    "typing_extensions", "TYPE_CHECKING",
+    "warnings",
+    "wave",
+    "weakref",
+    "webbrowser",
+    "winreg",
+    "wsgiref",
+    "xml",
+    "xmlrpc",
+    "zipfile",
+    "zipimport",
+    "zlib",
+    "typing_extensions",
+    "TYPE_CHECKING",
 }
 
 # Python builtins to skip in call resolution (from calls.py)
 PYTHON_BUILTINS = {
-    "abs", "all", "any", "ascii", "bin", "bool", "breakpoint", "bytearray",
-    "bytes", "callable", "chr", "classmethod", "compile", "complex",
-    "delattr", "dict", "dir", "divmod", "enumerate", "eval", "exec",
-    "filter", "float", "format", "frozenset", "getattr", "globals",
-    "hasattr", "hash", "help", "hex", "id", "input", "int", "isinstance",
-    "issubclass", "iter", "len", "list", "locals", "map", "max",
-    "memoryview", "min", "next", "object", "oct", "open", "ord", "pow",
-    "print", "property", "range", "repr", "reversed", "round", "set",
-    "setattr", "slice", "sorted", "staticmethod", "str", "sum", "super",
-    "tuple", "type", "vars", "zip",
+    "abs",
+    "all",
+    "any",
+    "ascii",
+    "bin",
+    "bool",
+    "breakpoint",
+    "bytearray",
+    "bytes",
+    "callable",
+    "chr",
+    "classmethod",
+    "compile",
+    "complex",
+    "delattr",
+    "dict",
+    "dir",
+    "divmod",
+    "enumerate",
+    "eval",
+    "exec",
+    "filter",
+    "float",
+    "format",
+    "frozenset",
+    "getattr",
+    "globals",
+    "hasattr",
+    "hash",
+    "help",
+    "hex",
+    "id",
+    "input",
+    "int",
+    "isinstance",
+    "issubclass",
+    "iter",
+    "len",
+    "list",
+    "locals",
+    "map",
+    "max",
+    "memoryview",
+    "min",
+    "next",
+    "object",
+    "oct",
+    "open",
+    "ord",
+    "pow",
+    "print",
+    "property",
+    "range",
+    "repr",
+    "reversed",
+    "round",
+    "set",
+    "setattr",
+    "slice",
+    "sorted",
+    "staticmethod",
+    "str",
+    "sum",
+    "super",
+    "tuple",
+    "type",
+    "vars",
+    "zip",
     # Common exceptions
-    "Exception", "ValueError", "TypeError", "KeyError", "IndexError",
-    "RuntimeError", "AttributeError", "ImportError", "OSError", "IOError",
+    "Exception",
+    "ValueError",
+    "TypeError",
+    "KeyError",
+    "IndexError",
+    "RuntimeError",
+    "AttributeError",
+    "ImportError",
+    "OSError",
+    "IOError",
 }
 
 # Python builtin decorators to skip (from decorators.py)
 PYTHON_DECORATOR_BUILTINS = {
     # Standard library
-    "staticmethod", "classmethod", "property",
-    "abstractmethod", "abstractproperty", "abstractclassmethod", "abstractstaticmethod",
-    "dataclass", "dataclasses.dataclass",
-    "functools.wraps", "functools.lru_cache", "functools.cache",
-    "functools.cached_property", "functools.total_ordering",
-    "functools.singledispatch", "functools.singledispatchmethod",
-    "contextlib.contextmanager", "contextlib.asynccontextmanager",
-    "typing.overload", "typing.override", "typing.final",
-    "typing.no_type_check", "typing.runtime_checkable",
+    "staticmethod",
+    "classmethod",
+    "property",
+    "abstractmethod",
+    "abstractproperty",
+    "abstractclassmethod",
+    "abstractstaticmethod",
+    "dataclass",
+    "dataclasses.dataclass",
+    "functools.wraps",
+    "functools.lru_cache",
+    "functools.cache",
+    "functools.cached_property",
+    "functools.total_ordering",
+    "functools.singledispatch",
+    "functools.singledispatchmethod",
+    "contextlib.contextmanager",
+    "contextlib.asynccontextmanager",
+    "typing.overload",
+    "typing.override",
+    "typing.final",
+    "typing.no_type_check",
+    "typing.runtime_checkable",
     # Common frameworks (usually external, not in file)
-    "app.route", "app.get", "app.post", "app.put", "app.delete", "app.patch",
-    "pytest.fixture", "pytest.mark", "pytest.mark.parametrize",
-    "pytest.mark.skip", "pytest.mark.skipif", "pytest.mark.xfail",
-    "unittest.skip", "unittest.skipIf", "unittest.expectedFailure",
-    "mock.patch", "unittest.mock.patch",
+    "app.route",
+    "app.get",
+    "app.post",
+    "app.put",
+    "app.delete",
+    "app.patch",
+    "pytest.fixture",
+    "pytest.mark",
+    "pytest.mark.parametrize",
+    "pytest.mark.skip",
+    "pytest.mark.skipif",
+    "pytest.mark.xfail",
+    "unittest.skip",
+    "unittest.skipIf",
+    "unittest.expectedFailure",
+    "mock.patch",
+    "unittest.mock.patch",
 }
 
 # Python builtin types to skip in reference resolution (from references.py)
 PYTHON_BUILTIN_TYPES = {
     # Primitives
-    "str", "int", "float", "bool", "bytes", "None", "complex", "object",
+    "str",
+    "int",
+    "float",
+    "bool",
+    "bytes",
+    "None",
+    "complex",
+    "object",
     # Collections (builtin)
-    "list", "dict", "set", "tuple", "frozenset",
+    "list",
+    "dict",
+    "set",
+    "tuple",
+    "frozenset",
     # Typing module basics
-    "Any", "Union", "Optional", "Callable", "Type",
-    "ClassVar", "Final", "Literal", "TypeVar", "Generic",
-    "Protocol", "Annotated", "Self", "Never", "NoReturn",
+    "Any",
+    "Union",
+    "Optional",
+    "Callable",
+    "Type",
+    "ClassVar",
+    "Final",
+    "Literal",
+    "TypeVar",
+    "Generic",
+    "Protocol",
+    "Annotated",
+    "Self",
+    "Never",
+    "NoReturn",
     # Collection types from typing
-    "List", "Dict", "Set", "Tuple", "FrozenSet",
-    "Sequence", "Mapping", "MutableMapping", "MutableSequence",
-    "Iterable", "Iterator", "Generator", "Coroutine",
-    "AsyncGenerator", "AsyncIterator", "AsyncIterable",
-    "Awaitable", "ContextManager", "AsyncContextManager",
-    "Pattern", "Match",
+    "List",
+    "Dict",
+    "Set",
+    "Tuple",
+    "FrozenSet",
+    "Sequence",
+    "Mapping",
+    "MutableMapping",
+    "MutableSequence",
+    "Iterable",
+    "Iterator",
+    "Generator",
+    "Coroutine",
+    "AsyncGenerator",
+    "AsyncIterator",
+    "AsyncIterable",
+    "Awaitable",
+    "ContextManager",
+    "AsyncContextManager",
+    "Pattern",
+    "Match",
     # Common ABCs
-    "ABC", "ABCMeta",
+    "ABC",
+    "ABCMeta",
 }
 
 # Generic containers (we want the inner type, not the container)
 GENERIC_CONTAINERS = {
-    "List", "Dict", "Set", "Tuple", "FrozenSet",
-    "Optional", "Union", "Sequence", "Mapping",
-    "Iterable", "Iterator", "Generator", "Callable",
-    "Type", "ClassVar", "Final", "Annotated",
-    "Awaitable", "Coroutine", "AsyncGenerator",
+    "List",
+    "Dict",
+    "Set",
+    "Tuple",
+    "FrozenSet",
+    "Optional",
+    "Union",
+    "Sequence",
+    "Mapping",
+    "Iterable",
+    "Iterator",
+    "Generator",
+    "Callable",
+    "Type",
+    "ClassVar",
+    "Final",
+    "Annotated",
+    "Awaitable",
+    "Coroutine",
+    "AsyncGenerator",
 }
 
 
@@ -216,7 +473,12 @@ def extract_edges_from_file(
         "imports": {"internal": 0, "external": 0, "unresolved": 0},
         "calls": {"total": 0, "resolved": 0, "unresolved": 0},
         "decorators": {"total": 0, "resolved": 0, "builtin": 0, "unresolved": 0},
-        "references": {"total_annotations": 0, "resolved": 0, "builtin": 0, "unresolved": 0},
+        "references": {
+            "total_annotations": 0,
+            "resolved": 0,
+            "builtin": 0,
+            "unresolved": 0,
+        },
     }
 
     edge_types = edge_types or ALL_EDGE_TYPES
@@ -336,7 +598,12 @@ def extract_edges_batch(
         "imports": {"internal": 0, "external": 0, "unresolved": 0},
         "calls": {"total": 0, "resolved": 0, "unresolved": 0},
         "decorators": {"total": 0, "resolved": 0, "builtin": 0, "unresolved": 0},
-        "references": {"total_annotations": 0, "resolved": 0, "builtin": 0, "unresolved": 0},
+        "references": {
+            "total_annotations": 0,
+            "resolved": 0,
+            "builtin": 0,
+            "unresolved": 0,
+        },
     }
 
     repo_path = Path(repo_path)
@@ -348,7 +615,8 @@ def extract_edges_batch(
 
     # Filter to only source files that Tree-sitter can parse
     source_files = [
-        f for f in files
+        f
+        for f in files
         if f.get("file_type") == "source" and f.get("subtype") in SUPPORTED_LANGUAGES
     ]
 
@@ -654,18 +922,22 @@ def _extract_call_edges(
     return edges, stats
 
 
-def _build_method_lookup(methods: list[ExtractedMethod]) -> dict[str, list[dict[str, Any]]]:
+def _build_method_lookup(
+    methods: list[ExtractedMethod],
+) -> dict[str, list[dict[str, Any]]]:
     """Build a lookup table of methods by name."""
     lookup: dict[str, list[dict[str, Any]]] = {}
     for m in methods:
         name = m.name
         if name not in lookup:
             lookup[name] = []
-        lookup[name].append({
-            "class_name": m.class_name,
-            "line_start": m.line_start,
-            "line_end": m.line_end,
-        })
+        lookup[name].append(
+            {
+                "class_name": m.class_name,
+                "line_start": m.line_start,
+                "line_end": m.line_end,
+            }
+        )
     return lookup
 
 
@@ -690,7 +962,9 @@ def _resolve_caller(
     if caller_class:
         for c in candidates:
             if c["class_name"] == caller_class:
-                return generate_method_node_id(repo_name, file_path, caller_name, caller_class)
+                return generate_method_node_id(
+                    repo_name, file_path, caller_name, caller_class
+                )
 
     for c in candidates:
         if c["class_name"] is None:
@@ -730,7 +1004,9 @@ def _resolve_callee(
     if is_method_call and callee_qualifier in ("self", "cls") and caller_class:
         for c in candidates:
             if c["class_name"] == caller_class:
-                return generate_method_node_id(repo_name, file_path, callee_name, caller_class)
+                return generate_method_node_id(
+                    repo_name, file_path, callee_name, caller_class
+                )
         return None
 
     if len(candidates) == 1:
@@ -763,7 +1039,9 @@ def _extract_decorator_edges(
 
     # Use language-specific builtin decorators or fall back to Python
     builtin_decorators = (
-        filter_constants.builtin_decorators if filter_constants else PYTHON_DECORATOR_BUILTINS
+        filter_constants.builtin_decorators
+        if filter_constants
+        else PYTHON_DECORATOR_BUILTINS
     )
 
     # Build lookup for top-level functions (potential decorators)
@@ -863,7 +1141,9 @@ def _extract_reference_edges(
         # Extract type names from return annotation
         if method.return_annotation:
             stats["total_annotations"] += 1
-            type_names = _extract_type_names(method.return_annotation, generic_containers)
+            type_names = _extract_type_names(
+                method.return_annotation, generic_containers
+            )
             referenced_types.update(type_names)
 
         # Create edges for each referenced type
@@ -914,10 +1194,10 @@ def _extract_type_names(
     containers = generic_containers if generic_containers else GENERIC_CONTAINERS
 
     # Remove quotes (forward references)
-    annotation = annotation.replace('"', '').replace("'", '')
+    annotation = annotation.replace('"', "").replace("'", "")
 
     # Extract CamelCase/PascalCase names (likely type names)
-    tokens = re.findall(r'\b([A-Z][a-zA-Z0-9_]*)\b', annotation)
+    tokens = re.findall(r"\b([A-Z][a-zA-Z0-9_]*)\b", annotation)
 
     for token in tokens:
         if token not in containers:

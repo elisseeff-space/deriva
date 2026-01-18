@@ -93,6 +93,7 @@ def _resolve_schema_to_model(schema: dict[str, Any] | None) -> type[BaseModel] |
 
     return _SCHEMA_NAME_TO_MODEL.get(schema_name)
 
+
 # Type variable for structured output
 T = TypeVar("T", bound=BaseModel)
 

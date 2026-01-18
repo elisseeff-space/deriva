@@ -514,8 +514,12 @@ class ElementDerivationBase(ABC):
         for rel_data in relationships:
             try:
                 # Propagate graph properties from source/target elements for stability analysis
-                source_props = _get_element_props(batch_elements, existing_elements, rel_data["source"])
-                target_props = _get_element_props(batch_elements, existing_elements, rel_data["target"])
+                source_props = _get_element_props(
+                    batch_elements, existing_elements, rel_data["source"]
+                )
+                target_props = _get_element_props(
+                    batch_elements, existing_elements, rel_data["target"]
+                )
 
                 relationship = Relationship(
                     source=rel_data["source"],
@@ -525,10 +529,14 @@ class ElementDerivationBase(ABC):
                         "confidence": rel_data.get("confidence", 0.5),
                         "source_pagerank": source_props.get("source_pagerank"),
                         "source_kcore": source_props.get("source_kcore_level"),
-                        "source_community": source_props.get("source_louvain_community"),
+                        "source_community": source_props.get(
+                            "source_louvain_community"
+                        ),
                         "target_pagerank": target_props.get("source_pagerank"),
                         "target_kcore": target_props.get("source_kcore_level"),
-                        "target_community": target_props.get("source_louvain_community"),
+                        "target_community": target_props.get(
+                            "source_louvain_community"
+                        ),
                     },
                 )
                 archimate_manager.add_relationship(relationship)
@@ -641,7 +649,9 @@ class HybridFilteringMixin:
     MIN_PAGERANK: float | None = None
     USE_COMMUNITY_ROOTS: bool = False
     USE_ARTICULATION_POINTS: bool = False
-    COMMUNITY_ROOT_RATIO: float = 0.5  # 50% community roots when USE_COMMUNITY_ROOTS=True
+    COMMUNITY_ROOT_RATIO: float = (
+        0.5  # 50% community roots when USE_COMMUNITY_ROOTS=True
+    )
 
     def apply_graph_filtering(
         self,
@@ -786,7 +796,8 @@ class HybridDerivation(PatternBasedDerivation, HybridFilteringMixin):
         # Step 1: Pattern matching (if patterns configured)
         if include_patterns or exclude_patterns:
             pattern_matched = [
-                c for c in candidates
+                c
+                for c in candidates
                 if self.matches_patterns(c.name, include_patterns, exclude_patterns)
             ]
         else:

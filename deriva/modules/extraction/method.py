@@ -202,7 +202,9 @@ def build_method_node(
     method_name_slug = method_data["methodName"].replace(" ", "_").replace("-", "_")
     type_name_slug = type_name.replace(" ", "_").replace("-", "_")
     file_path_slug = file_path.replace("/", "_").replace("\\", "_")
-    node_id = f"method::{repo_name}::{file_path_slug}::{type_name_slug}::{method_name_slug}"
+    node_id = (
+        f"method::{repo_name}::{file_path_slug}::{type_name_slug}::{method_name_slug}"
+    )
 
     # Build the node structure
     node_data = {
@@ -699,7 +701,9 @@ def _build_method_node_from_treesitter(
         (ext_method.class_name or "module").replace(" ", "_").replace("-", "_")
     )
     file_path_slug = file_path.replace("/", "_").replace("\\", "_")
-    node_id = f"method::{repo_name}::{file_path_slug}::{type_name_slug}::{method_name_slug}"
+    node_id = (
+        f"method::{repo_name}::{file_path_slug}::{type_name_slug}::{method_name_slug}"
+    )
 
     return {
         "node_id": node_id,

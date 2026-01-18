@@ -317,7 +317,9 @@ def get_enrichments_from_neo4j(
         if should_write_cache:
             try:
                 if cache_manager is not None:
-                    cache_manager.set_enrichments(graph_manager, enrichments, config_name)
+                    cache_manager.set_enrichments(
+                        graph_manager, enrichments, config_name
+                    )
                 else:
                     graph_hash = compute_graph_hash(graph_manager)
                     _enrichment_cache.set_enrichments(graph_hash, enrichments)
@@ -1046,7 +1048,11 @@ def derive_edge_relationships(
 
     # Determine which edge types to query based on element type
     edge_types_to_query: list[str] = []
-    if element_type in ("ApplicationService", "ApplicationInterface", "ApplicationComponent"):
+    if element_type in (
+        "ApplicationService",
+        "ApplicationInterface",
+        "ApplicationComponent",
+    ):
         edge_types_to_query.append("CALLS")
     if element_type in ("DataObject", "ApplicationComponent"):
         edge_types_to_query.append("IMPORTS")
@@ -1923,7 +1929,14 @@ def build_element(
     source_id = derived.get("source")
     if candidate_enrichments and source_id:
         enrichment = candidate_enrichments.get(source_id, {})
-        for key in ["pagerank", "louvain_community", "kcore_level", "is_articulation_point", "in_degree", "out_degree"]:
+        for key in [
+            "pagerank",
+            "louvain_community",
+            "kcore_level",
+            "is_articulation_point",
+            "in_degree",
+            "out_degree",
+        ]:
             if key in enrichment:
                 properties[f"source_{key}"] = enrichment[key]
 
