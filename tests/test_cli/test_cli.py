@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 from typer.testing import CliRunner
@@ -2388,3 +2389,914 @@ class TestBenchmarkComprehensiveDetails:
         assert "Technology: 45.0%" in result.stdout
         assert "RECOMMENDATIONS" in result.stdout
         assert "Use more specific naming" in result.stdout
+
+
+class TestConfigListOptions:
+    """Tests for config list with options."""
+
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_list_with_enabled_only(self, mock_session_class):
+        """Should filter to enabled only."""
+        mock_session = MagicMock()
+        mock_session.list_steps.return_value = [
+            {"name": "BusinessConcept", "enabled": True, "sequence": 1},
+        ]
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["config", "list", "extraction", "--enabled"])
+
+        assert result.exit_code == 0
+        mock_session.list_steps.assert_called_once_with("extraction", enabled_only=True)
+
+
+class TestConfigSequenceCommand:
+    """Tests for config sequence command."""
+
+    def test_sequence_rejects_non_derivation(self):
+        """Should reject non-derivation step types."""
+        result = runner.invoke(
+            app, ["config", "sequence", "extraction", "--order", "Step1,Step2"]
+        )
+
+        assert result.exit_code == 1
+        assert "Only 'derivation'" in result.output
+
+    def test_sequence_requires_order(self):
+        """Should require at least one step in order."""
+        result = runner.invoke(app, ["config", "sequence", "derivation", "--order", ""])
+
+        assert result.exit_code == 1
+        assert "at least one step name" in result.output
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_sequence_success(self, mock_session_class, mock_config):
+        """Should update sequence successfully."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_config.update_derivation_sequence.return_value = {
+            "success": True,
+            "total_updated": 2,
+            "updated": [
+                {"step_name": "Step1", "sequence": 1},
+                {"step_name": "Step2", "sequence": 2},
+            ],
+            "errors": [],
+        }
+
+        result = runner.invoke(
+            app, ["config", "sequence", "derivation", "--order", "Step1,Step2"]
+        )
+
+        assert result.exit_code == 0
+        assert "Updated 2 steps" in result.stdout
+        assert "[1] Step1" in result.stdout
+        assert "[2] Step2" in result.stdout
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_sequence_with_phase_filter(self, mock_session_class, mock_config):
+        """Should pass phase filter."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_config.update_derivation_sequence.return_value = {
+            "success": True,
+            "total_updated": 1,
+            "updated": [{"step_name": "Step1", "sequence": 1}],
+            "errors": [],
+        }
+
+        result = runner.invoke(
+            app,
+            [
+                "config",
+                "sequence",
+                "derivation",
+                "--order",
+                "Step1",
+                "--phase",
+                "generate",
+            ],
+        )
+
+        assert result.exit_code == 0
+        assert "Phase filter: generate" in result.stdout
+        mock_config.update_derivation_sequence.assert_called_once()
+        call_kwargs = mock_config.update_derivation_sequence.call_args
+        assert call_kwargs[1]["phase"] == "generate"
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_sequence_partial_failure(self, mock_session_class, mock_config):
+        """Should handle partial failures."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_config.update_derivation_sequence.return_value = {
+            "success": False,
+            "total_updated": 1,
+            "updated": [{"step_name": "Step1", "sequence": 1}],
+            "errors": ["Step2 not found"],
+        }
+
+        result = runner.invoke(
+            app, ["config", "sequence", "derivation", "--order", "Step1,Step2"]
+        )
+
+        assert result.exit_code == 1
+        assert "Partially updated 1 steps" in result.stdout
+        assert "Step2 not found" in result.stdout
+
+
+class TestConfigQueryCommand:
+    """Tests for config query command."""
+
+    def test_query_rejects_invalid_step_type(self):
+        """Should reject invalid step type."""
+        result = runner.invoke(app, ["config", "query", "invalid"])
+
+        assert result.exit_code == 1
+        assert "extraction' or 'derivation'" in result.output
+
+    @patch("deriva.adapters.database.get_connection")
+    @patch("deriva.cli.commands.config.config")
+    def test_query_extraction_list(self, mock_config, mock_get_conn):
+        """Should list extraction configs."""
+        mock_engine = MagicMock()
+        mock_get_conn.return_value = mock_engine
+
+        mock_cfg = MagicMock()
+        mock_cfg.node_type = "BusinessConcept"
+        mock_cfg.enabled = True
+        mock_cfg.sequence = 1
+        mock_config.get_extraction_configs.return_value = [mock_cfg]
+
+        result = runner.invoke(app, ["config", "query", "extraction"])
+
+        assert result.exit_code == 0
+        assert "EXTRACTION CONFIGS (1)" in result.stdout
+        assert "BusinessConcept" in result.stdout
+        mock_get_conn.assert_called_once_with(read_only=True)
+        mock_engine.close.assert_called_once()
+
+    @patch("deriva.adapters.database.get_connection")
+    @patch("deriva.cli.commands.config.config")
+    def test_query_extraction_single(self, mock_config, mock_get_conn):
+        """Should query single extraction config."""
+        mock_engine = MagicMock()
+        mock_get_conn.return_value = mock_engine
+
+        mock_cfg = MagicMock()
+        mock_cfg.node_type = "BusinessConcept"
+        mock_cfg.enabled = True
+        mock_cfg.sequence = 1
+        mock_cfg.extraction_method = "llm"
+        mock_config.get_extraction_config.return_value = mock_cfg
+
+        result = runner.invoke(app, ["config", "query", "extraction", "BusinessConcept"])
+
+        assert result.exit_code == 0
+        assert "EXTRACTION: BusinessConcept" in result.stdout
+        assert "Enabled: True" in result.stdout
+
+    @patch("deriva.adapters.database.get_connection")
+    @patch("deriva.cli.commands.config.config")
+    def test_query_extraction_not_found(self, mock_config, mock_get_conn):
+        """Should handle config not found."""
+        mock_engine = MagicMock()
+        mock_get_conn.return_value = mock_engine
+        mock_config.get_extraction_config.return_value = None
+
+        result = runner.invoke(app, ["config", "query", "extraction", "NotFound"])
+
+        assert result.exit_code == 0
+        assert "Config not found: NotFound" in result.stdout
+
+    @patch("deriva.adapters.database.get_connection")
+    @patch("deriva.cli.commands.config.config")
+    def test_query_derivation_list(self, mock_config, mock_get_conn):
+        """Should list derivation configs."""
+        mock_engine = MagicMock()
+        mock_get_conn.return_value = mock_engine
+
+        mock_cfg = MagicMock()
+        mock_cfg.step_name = "ApplicationComponent"
+        mock_cfg.enabled = True
+        mock_cfg.sequence = 1
+        mock_cfg.phase = "generate"
+        mock_config.get_derivation_configs.return_value = [mock_cfg]
+
+        result = runner.invoke(app, ["config", "query", "derivation"])
+
+        assert result.exit_code == 0
+        assert "DERIVATION CONFIGS (1)" in result.stdout
+        assert "ApplicationComponent" in result.stdout
+
+    @patch("deriva.adapters.database.get_connection")
+    @patch("deriva.cli.commands.config.config")
+    def test_query_derivation_single(self, mock_config, mock_get_conn):
+        """Should query single derivation config."""
+        mock_engine = MagicMock()
+        mock_get_conn.return_value = mock_engine
+
+        mock_cfg = MagicMock()
+        mock_cfg.step_name = "ApplicationComponent"
+        mock_cfg.phase = "generate"
+        mock_cfg.enabled = True
+        mock_cfg.sequence = 1
+        mock_cfg.llm = True
+        mock_config.get_derivation_config.return_value = mock_cfg
+
+        result = runner.invoke(
+            app, ["config", "query", "derivation", "ApplicationComponent"]
+        )
+
+        assert result.exit_code == 0
+        assert "DERIVATION: ApplicationComponent" in result.stdout
+        assert "Phase: generate" in result.stdout
+
+
+class TestConfigSnapshotCommand:
+    """Tests for config snapshot command."""
+
+    @patch("deriva.adapters.database.get_connection")
+    def test_snapshot_session_not_found(self, mock_get_conn):
+        """Should handle session not found."""
+        mock_engine = MagicMock()
+        mock_engine.execute.return_value.fetchone.return_value = None
+        mock_get_conn.return_value = mock_engine
+
+        result = runner.invoke(app, ["config", "snapshot", "nonexistent"])
+
+        assert result.exit_code == 1
+        assert "Session not found" in result.stdout
+
+    @patch("deriva.adapters.database.get_connection")
+    def test_snapshot_no_snapshot_data(self, mock_get_conn):
+        """Should handle no snapshot data."""
+        mock_engine = MagicMock()
+        mock_engine.execute.return_value.fetchone.return_value = (None,)
+        mock_get_conn.return_value = mock_engine
+
+        result = runner.invoke(app, ["config", "snapshot", "old_session"])
+
+        assert result.exit_code == 1
+        assert "No config snapshot found" in result.stdout
+
+    @patch("deriva.adapters.database.get_connection")
+    def test_snapshot_success(self, mock_get_conn):
+        """Should display snapshot data."""
+        mock_engine = MagicMock()
+        snapshot_data = {
+            "extraction": {"BusinessConcept": 2, "TypeDefinition": 1},
+            "derivation": {"ApplicationComponent": 3},
+        }
+        mock_engine.execute.return_value.fetchone.return_value = (
+            json.dumps(snapshot_data),
+        )
+        mock_get_conn.return_value = mock_engine
+
+        result = runner.invoke(app, ["config", "snapshot", "session_123"])
+
+        assert result.exit_code == 0
+        assert "CONFIG SNAPSHOT: session_123" in result.stdout
+        assert "EXTRACTION:" in result.stdout
+        assert "BusinessConcept" in result.stdout
+        assert "v2" in result.stdout
+        assert "DERIVATION:" in result.stdout
+        assert "ApplicationComponent" in result.stdout
+
+
+class TestConfigUpdateFileOptions:
+    """Tests for config update with file options."""
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_update_with_instruction_file(
+        self, mock_session_class, mock_config, tmp_path
+    ):
+        """Should read instruction from file."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        # Create temp instruction file
+        instruction_file = tmp_path / "instruction.txt"
+        instruction_file.write_text("New instruction from file")
+
+        mock_config.create_derivation_config_version.return_value = {
+            "success": True,
+            "old_version": 1,
+            "new_version": 2,
+        }
+
+        result = runner.invoke(
+            app,
+            [
+                "config",
+                "update",
+                "derivation",
+                "AppComp",
+                "--instruction-file",
+                str(instruction_file),
+            ],
+        )
+
+        assert result.exit_code == 0
+        call_kwargs = mock_config.create_derivation_config_version.call_args[1]
+        assert call_kwargs["instruction"] == "New instruction from file"
+
+    def test_update_with_invalid_instruction_file(self):
+        """Should handle missing instruction file."""
+        result = runner.invoke(
+            app,
+            [
+                "config",
+                "update",
+                "derivation",
+                "AppComp",
+                "--instruction-file",
+                "/nonexistent/file.txt",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "Error reading instruction file" in result.output
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_update_with_example_file(self, mock_session_class, mock_config, tmp_path):
+        """Should read example from file."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        # Create temp example file
+        example_file = tmp_path / "example.json"
+        example_file.write_text('{"example": "data"}')
+
+        mock_config.create_extraction_config_version.return_value = {
+            "success": True,
+            "old_version": 1,
+            "new_version": 2,
+        }
+
+        result = runner.invoke(
+            app,
+            [
+                "config",
+                "update",
+                "extraction",
+                "Concept",
+                "--example-file",
+                str(example_file),
+            ],
+        )
+
+        assert result.exit_code == 0
+        call_kwargs = mock_config.create_extraction_config_version.call_args[1]
+        assert call_kwargs["example"] == '{"example": "data"}'
+
+    def test_update_with_invalid_example_file(self):
+        """Should handle missing example file."""
+        result = runner.invoke(
+            app,
+            [
+                "config",
+                "update",
+                "extraction",
+                "Concept",
+                "--example-file",
+                "/nonexistent/file.txt",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "Error reading example file" in result.output
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_update_with_params_file(self, mock_session_class, mock_config, tmp_path):
+        """Should read params from file."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        # Create temp params file
+        params_file = tmp_path / "params.json"
+        params_file.write_text('{"key": "value"}')
+
+        mock_config.create_derivation_config_version.return_value = {
+            "success": True,
+            "old_version": 1,
+            "new_version": 2,
+        }
+
+        result = runner.invoke(
+            app,
+            [
+                "config",
+                "update",
+                "derivation",
+                "AppComp",
+                "--params-file",
+                str(params_file),
+            ],
+        )
+
+        assert result.exit_code == 0
+        call_kwargs = mock_config.create_derivation_config_version.call_args[1]
+        assert call_kwargs["params"] == '{"key": "value"}'
+
+    def test_update_with_invalid_params_file(self):
+        """Should handle missing params file."""
+        result = runner.invoke(
+            app,
+            [
+                "config",
+                "update",
+                "derivation",
+                "AppComp",
+                "--params-file",
+                "/nonexistent/file.txt",
+            ],
+        )
+
+        assert result.exit_code == 1
+        assert "Error reading params file" in result.output
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_update_extraction_with_sources(self, mock_session_class, mock_config):
+        """Should update extraction with sources option."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_config.create_extraction_config_version.return_value = {
+            "success": True,
+            "old_version": 1,
+            "new_version": 2,
+        }
+
+        result = runner.invoke(
+            app,
+            [
+                "config",
+                "update",
+                "extraction",
+                "Concept",
+                "--sources",
+                "File,Directory",
+            ],
+        )
+
+        assert result.exit_code == 0
+        call_kwargs = mock_config.create_extraction_config_version.call_args[1]
+        assert call_kwargs["input_sources"] == "File,Directory"
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_update_extraction_with_batch_size(self, mock_session_class, mock_config):
+        """Should update extraction with batch_size option."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_config.create_extraction_config_version.return_value = {
+            "success": True,
+            "old_version": 1,
+            "new_version": 2,
+        }
+
+        result = runner.invoke(
+            app,
+            ["config", "update", "extraction", "Concept", "--batch-size", "5"],
+        )
+
+        assert result.exit_code == 0
+        call_kwargs = mock_config.create_extraction_config_version.call_args[1]
+        assert call_kwargs["batch_size"] == 5
+
+    @patch("deriva.cli.commands.config.config")
+    @patch("deriva.cli.commands.config.PipelineSession")
+    def test_update_derivation_with_query(self, mock_session_class, mock_config):
+        """Should update derivation with query option."""
+        mock_session = MagicMock()
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        mock_config.create_derivation_config_version.return_value = {
+            "success": True,
+            "old_version": 1,
+            "new_version": 2,
+        }
+
+        result = runner.invoke(
+            app,
+            [
+                "config",
+                "update",
+                "derivation",
+                "AppComp",
+                "-q",
+                "MATCH (n) RETURN n",
+            ],
+        )
+
+        assert result.exit_code == 0
+        call_kwargs = mock_config.create_derivation_config_version.call_args[1]
+        assert call_kwargs["input_graph_query"] == "MATCH (n) RETURN n"
+
+
+class TestConfigDisableInvalidType:
+    """Tests for config disable with invalid type."""
+
+    def test_disable_invalid_step_type(self):
+        """Should reject invalid step type."""
+        result = runner.invoke(app, ["config", "disable", "invalid", "TestStep"])
+
+        assert result.exit_code == 1
+        assert "extraction' or 'derivation'" in result.output
+
+    def test_enable_invalid_step_type(self):
+        """Should reject invalid step type."""
+        result = runner.invoke(app, ["config", "enable", "invalid", "TestStep"])
+
+        assert result.exit_code == 1
+        assert "extraction' or 'derivation'" in result.output
+
+
+class TestRepoCloneOptions:
+    """Tests for repo clone command options."""
+
+    @patch("deriva.cli.commands.repo.PipelineSession")
+    def test_clone_with_custom_name(self, mock_session_class):
+        """Should pass custom name option."""
+        mock_session = MagicMock()
+        mock_session.clone_repository.return_value = {
+            "success": True,
+            "name": "my_custom_name",
+            "path": "/workspace/repos/my_custom_name",
+            "url": "https://github.com/user/repo",
+        }
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(
+            app,
+            ["repo", "clone", "https://github.com/user/repo", "-n", "my_custom_name"],
+        )
+
+        assert result.exit_code == 0
+        assert "Name: my_custom_name" in result.stdout
+        call_kwargs = mock_session.clone_repository.call_args[1]
+        assert call_kwargs["name"] == "my_custom_name"
+
+    @patch("deriva.cli.commands.repo.PipelineSession")
+    def test_clone_with_branch(self, mock_session_class):
+        """Should pass branch option."""
+        mock_session = MagicMock()
+        mock_session.clone_repository.return_value = {
+            "success": True,
+            "name": "repo",
+            "path": "/workspace/repos/repo",
+            "url": "https://github.com/user/repo",
+        }
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(
+            app,
+            ["repo", "clone", "https://github.com/user/repo", "-b", "develop"],
+        )
+
+        assert result.exit_code == 0
+        assert "Branch: develop" in result.stdout
+        call_kwargs = mock_session.clone_repository.call_args[1]
+        assert call_kwargs["branch"] == "develop"
+
+    @patch("deriva.cli.commands.repo.PipelineSession")
+    def test_clone_with_overwrite(self, mock_session_class):
+        """Should pass overwrite option."""
+        mock_session = MagicMock()
+        mock_session.clone_repository.return_value = {
+            "success": True,
+            "name": "repo",
+            "path": "/workspace/repos/repo",
+            "url": "https://github.com/user/repo",
+        }
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(
+            app,
+            ["repo", "clone", "https://github.com/user/repo", "--overwrite"],
+        )
+
+        assert result.exit_code == 0
+        call_kwargs = mock_session.clone_repository.call_args[1]
+        assert call_kwargs["overwrite"] is True
+
+    @patch("deriva.cli.commands.repo.PipelineSession")
+    def test_clone_failure(self, mock_session_class):
+        """Should handle clone failure."""
+        mock_session = MagicMock()
+        mock_session.clone_repository.return_value = {
+            "success": False,
+            "error": "Repository already exists",
+        }
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["repo", "clone", "https://github.com/user/repo"])
+
+        assert result.exit_code == 1
+        assert "Repository already exists" in result.output
+
+
+class TestRepoListOptions:
+    """Tests for repo list command options."""
+
+    @patch("deriva.cli.commands.repo.PipelineSession")
+    def test_list_empty(self, mock_session_class):
+        """Should show message when no repositories."""
+        mock_session = MagicMock()
+        mock_session.workspace_dir = "/workspace"
+        mock_session.get_repositories.return_value = []
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["repo", "list"])
+
+        assert result.exit_code == 0
+        assert "No repositories found" in result.stdout
+        assert "Clone a repository with" in result.stdout
+
+    @patch("deriva.cli.commands.repo.PipelineSession")
+    def test_list_detailed(self, mock_session_class):
+        """Should show detailed information."""
+        mock_session = MagicMock()
+        mock_session.workspace_dir = "/workspace"
+        mock_session.get_repositories.return_value = [
+            {
+                "name": "my_repo",
+                "url": "https://github.com/user/repo",
+                "branch": "main",
+                "size_mb": 15.5,
+                "cloned_at": "2024-01-01",
+                "is_dirty": True,
+            }
+        ]
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["repo", "list", "-d"])
+
+        assert result.exit_code == 0
+        assert "my_repo (dirty)" in result.stdout
+        assert "URL:    https://github.com/user/repo" in result.stdout
+        assert "Branch: main" in result.stdout
+        assert "Size:   15.50 MB" in result.stdout
+        mock_session.get_repositories.assert_called_with(detailed=True)
+
+
+class TestRepoDeleteOptions:
+    """Tests for repo delete command options."""
+
+    @patch("deriva.cli.commands.repo.PipelineSession")
+    def test_delete_with_force(self, mock_session_class):
+        """Should pass force option."""
+        mock_session = MagicMock()
+        mock_session.delete_repository.return_value = {"success": True}
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["repo", "delete", "my_repo", "-f"])
+
+        assert result.exit_code == 0
+        call_kwargs = mock_session.delete_repository.call_args[1]
+        assert call_kwargs["force"] is True
+
+    @patch("deriva.cli.commands.repo.PipelineSession")
+    def test_delete_failure(self, mock_session_class):
+        """Should handle delete failure."""
+        mock_session = MagicMock()
+        mock_session.delete_repository.return_value = {
+            "success": False,
+            "error": "Repository not found",
+        }
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["repo", "delete", "nonexistent"])
+
+        assert result.exit_code == 1
+        assert "Repository not found" in result.output
+
+    @patch("deriva.cli.commands.repo.PipelineSession")
+    def test_delete_uncommitted_changes_exception(self, mock_session_class):
+        """Should show force hint for uncommitted changes."""
+        mock_session = MagicMock()
+        mock_session.delete_repository.side_effect = Exception(
+            "Repository has uncommitted changes"
+        )
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["repo", "delete", "my_repo"])
+
+        assert result.exit_code == 1
+        assert "uncommitted changes" in result.output
+        assert "Use --force to delete anyway" in result.stdout
+
+
+class TestRepoInfoOptions:
+    """Tests for repo info command options."""
+
+    @patch("deriva.cli.commands.repo.PipelineSession")
+    def test_info_not_found(self, mock_session_class):
+        """Should handle repository not found."""
+        mock_session = MagicMock()
+        mock_session.get_repository_info.return_value = None
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["repo", "info", "nonexistent"])
+
+        assert result.exit_code == 1
+        assert "not found" in result.output
+
+    @patch("deriva.cli.commands.repo.PipelineSession")
+    def test_info_exception(self, mock_session_class):
+        """Should handle exception."""
+        mock_session = MagicMock()
+        mock_session.get_repository_info.side_effect = Exception("Connection error")
+        mock_session_class.return_value.__enter__.return_value = mock_session
+
+        result = runner.invoke(app, ["repo", "info", "my_repo"])
+
+        assert result.exit_code == 1
+        assert "Connection error" in result.output
+
+
+class TestPrintExtractionResultExtended:
+    """Extended tests for _print_extraction_result helper."""
+
+    def test_prints_truncated_warnings(self, capsys):
+        """Should truncate warnings when more than 5."""
+        result = {
+            "success": True,
+            "stats": {"nodes_created": 10},
+            "warnings": [f"Warning {i}" for i in range(10)],
+        }
+
+        _print_extraction_result(result)
+
+        captured = capsys.readouterr()
+        assert "Warning 0" in captured.out
+        assert "Warning 4" in captured.out
+        assert "Warning 5" not in captured.out
+        assert "... and 5 more" in captured.out
+
+    def test_prints_truncated_errors(self, capsys):
+        """Should truncate errors when more than 5."""
+        result = {
+            "success": False,
+            "stats": {"nodes_created": 0},
+            "errors": [f"Error {i}" for i in range(8)],
+        }
+
+        _print_extraction_result(result)
+
+        captured = capsys.readouterr()
+        assert "Error 0" in captured.out
+        assert "Error 4" in captured.out
+        assert "Error 5" not in captured.out
+        assert "... and 3 more" in captured.out
+
+
+class TestPrintDerivationResultExtended:
+    """Extended tests for _print_derivation_result helper."""
+
+    def test_prints_issues_with_severity(self, capsys):
+        """Should print issues with severity."""
+        result = {
+            "success": True,
+            "stats": {"elements_created": 5},
+            "issues": [
+                {"severity": "warning", "message": "Minor issue"},
+                {"severity": "error", "message": "Major issue"},
+            ],
+        }
+
+        _print_derivation_result(result)
+
+        captured = capsys.readouterr()
+        assert "[WARNING] Minor issue" in captured.out
+        assert "[ERROR] Major issue" in captured.out
+
+    def test_prints_truncated_issues(self, capsys):
+        """Should truncate issues when more than 10."""
+        result = {
+            "success": True,
+            "stats": {"elements_created": 5},
+            "issues": [
+                {"severity": "warning", "message": f"Issue {i}"} for i in range(15)
+            ],
+        }
+
+        _print_derivation_result(result)
+
+        captured = capsys.readouterr()
+        assert "Issue 0" in captured.out
+        assert "Issue 9" in captured.out
+        assert "Issue 10" not in captured.out
+        assert "... and 5 more" in captured.out
+
+    def test_prints_errors(self, capsys):
+        """Should print errors."""
+        result = {
+            "success": False,
+            "stats": {"elements_created": 0},
+            "errors": ["LLM error 1", "LLM error 2"],
+        }
+
+        _print_derivation_result(result)
+
+        captured = capsys.readouterr()
+        assert "Errors (2)" in captured.out
+        assert "LLM error 1" in captured.out
+        assert "LLM error 2" in captured.out
+
+
+class TestPrintPipelineResultExtended:
+    """Extended tests for _print_pipeline_result helper."""
+
+    def test_prints_classification_results(self, capsys):
+        """Should print classification results."""
+        result = {
+            "success": True,
+            "results": {
+                "classification": {
+                    "stats": {"files_classified": 100, "files_undefined": 5}
+                }
+            },
+        }
+
+        _print_pipeline_result(result)
+
+        captured = capsys.readouterr()
+        assert "Classification:" in captured.out
+        assert "Files classified: 100" in captured.out
+        assert "Files undefined:  5" in captured.out
+
+    def test_prints_extraction_results(self, capsys):
+        """Should print extraction results."""
+        result = {
+            "success": True,
+            "results": {"extraction": {"stats": {"nodes_created": 250}}},
+        }
+
+        _print_pipeline_result(result)
+
+        captured = capsys.readouterr()
+        assert "Extraction:" in captured.out
+        assert "Nodes created: 250" in captured.out
+
+    def test_prints_derivation_results(self, capsys):
+        """Should print derivation results."""
+        result = {
+            "success": True,
+            "results": {
+                "derivation": {"stats": {"elements_created": 50, "issues_found": 3}}
+            },
+        }
+
+        _print_pipeline_result(result)
+
+        captured = capsys.readouterr()
+        assert "Derivation:" in captured.out
+        assert "Elements created: 50" in captured.out
+        assert "Issues found: 3" in captured.out
+
+    def test_prints_total_errors(self, capsys):
+        """Should print total errors."""
+        result = {
+            "success": False,
+            "results": {},
+            "errors": ["Error 1", "Error 2", "Error 3"],
+        }
+
+        _print_pipeline_result(result)
+
+        captured = capsys.readouterr()
+        assert "Total errors: 3" in captured.out
+
+    def test_prints_all_sections(self, capsys):
+        """Should print all result sections."""
+        result = {
+            "success": True,
+            "results": {
+                "classification": {
+                    "stats": {"files_classified": 100, "files_undefined": 5}
+                },
+                "extraction": {"stats": {"nodes_created": 250}},
+                "derivation": {"stats": {"elements_created": 50, "issues_found": 3}},
+            },
+            "errors": ["Minor error"],
+        }
+
+        _print_pipeline_result(result)
+
+        captured = capsys.readouterr()
+        assert "Classification:" in captured.out
+        assert "Extraction:" in captured.out
+        assert "Derivation:" in captured.out
+        assert "Total errors: 1" in captured.out
