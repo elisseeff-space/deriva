@@ -1248,9 +1248,7 @@ class TestRunCommandOnlyStep:
         mock_reporter.__enter__ = MagicMock(return_value=mock_reporter)
         mock_reporter.__exit__ = MagicMock(return_value=False)
 
-        result = runner.invoke(
-            app, ["run", "extraction", "--only-step", "BusinessConcept"]
-        )
+        result = runner.invoke(app, ["run", "extraction", "--only-step", "BusinessConcept"])
 
         assert result.exit_code == 0
         assert "Enabling only extraction step: BusinessConcept" in result.stdout
@@ -1278,9 +1276,7 @@ class TestRunCommandOnlyStep:
         mock_reporter.__enter__ = MagicMock(return_value=mock_reporter)
         mock_reporter.__exit__ = MagicMock(return_value=False)
 
-        result = runner.invoke(
-            app, ["run", "derivation", "--only-step", "ApplicationComponent"]
-        )
+        result = runner.invoke(app, ["run", "derivation", "--only-step", "ApplicationComponent"])
 
         assert result.exit_code == 0
         assert "Enabling only derivation step: ApplicationComponent" in result.stdout
@@ -1399,9 +1395,7 @@ class TestRunCommandFailure:
 
     @patch("deriva.cli.cli.create_progress_reporter")
     @patch("deriva.cli.cli.PipelineSession")
-    def test_run_extraction_failure_exits_with_error(
-        self, mock_session_class, mock_progress
-    ):
+    def test_run_extraction_failure_exits_with_error(self, mock_session_class, mock_progress):
         """Should exit with error code when extraction fails."""
         mock_session = MagicMock()
         mock_session.llm_info = {"provider": "openai", "model": "gpt-4"}
@@ -1423,9 +1417,7 @@ class TestRunCommandFailure:
 
     @patch("deriva.cli.cli.create_progress_reporter")
     @patch("deriva.cli.cli.PipelineSession")
-    def test_run_derivation_failure_exits_with_error(
-        self, mock_session_class, mock_progress
-    ):
+    def test_run_derivation_failure_exits_with_error(self, mock_session_class, mock_progress):
         """Should exit with error code when derivation fails."""
         mock_session = MagicMock()
         mock_session.llm_info = {"provider": "openai", "model": "gpt-4"}
@@ -1506,9 +1498,7 @@ class TestRunCommandLLMNotConfigured:
 
     @patch("deriva.cli.cli.create_progress_reporter")
     @patch("deriva.cli.cli.PipelineSession")
-    def test_run_extraction_without_llm_shows_warning(
-        self, mock_session_class, mock_progress
-    ):
+    def test_run_extraction_without_llm_shows_warning(self, mock_session_class, mock_progress):
         """Should show warning when LLM not configured for extraction."""
         mock_session = MagicMock()
         mock_session.llm_info = None
@@ -2230,9 +2220,7 @@ class TestBenchmarkDeviationsDetails:
         mock_analyzer.export_json.return_value = "deviations.json"
         mock_session.analyze_config_deviations.return_value = mock_analyzer
         mock_session_class.return_value.__enter__.return_value = mock_session
-        mock_recommendations.return_value = [
-            "Improve instruction clarity for ApplicationComponent"
-        ]
+        mock_recommendations.return_value = ["Improve instruction clarity for ApplicationComponent"]
 
         result = runner.invoke(app, ["benchmark", "deviations", "session_123"])
 
@@ -2275,9 +2263,7 @@ class TestBenchmarkComprehensiveDetails:
 
     @patch("deriva.services.analysis.BenchmarkAnalyzer")
     @patch("deriva.cli.commands.benchmark.PipelineSession")
-    def test_comprehensive_with_stability_reports(
-        self, mock_session_class, mock_analyzer_class
-    ):
+    def test_comprehensive_with_stability_reports(self, mock_session_class, mock_analyzer_class):
         """Should display stability reports."""
         mock_session = MagicMock()
         mock_session_class.return_value.__enter__.return_value = mock_session
@@ -2310,9 +2296,7 @@ class TestBenchmarkComprehensiveDetails:
 
     @patch("deriva.services.analysis.BenchmarkAnalyzer")
     @patch("deriva.cli.commands.benchmark.PipelineSession")
-    def test_comprehensive_with_semantic_reports(
-        self, mock_session_class, mock_analyzer_class
-    ):
+    def test_comprehensive_with_semantic_reports(self, mock_session_class, mock_analyzer_class):
         """Should display semantic match summary."""
         mock_session = MagicMock()
         mock_session_class.return_value.__enter__.return_value = mock_session
@@ -2414,9 +2398,7 @@ class TestConfigSequenceCommand:
 
     def test_sequence_rejects_non_derivation(self):
         """Should reject non-derivation step types."""
-        result = runner.invoke(
-            app, ["config", "sequence", "extraction", "--order", "Step1,Step2"]
-        )
+        result = runner.invoke(app, ["config", "sequence", "extraction", "--order", "Step1,Step2"])
 
         assert result.exit_code == 1
         assert "Only 'derivation'" in result.output
@@ -2445,9 +2427,7 @@ class TestConfigSequenceCommand:
             "errors": [],
         }
 
-        result = runner.invoke(
-            app, ["config", "sequence", "derivation", "--order", "Step1,Step2"]
-        )
+        result = runner.invoke(app, ["config", "sequence", "derivation", "--order", "Step1,Step2"])
 
         assert result.exit_code == 0
         assert "Updated 2 steps" in result.stdout
@@ -2501,9 +2481,7 @@ class TestConfigSequenceCommand:
             "errors": ["Step2 not found"],
         }
 
-        result = runner.invoke(
-            app, ["config", "sequence", "derivation", "--order", "Step1,Step2"]
-        )
+        result = runner.invoke(app, ["config", "sequence", "derivation", "--order", "Step1,Step2"])
 
         assert result.exit_code == 1
         assert "Partially updated 1 steps" in result.stdout
@@ -2609,9 +2587,7 @@ class TestConfigQueryCommand:
         mock_cfg.llm = True
         mock_config.get_derivation_config.return_value = mock_cfg
 
-        result = runner.invoke(
-            app, ["config", "query", "derivation", "ApplicationComponent"]
-        )
+        result = runner.invoke(app, ["config", "query", "derivation", "ApplicationComponent"])
 
         assert result.exit_code == 0
         assert "DERIVATION: ApplicationComponent" in result.stdout
@@ -2653,9 +2629,7 @@ class TestConfigSnapshotCommand:
             "extraction": {"BusinessConcept": 2, "TypeDefinition": 1},
             "derivation": {"ApplicationComponent": 3},
         }
-        mock_engine.execute.return_value.fetchone.return_value = (
-            json.dumps(snapshot_data),
-        )
+        mock_engine.execute.return_value.fetchone.return_value = (json.dumps(snapshot_data),)
         mock_get_conn.return_value = mock_engine
 
         result = runner.invoke(app, ["config", "snapshot", "session_123"])
@@ -2674,9 +2648,7 @@ class TestConfigUpdateFileOptions:
 
     @patch("deriva.cli.commands.config.config")
     @patch("deriva.cli.commands.config.PipelineSession")
-    def test_update_with_instruction_file(
-        self, mock_session_class, mock_config, tmp_path
-    ):
+    def test_update_with_instruction_file(self, mock_session_class, mock_config, tmp_path):
         """Should read instruction from file."""
         mock_session = MagicMock()
         mock_session_class.return_value.__enter__.return_value = mock_session
@@ -3086,9 +3058,7 @@ class TestRepoDeleteOptions:
     def test_delete_uncommitted_changes_exception(self, mock_session_class):
         """Should show force hint for uncommitted changes."""
         mock_session = MagicMock()
-        mock_session.delete_repository.side_effect = Exception(
-            "Repository has uncommitted changes"
-        )
+        mock_session.delete_repository.side_effect = Exception("Repository has uncommitted changes")
         mock_session_class.return_value.__enter__.return_value = mock_session
 
         result = runner.invoke(app, ["repo", "delete", "my_repo"])
@@ -3187,9 +3157,7 @@ class TestPrintDerivationResultExtended:
         result = {
             "success": True,
             "stats": {"elements_created": 5},
-            "issues": [
-                {"severity": "warning", "message": f"Issue {i}"} for i in range(15)
-            ],
+            "issues": [{"severity": "warning", "message": f"Issue {i}"} for i in range(15)],
         }
 
         _print_derivation_result(result)
@@ -3223,11 +3191,7 @@ class TestPrintPipelineResultExtended:
         """Should print classification results."""
         result = {
             "success": True,
-            "results": {
-                "classification": {
-                    "stats": {"files_classified": 100, "files_undefined": 5}
-                }
-            },
+            "results": {"classification": {"stats": {"files_classified": 100, "files_undefined": 5}}},
         }
 
         _print_pipeline_result(result)
@@ -3254,9 +3218,7 @@ class TestPrintPipelineResultExtended:
         """Should print derivation results."""
         result = {
             "success": True,
-            "results": {
-                "derivation": {"stats": {"elements_created": 50, "issues_found": 3}}
-            },
+            "results": {"derivation": {"stats": {"elements_created": 50, "issues_found": 3}}},
         }
 
         _print_pipeline_result(result)
@@ -3284,9 +3246,7 @@ class TestPrintPipelineResultExtended:
         result = {
             "success": True,
             "results": {
-                "classification": {
-                    "stats": {"files_classified": 100, "files_undefined": 5}
-                },
+                "classification": {"stats": {"files_classified": 100, "files_undefined": 5}},
                 "extraction": {"stats": {"nodes_created": 250}},
                 "derivation": {"stats": {"elements_created": 50, "issues_found": 3}},
             },

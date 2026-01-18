@@ -657,9 +657,17 @@ def _extract_directory_classification(
     edge_ids: list[str] = []
 
     # Query Directory nodes from the graph for this repository
+    # Exclude node_modules, vendor, and other dependency directories
     query = """
     MATCH (d:Directory)
     WHERE d.repository_name = $repo_name
+      AND NOT d.path CONTAINS 'node_modules'
+      AND NOT d.path CONTAINS 'vendor/'
+      AND NOT d.path CONTAINS '.git/'
+      AND NOT d.path CONTAINS '__pycache__'
+      AND NOT d.path CONTAINS '.venv'
+      AND NOT d.path CONTAINS 'venv/'
+      AND NOT d.path CONTAINS 'site-packages'
     RETURN d.name AS name, d.path AS path, d.id AS id
     """
     try:
