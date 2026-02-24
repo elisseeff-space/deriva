@@ -289,14 +289,15 @@ class DirectoryClassificationResponse(BaseModel):
 class DerivedElementItem(BaseModel):
     """A single ArchiMate element derived from extraction data."""
 
+    identifier: str = Field(description="Unique identifier for the element")
     name: str = Field(description="Name of the element")
     description: str = Field(description="Description of the element")
     documentation: str | None = Field(
         default=None, description="Additional documentation"
     )
-    sourceNodes: list[str] = Field(
-        default_factory=list,
-        description="IDs of source nodes this element was derived from",
+    source: str = Field(
+        default="",
+        description="ID of source node this element was derived from",
     )
     confidence: float = Field(
         ge=0.0, le=1.0, default=0.8, description="Confidence score"
@@ -314,20 +315,14 @@ class DerivedElementResponse(BaseModel):
 class DerivedRelationshipItem(BaseModel):
     """A single ArchiMate relationship derived from extraction data."""
 
-    sourceName: str = Field(description="Name of the source element")
-    targetName: str = Field(description="Name of the target element")
-    relationshipType: Literal[
-        "Composition",
-        "Aggregation",
-        "Assignment",
-        "Realization",
-        "Serving",
-        "Access",
-        "Flow",
-        "Triggering",
-    ] = Field(description="Type of ArchiMate relationship")
-    description: str | None = Field(
-        default=None, description="Description of the relationship"
+    source: str = Field(description="Identifier of the source element")
+    target: str = Field(description="Identifier of the target element")
+    relationship_type: str = Field(description="Type of ArchiMate relationship")
+    name: str | None = Field(
+        default=None, description="Name of the relationship"
+    )
+    confidence: float = Field(
+        ge=0.0, le=1.0, default=0.8, description="Confidence score"
     )
 
 
@@ -352,6 +347,9 @@ EXTRACTION_SCHEMAS: dict[str, type[BaseModel]] = {
     "Test": TestResponse,
     "Method": MethodResponse,
     "DirectoryClassification": DirectoryClassificationResponse,
+    # Derivation schemas
+    "DerivedElementResponse": DerivedElementResponse,
+    "DerivedRelationshipResponse": DerivedRelationshipResponse,
 }
 
 DERIVATION_SCHEMAS: dict[str, type[BaseModel]] = {

@@ -143,15 +143,17 @@ If using LLM-assisted extraction, configure your provider in `.env`:
 
 ```bash
 # Set default model to use
-LLM_DEFAULT_MODEL=mistral-devstral
+LLM_DEFAULT_MODEL=openrouter-llama3
 
-# Configure the model (naming: LLM_{NAME}_*)
-LLM_MISTRAL_DEVSTRAL_PROVIDER=mistral
-LLM_MISTRAL_DEVSTRAL_MODEL=devstral-2512
-LLM_MISTRAL_DEVSTRAL_URL=https://api.mistral.ai/v1/chat/completions
-LLM_MISTRAL_DEVSTRAL_KEY=your-key-here
-LLM_MISTRAL_DEVSTRAL_STRUCTURED_OUTPUT=true
+# Configure OpenRouter model
+LLM_OPENROUTER_LLAMA3_PROVIDER=openrouter
+LLM_OPENROUTER_LLAMA3_MODEL=meta-llama/llama-3-8b-instruct
+LLM_OPENROUTER_LLAMA3_URL=https://openrouter.ai/api/v1/chat/completions
+LLM_OPENROUTER_LLAMA3_KEY=your-openrouter-api-key
+LLM_OPENROUTER_LLAMA3_STRUCTURED_OUTPUT=true
 ```
+
+Supported providers: `azure`, `openai`, `anthropic`, `mistral`, `ollama`, `lmstudio`, `openrouter`
 
 ---
 

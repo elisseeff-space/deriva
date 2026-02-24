@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 # Valid provider names
 VALID_PROVIDERS = frozenset(
-    {"azure", "openai", "anthropic", "ollama", "mistral", "lmstudio"}
+    {"azure", "openai", "anthropic", "ollama", "mistral", "lmstudio", "openrouter"}
 )
 
 
@@ -69,6 +69,19 @@ def get_pydantic_ai_model(config: dict[str, Any]) -> "Model | str":
             _normalize_openai_url(api_url) if api_url else "http://localhost:1234/v1"
         )
         openai_provider = OpenAIProvider(base_url=base_url)
+        return OpenAIChatModel(model, provider=openai_provider)
+
+    elif provider == "openrouter":
+        # OpenRouter uses OpenAI-compatible API via OpenAIProvider with custom base_url
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.openai import OpenAIProvider
+
+        base_url = (
+            _normalize_openai_url(api_url)
+            if api_url
+            else "https://openrouter.ai/api/v1"
+        )
+        openai_provider = OpenAIProvider(base_url=base_url, api_key=api_key)
         return OpenAIChatModel(model, provider=openai_provider)
 
     else:

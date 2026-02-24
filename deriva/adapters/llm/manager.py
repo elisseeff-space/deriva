@@ -71,6 +71,9 @@ _SCHEMA_NAME_TO_MODEL: dict[str, type[BaseModel]] = {
     "test_extraction": EXTRACTION_SCHEMAS["Test"],
     "methods_extraction": EXTRACTION_SCHEMAS["Method"],
     "directory_classification": EXTRACTION_SCHEMAS["DirectoryClassification"],
+    # Derivation schemas - import from schemas module
+    "derivation_output": EXTRACTION_SCHEMAS.get("DerivedElementResponse"),
+    "relationship_output": EXTRACTION_SCHEMAS.get("DerivedRelationshipResponse"),
 }
 
 
@@ -144,6 +147,8 @@ def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
         LLM_{NAME}_URL (optional)
         LLM_{NAME}_KEY (optional, direct key)
         LLM_{NAME}_KEY_ENV (optional, env var name for key)
+        LLM_{NAME}_HTTP_REFERER (optional, for OpenRouter)
+        LLM_{NAME}_X_TITLE (optional, for OpenRouter)
 
     Returns:
         Dict mapping config name to BenchmarkModelConfig
@@ -170,6 +175,18 @@ def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
 
             friendly_name = name.lower().replace("_", "-")
 
+            # Build extra_headers for OpenRouter
+            extra_headers: dict[str, str] | None = None
+            if provider.lower() == "openrouter":
+                http_referer = os.getenv(f"{prefix}{name}_HTTP_REFERER")
+                x_title = os.getenv(f"{prefix}{name}_X_TITLE")
+                if http_referer or x_title:
+                    extra_headers = {}
+                    if http_referer:
+                        extra_headers["HTTP-Referer"] = http_referer
+                    if x_title:
+                        extra_headers["X-Title"] = x_title
+
             try:
                 configs[friendly_name] = BenchmarkModelConfig(
                     name=friendly_name,
@@ -178,6 +195,7 @@ def load_benchmark_models() -> dict[str, BenchmarkModelConfig]:
                     api_url=api_url,
                     api_key=api_key,
                     api_key_env=api_key_env,
+                    extra_headers=extra_headers,
                 )
             except ValueError:
                 continue
@@ -298,6 +316,22 @@ class LLMManager:
 
         instance = object.__new__(cls)
 
+        # Build extra_headers for OpenRouter
+        extra_headers: dict[str, str] | None = None
+        if config.provider == "openrouter":
+            # First check config.extra_headers, then env vars
+            if config.extra_headers:
+                extra_headers = config.extra_headers.copy()
+            else:
+                http_referer = os.getenv("LLM_OPENROUTER_HTTP_REFERER")
+                x_title = os.getenv("LLM_OPENROUTER_X_TITLE")
+                if http_referer:
+                    extra_headers = extra_headers or {}
+                    extra_headers["HTTP-Referer"] = http_referer
+                if x_title:
+                    extra_headers = extra_headers or {}
+                    extra_headers["X-Title"] = x_title
+
         instance.config = {
             "provider": config.provider,
             "api_url": config.get_api_url(),
@@ -308,6 +342,7 @@ class LLMManager:
             "timeout": timeout,
             "temperature": effective_temperature,
             "nocache": nocache,
+            "extra_headers": extra_headers,
         }
 
         instance._validate_config()
@@ -408,11 +443,30 @@ class LLMManager:
                 )
                 api_key = None
                 model = os.getenv("LLM_LMSTUDIO_MODEL", "local-model")
+            elif provider == "openrouter":
+                api_url = "https://openrouter.ai/api/v1/chat/completions"
+                api_key = os.getenv("LLM_OPENROUTER_API_KEY")
+                model = os.getenv("LLM_OPENROUTER_MODEL", "meta-llama/llama-3-8b-instruct")
+                # OpenRouter optional headers
+                http_referer = os.getenv("LLM_OPENROUTER_HTTP_REFERER")
+                x_title = os.getenv("LLM_OPENROUTER_X_TITLE")
             else:
                 raise ConfigurationError(f"Unknown LLM provider: {provider}")
 
         max_tokens_str = os.getenv("LLM_MAX_TOKENS", "")
         max_tokens = int(max_tokens_str) if max_tokens_str else None
+
+        # Build extra_headers for OpenRouter
+        extra_headers: dict[str, str] | None = None
+        if provider == "openrouter":
+            http_referer = os.getenv("LLM_OPENROUTER_HTTP_REFERER")
+            x_title = os.getenv("LLM_OPENROUTER_X_TITLE")
+            if http_referer:
+                extra_headers = extra_headers or {}
+                extra_headers["HTTP-Referer"] = http_referer
+            if x_title:
+                extra_headers = extra_headers or {}
+                extra_headers["X-Title"] = x_title
 
         return {
             "provider": provider,
@@ -449,6 +503,8 @@ class LLMManager:
             "circuit_recovery_time": float(
                 os.getenv("LLM_CIRCUIT_RECOVERY_TIME", "30.0")
             ),
+            # OpenRouter extra headers
+            "extra_headers": extra_headers,
         }
 
     def _validate_config(self) -> None:
@@ -594,6 +650,10 @@ class LLMManager:
             settings: ModelSettings = {"temperature": effective_temperature}
             if effective_max_tokens is not None:
                 settings["max_tokens"] = effective_max_tokens
+            # Add extra_headers for OpenRouter
+            extra_headers = self.config.get("extra_headers")
+            if extra_headers:
+                settings["extra_headers"] = extra_headers
             result = agent.run_sync(
                 prompt,
                 model_settings=settings,

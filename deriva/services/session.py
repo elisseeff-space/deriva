@@ -839,7 +839,9 @@ class PipelineSession:
         configs = config.get_derivation_configs(self._engine, enabled_only=enabled_only)
         return [
             {
+                "step_name": c.step_name,
                 "element_type": c.element_type,
+                "phase": c.phase,
                 "sequence": c.sequence,
                 "enabled": c.enabled,
                 "input_graph_query": c.input_graph_query,

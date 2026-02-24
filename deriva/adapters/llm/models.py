@@ -61,6 +61,7 @@ class BenchmarkModelConfig:
         api_url: API endpoint URL (optional, uses provider default if not set)
         api_key: API key (optional, reads from api_key_env if not set)
         api_key_env: Environment variable name for API key
+        extra_headers: Optional extra headers for OpenRouter (HTTP-Referer, X-Title)
     """
 
     name: str
@@ -69,6 +70,7 @@ class BenchmarkModelConfig:
     api_url: str | None = None
     api_key: str | None = None
     api_key_env: str | None = None
+    extra_headers: dict[str, str] | None = None
 
     def __post_init__(self):
         """Validate provider."""

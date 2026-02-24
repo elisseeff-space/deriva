@@ -41,6 +41,7 @@ DEFAULT_RATE_LIMITS: dict[str, int] = {
     "mistral": 24,  # Mistral: varies by tier
     "ollama": 0,  # Local - no limit
     "lmstudio": 0,  # Local - no limit
+    "openrouter": 60,  # OpenRouter: varies by model/provider
 }
 
 
